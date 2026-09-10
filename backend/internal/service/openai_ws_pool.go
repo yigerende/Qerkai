@@ -661,7 +661,10 @@ type openAIWSConnPool struct {
 	clientDialer openAIWSClientDialer
 
 	accounts sync.Map // key: int64(accountID), value: *openAIWSAccountPool
-	seq      atomic.Uint64
+	// removedAccounts prevents requests already holding a deleted account
+	// snapshot from recreating its pool while an upstream dial is in flight.
+	removedAccounts sync.Map // key: int64(accountID), value: struct{}
+	seq             atomic.Uint64
 
 	metrics openAIWSPoolMetrics
 
@@ -904,6 +907,9 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 
 retryAcquire:
 	accountID := req.Account.ID
+	if p.isAccountRemoved(accountID) {
+		return nil, errOpenAIWSConnClosed
+	}
 	compatibility := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers)
 	if req.PoolOptimized {
 		compatibility = normalizeOpenAIWSOptimizedHandshakeCompatibility(req.Account, req.Headers)
@@ -921,6 +927,11 @@ retryAcquire:
 	var evicted []*openAIWSConn
 	ap := p.getOrCreateAccountPool(accountID)
 	ap.mu.Lock()
+	if p.isAccountRemoved(accountID) {
+		ap.mu.Unlock()
+		p.accounts.Delete(accountID)
+		return nil, errOpenAIWSConnClosed
+	}
 	if req.Account != nil {
 		ap.accountName = req.Account.Name
 	}
@@ -1209,8 +1220,22 @@ retryAcquire:
 			return p.dialConn(dialCtx, req)
 		})
 
+		if p.isAccountRemoved(accountID) {
+			if conn != nil {
+				conn.close()
+			}
+			return nil, errOpenAIWSConnClosed
+		}
 		ap = p.getOrCreateAccountPool(accountID)
 		ap.mu.Lock()
+		if p.isAccountRemoved(accountID) {
+			ap.mu.Unlock()
+			p.accounts.Delete(accountID)
+			if conn != nil {
+				conn.close()
+			}
+			return nil, errOpenAIWSConnClosed
+		}
 		ap.creating--
 		if ap.generation != acquireGeneration {
 			ap.signalChangedLocked()
@@ -1930,6 +1955,14 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 		if ap.creating > 0 {
 			ap.creating--
 		}
+		if p.isAccountRemoved(accountID) {
+			ap.signalChangedLocked()
+			ap.mu.Unlock()
+			if conn != nil {
+				conn.close()
+			}
+			return
+		}
 		if err != nil {
 			ap.prewarmFails++
 			ap.prewarmFailAt = time.Now()
@@ -2017,6 +2050,26 @@ func (p *openAIWSConnPool) ClearAccount(accountID int64) {
 	ap.signalChangedLocked()
 	ap.mu.Unlock()
 	closeOpenAIWSConns(conns)
+}
+
+// RemoveAccount permanently retires one account from this pool instance.
+// Unlike ClearAccount, it also removes the account row from operational
+// snapshots and rejects stale requests that still hold the deleted account.
+func (p *openAIWSConnPool) RemoveAccount(accountID int64) {
+	if p == nil || accountID <= 0 {
+		return
+	}
+	p.removedAccounts.Store(accountID, struct{}{})
+	p.ClearAccount(accountID)
+	p.accounts.Delete(accountID)
+}
+
+func (p *openAIWSConnPool) isAccountRemoved(accountID int64) bool {
+	if p == nil || accountID <= 0 {
+		return false
+	}
+	_, removed := p.removedAccounts.Load(accountID)
+	return removed
 }
 
 func (p *openAIWSConnPool) evictConn(accountID int64, connID string) {

@@ -1234,10 +1234,12 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 		if err := s.accountRepo.Delete(ctx, shadow.ID); err != nil {
 			return fmt.Errorf("cascade delete spark shadow %d: %w", shadow.ID, err)
 		}
+		RemoveOpenAIWSAccountPool(shadow.ID)
 	}
 	if err := s.accountRepo.Delete(ctx, id); err != nil {
 		return err
 	}
+	RemoveOpenAIWSAccountPool(id)
 	return nil
 }
 

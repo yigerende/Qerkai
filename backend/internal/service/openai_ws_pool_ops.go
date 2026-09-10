@@ -61,6 +61,14 @@ func registerActiveOpenAIWSPool(pool *openAIWSConnPool) {
 	}
 }
 
+// RemoveOpenAIWSAccountPool removes a deleted account from the process-local
+// pool and the read-only operations snapshot.
+func RemoveOpenAIWSAccountPool(accountID int64) {
+	if pool := activeOpenAIWSPool.Load(); pool != nil {
+		pool.RemoveAccount(accountID)
+	}
+}
+
 func GetOpenAIWSPoolOpsSnapshot() OpenAIWSPoolOpsSnapshot {
 	settings := currentOpenAIWSPoolOptimizationSettings()
 	out := OpenAIWSPoolOpsSnapshot{GeneratedAt: time.Now().Unix(), ForceWSEnabled: ForceUpstreamWSEnabled(), OptimizationEnabled: ForceUpstreamWSEnabled() && settings.Enabled, Settings: settings, Accounts: []OpenAIWSAccountPoolOpsSnapshot{}}
@@ -72,6 +80,10 @@ func GetOpenAIWSPoolOpsSnapshot() OpenAIWSPoolOpsSnapshot {
 	now := time.Now()
 	pool.accounts.Range(func(key, value any) bool {
 		accountID, _ := key.(int64)
+		if pool.isAccountRemoved(accountID) {
+			pool.accounts.Delete(accountID)
+			return true
+		}
 		ap, _ := value.(*openAIWSAccountPool)
 		if ap == nil {
 			return true

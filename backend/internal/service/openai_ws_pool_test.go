@@ -535,6 +535,43 @@ func TestOpenAIWSConnPool_ClearAccountDoesNotReviveInFlightDialGeneration(t *tes
 	got.lease.Release()
 }
 
+func TestOpenAIWSConnPool_RemoveAccountDoesNotReviveInFlightDial(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+	cfg.Gateway.OpenAIWS.MinIdlePerAccount = 0
+	cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 1
+
+	pool := newOpenAIWSConnPool(cfg)
+	defer pool.Close()
+	dialer := newOpenAIWSFirstDialBlockingCaptureDialer()
+	pool.setClientDialerForTest(dialer)
+	account := &Account{ID: 995, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	req := openAIWSAcquireRequest{Account: account, WSURL: "wss://example.com/v1/responses"}
+
+	type result struct {
+		lease *openAIWSConnLease
+		err   error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		lease, err := pool.Acquire(context.Background(), req)
+		resultCh <- result{lease: lease, err: err}
+	}()
+	<-dialer.firstStarted
+
+	pool.RemoveAccount(account.ID)
+	close(dialer.releaseFirst)
+	got := <-resultCh
+	require.ErrorIs(t, got.err, errOpenAIWSConnClosed)
+	require.Nil(t, got.lease)
+	_, exists := pool.getAccountPool(account.ID)
+	require.False(t, exists, "a deleted account must not be recreated by an in-flight dial")
+
+	lease, err := pool.Acquire(context.Background(), req)
+	require.ErrorIs(t, err, errOpenAIWSConnClosed)
+	require.Nil(t, lease)
+}
+
 func TestOpenAIWSConnPool_ForceNewConnSkipsReuse(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 2
