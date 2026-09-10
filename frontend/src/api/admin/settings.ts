@@ -624,6 +624,18 @@ export interface SystemSettings {
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   force_openai_upstream_ws: boolean;
+  openai_ws_pool_optimization_enabled: boolean;
+  openai_ws_prewarm_idle_per_account: number;
+  openai_ws_standby_idle_per_account: number;
+  openai_ws_standby_max_per_account: number;
+  openai_ws_optimized_max_conns_per_account: number;
+  openai_ws_optimized_queue_per_conn: number;
+  openai_ws_optimized_target_utilization: number;
+  openai_ws_optimized_idle_recycle_seconds: number;
+  openai_ws_optimized_max_age_seconds: number;
+  openai_ws_optimized_health_interval_seconds: number;
+  openai_ws_optimized_session_ttl_seconds: number;
+  openai_ws_optimized_dial_interval_ms: number;
   enable_cch_signing: boolean;
   enable_claude_oauth_system_prompt_injection: boolean;
   claude_oauth_system_prompt: string;
@@ -941,6 +953,18 @@ export interface UpdateSettingsRequest {
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   force_openai_upstream_ws?: boolean;
+  openai_ws_pool_optimization_enabled?: boolean;
+  openai_ws_prewarm_idle_per_account?: number;
+  openai_ws_standby_idle_per_account?: number;
+  openai_ws_standby_max_per_account?: number;
+  openai_ws_optimized_max_conns_per_account?: number;
+  openai_ws_optimized_queue_per_conn?: number;
+  openai_ws_optimized_target_utilization?: number;
+  openai_ws_optimized_idle_recycle_seconds?: number;
+  openai_ws_optimized_max_age_seconds?: number;
+  openai_ws_optimized_health_interval_seconds?: number;
+  openai_ws_optimized_session_ttl_seconds?: number;
+  openai_ws_optimized_dial_interval_ms?: number;
   enable_cch_signing?: boolean;
   enable_claude_oauth_system_prompt_injection?: boolean;
   claude_oauth_system_prompt?: string;
@@ -1556,6 +1580,28 @@ export async function resetWebSearchUsage(payload: {
   );
 }
 
+export interface OpenAIWSConnectionOps {
+  id: string; role: string; session: string; state: string; created_at: number;
+  last_used_at: number; age_seconds: number; idle_seconds: number; waiters: number; prewarmed: boolean;
+}
+export interface OpenAIWSAccountPoolOps {
+  account_id: number; account_name: string; total: number; in_use: number; waiters: number; creating: number;
+  session_primary: number; session_standby: number; prewarm: number; standby: number; legacy: number;
+  status: string; connections: OpenAIWSConnectionOps[];
+}
+export interface OpenAIWSPoolOps {
+  generated_at: number; force_ws_enabled: boolean; optimization_enabled: boolean;
+  total_connections: number; total_in_use: number; total_waiters: number; total_creating: number;
+  total_prewarm: number; total_standby: number; total_session: number;
+  metrics: { AcquireTotal: number; AcquireReuseTotal: number; AcquireCreateTotal: number; AcquireQueueWaitTotal: number; AcquireQueueWaitMsTotal: number; ScaleUpTotal: number; ScaleDownTotal: number; DialTotal: number; DialSuccessTotal: number; DialFailureTotal: number; Dial403Total: number; Dial429Total: number; DialMsTotal: number };
+  accounts: OpenAIWSAccountPoolOps[];
+}
+
+export async function getOpenAIWSPoolOps(): Promise<OpenAIWSPoolOps> {
+  const { data } = await apiClient.get<OpenAIWSPoolOps>("/admin/settings/openai-ws-pool");
+  return data;
+}
+
 export const settingsAPI = {
   getSettings,
   updateSettings,
@@ -1585,6 +1631,7 @@ export const settingsAPI = {
   updateWebSearchEmulationConfig,
   testWebSearchEmulation,
   resetWebSearchUsage,
+  getOpenAIWSPoolOps,
 };
 
 export default settingsAPI;

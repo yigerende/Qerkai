@@ -5364,6 +5364,23 @@
                 <Toggle v-model="form.force_openai_upstream_ws" />
               </div>
 
+              <div v-if="form.force_openai_upstream_ws" class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800">
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.gatewayForwarding.wsPoolOptimization') }}</label>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.gatewayForwarding.wsPoolOptimizationHint') }}</p>
+                  </div>
+                  <Toggle v-model="form.openai_ws_pool_optimization_enabled" />
+                </div>
+                <div v-if="form.openai_ws_pool_optimization_enabled" class="grid grid-cols-1 gap-4 rounded-lg bg-gray-50 p-4 dark:bg-dark-700/50 sm:grid-cols-2 lg:grid-cols-3">
+                  <label v-for="field in wsPoolNumberFields" :key="field.key" class="block">
+                    <span class="mb-1.5 block text-xs font-medium text-gray-600 dark:text-gray-300">{{ field.label }}</span>
+                    <input v-model.number="form[field.key]" type="number" :min="field.min" :max="field.max" :step="field.step || 1" class="input" />
+                    <span class="mt-1 block text-[11px] text-gray-400">{{ field.hint }}</span>
+                  </label>
+                </div>
+              </div>
+
               <!-- CCH Signing -->
               <div class="flex items-center justify-between">
                 <div>
@@ -9791,6 +9808,18 @@ const form = reactive<SettingsForm>({
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   force_openai_upstream_ws: false,
+  openai_ws_pool_optimization_enabled: false,
+  openai_ws_prewarm_idle_per_account: 3,
+  openai_ws_standby_idle_per_account: 3,
+  openai_ws_standby_max_per_account: 8,
+  openai_ws_optimized_max_conns_per_account: 24,
+  openai_ws_optimized_queue_per_conn: 1,
+  openai_ws_optimized_target_utilization: 0.8,
+  openai_ws_optimized_idle_recycle_seconds: 300,
+  openai_ws_optimized_max_age_seconds: 3600,
+  openai_ws_optimized_health_interval_seconds: 30,
+  openai_ws_optimized_session_ttl_seconds: 3600,
+  openai_ws_optimized_dial_interval_ms: 400,
   enable_cch_signing: false,
   enable_claude_oauth_system_prompt_injection: true,
   claude_oauth_system_prompt: "",
@@ -9837,6 +9866,33 @@ const form = reactive<SettingsForm>({
   // Allow user view error requests
   allow_user_view_error_requests: false,
 });
+
+type WSPoolNumberKey =
+  | "openai_ws_prewarm_idle_per_account"
+  | "openai_ws_standby_idle_per_account"
+  | "openai_ws_standby_max_per_account"
+  | "openai_ws_optimized_max_conns_per_account"
+  | "openai_ws_optimized_queue_per_conn"
+  | "openai_ws_optimized_target_utilization"
+  | "openai_ws_optimized_idle_recycle_seconds"
+  | "openai_ws_optimized_max_age_seconds"
+  | "openai_ws_optimized_health_interval_seconds"
+  | "openai_ws_optimized_session_ttl_seconds"
+  | "openai_ws_optimized_dial_interval_ms";
+
+const wsPoolNumberFields = computed<Array<{ key: WSPoolNumberKey; label: string; hint: string; min: number; max: number; step?: number }>>(() => [
+  { key: "openai_ws_prewarm_idle_per_account", label: t("admin.settings.gatewayForwarding.wsPoolFields.prewarm.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.prewarm.hint"), min: 0, max: 64 },
+  { key: "openai_ws_standby_idle_per_account", label: t("admin.settings.gatewayForwarding.wsPoolFields.standby.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.standby.hint"), min: 0, max: 64 },
+  { key: "openai_ws_standby_max_per_account", label: t("admin.settings.gatewayForwarding.wsPoolFields.standbyMax.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.standbyMax.hint"), min: 0, max: 128 },
+  { key: "openai_ws_optimized_max_conns_per_account", label: t("admin.settings.gatewayForwarding.wsPoolFields.maxConnections.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.maxConnections.hint"), min: 1, max: 256 },
+  { key: "openai_ws_optimized_queue_per_conn", label: t("admin.settings.gatewayForwarding.wsPoolFields.queue.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.queue.hint"), min: 1, max: 64 },
+  { key: "openai_ws_optimized_target_utilization", label: t("admin.settings.gatewayForwarding.wsPoolFields.utilization.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.utilization.hint"), min: 0.1, max: 1, step: 0.05 },
+  { key: "openai_ws_optimized_idle_recycle_seconds", label: t("admin.settings.gatewayForwarding.wsPoolFields.idleRecycle.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.idleRecycle.hint"), min: 30, max: 86400 },
+  { key: "openai_ws_optimized_max_age_seconds", label: t("admin.settings.gatewayForwarding.wsPoolFields.maxAge.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.maxAge.hint"), min: 60, max: 86400 },
+  { key: "openai_ws_optimized_health_interval_seconds", label: t("admin.settings.gatewayForwarding.wsPoolFields.health.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.health.hint"), min: 5, max: 3600 },
+  { key: "openai_ws_optimized_session_ttl_seconds", label: t("admin.settings.gatewayForwarding.wsPoolFields.sessionTTL.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.sessionTTL.hint"), min: 60, max: 86400 },
+  { key: "openai_ws_optimized_dial_interval_ms", label: t("admin.settings.gatewayForwarding.wsPoolFields.dialInterval.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.dialInterval.hint"), min: 400, max: 10000 },
+]);
 
 // 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
 // enabled 键（与上游一致），由下面的映射保证同一时间至多一家启用。
@@ -11369,6 +11425,18 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       force_openai_upstream_ws: form.force_openai_upstream_ws,
+      openai_ws_pool_optimization_enabled: form.openai_ws_pool_optimization_enabled,
+      openai_ws_prewarm_idle_per_account: form.openai_ws_prewarm_idle_per_account,
+      openai_ws_standby_idle_per_account: form.openai_ws_standby_idle_per_account,
+      openai_ws_standby_max_per_account: form.openai_ws_standby_max_per_account,
+      openai_ws_optimized_max_conns_per_account: form.openai_ws_optimized_max_conns_per_account,
+      openai_ws_optimized_queue_per_conn: form.openai_ws_optimized_queue_per_conn,
+      openai_ws_optimized_target_utilization: form.openai_ws_optimized_target_utilization,
+      openai_ws_optimized_idle_recycle_seconds: form.openai_ws_optimized_idle_recycle_seconds,
+      openai_ws_optimized_max_age_seconds: form.openai_ws_optimized_max_age_seconds,
+      openai_ws_optimized_health_interval_seconds: form.openai_ws_optimized_health_interval_seconds,
+      openai_ws_optimized_session_ttl_seconds: form.openai_ws_optimized_session_ttl_seconds,
+      openai_ws_optimized_dial_interval_ms: Math.max(400, form.openai_ws_optimized_dial_interval_ms),
       enable_cch_signing: form.enable_cch_signing,
       enable_claude_oauth_system_prompt_injection:
         form.enable_claude_oauth_system_prompt_injection,

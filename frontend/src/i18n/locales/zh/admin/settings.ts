@@ -478,6 +478,21 @@ export default {
         forceOpenAIUpstreamWS: '强制 OpenAI 上游 WebSocket',
         forceOpenAIUpstreamWSHint:
           '开启后，无论客户端使用 HTTP 还是 WebSocket，与 OpenAI 上游之间一律使用 WebSocket。仅覆盖「账号未显式启用 WS」这一种降级原因；全局强制 HTTP、账号级强制 HTTP 等开关仍然生效。默认关闭。',
+        wsPoolOptimization: 'WS 连接池优化调度',
+        wsPoolOptimizationHint: '启用会话专属连接、公共预热池和公共备用池；关闭后仍按当前强制 WS 原逻辑执行。',
+        wsPoolFields: {
+          prewarm: { label: '预热连接/账号', hint: '新会话第一优先库存，默认 3' },
+          standby: { label: '备用连接/账号', hint: '突发流量第二库存，默认 3' },
+          standbyMax: { label: '最大备用连接/账号', hint: '默认 8' },
+          maxConnections: { label: '最大连接/账号', hint: '包括会话、预热和备用，默认 24' },
+          queue: { label: '单连接排队', hint: '默认 1' },
+          utilization: { label: '目标利用率', hint: '0–1，默认 0.8' },
+          idleRecycle: { label: '空闲回收（秒）', hint: '默认 300 秒' },
+          maxAge: { label: '最大寿命（秒）', hint: '默认 3600 秒' },
+          health: { label: '健康检查（秒）', hint: '默认 30 秒' },
+          sessionTTL: { label: '会话绑定（秒）', hint: '默认 3600 秒' },
+          dialInterval: { label: '建连间隔（毫秒）', hint: '最低 400ms，所有建连共用' }
+        },
         cchSigning: 'CCH 签名',
         cchSigningHint: '对转发请求的 billing header 进行 CCH 哈希签名。关闭时保留原始占位符。',
         claudeOAuthSystemPromptInjection: 'Claude OAuth System 注入',

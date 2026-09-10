@@ -597,6 +597,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/openai-ws-pool',
+    name: 'AdminOpenAIWSPool',
+    component: () => import('@/views/admin/OpenAIWSPoolView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'OpenAI WS Pool', titleKey: 'admin.openaiWSPool.title' }
+  },
+  {
     path: '/admin/risk-control',
     name: 'AdminRiskControl',
     component: () => import('@/views/admin/RiskControlView.vue'),

@@ -18,6 +18,20 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
+func parseIntSettingDefault(values map[string]string, key string, fallback int) int {
+	if value, err := strconv.Atoi(strings.TrimSpace(values[key])); err == nil {
+		return value
+	}
+	return fallback
+}
+
+func parseFloatSettingDefault(values map[string]string, key string, fallback float64) float64 {
+	if value, err := strconv.ParseFloat(strings.TrimSpace(values[key]), 64); err == nil {
+		return value
+	}
+	return fallback
+}
+
 // InitializeDefaultSettings 初始化默认设置
 func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	// 检查是否已有设置
@@ -854,6 +868,18 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
 	result.ForceOpenAIUpstreamWS = settings[SettingKeyForceOpenAIUpstreamWS] == "true"
+	result.OpenAIWSPoolOptimizationEnabled = settings[SettingKeyOpenAIWSPoolOptimizationEnabled] == "true"
+	result.OpenAIWSPrewarmIdlePerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSPrewarmIdlePerAccount, 3)
+	result.OpenAIWSStandbyIdlePerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSStandbyIdlePerAccount, 3)
+	result.OpenAIWSStandbyMaxPerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSStandbyMaxPerAccount, 8)
+	result.OpenAIWSOptimizedMaxConnsPerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedMaxConns, 24)
+	result.OpenAIWSOptimizedQueuePerConn = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedQueuePerConn, 1)
+	result.OpenAIWSOptimizedTargetUtilization = parseFloatSettingDefault(settings, SettingKeyOpenAIWSOptimizedTargetUtil, 0.8)
+	result.OpenAIWSOptimizedIdleRecycleSeconds = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedIdleRecycle, 300)
+	result.OpenAIWSOptimizedMaxAgeSeconds = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedMaxAge, 3600)
+	result.OpenAIWSOptimizedHealthIntervalSeconds = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedHealthInterval, 30)
+	result.OpenAIWSOptimizedSessionTTLSeconds = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedSessionTTL, 3600)
+	result.OpenAIWSOptimizedDialIntervalMS = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedDialIntervalMS, 400)
 	result.EnableCCHSigning = settings[SettingKeyEnableCCHSigning] == "true"
 	if v, ok := settings[SettingKeyEnableClaudeOAuthSystemPromptInjection]; ok && v != "" {
 		result.EnableClaudeOAuthSystemPromptInjection = v == "true"

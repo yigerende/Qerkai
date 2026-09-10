@@ -240,7 +240,19 @@ type SystemSettings struct {
 	RewriteMessageCacheControl             bool   // 是否改写 messages[*].content[*].cache_control（默认 false）
 	// ForceOpenAIUpstreamWS 无视客户端协议，强制与 OpenAI 上游使用 WebSocket（默认 false）。
 	// 二次开发功能，详见 service/openai_force_upstream_ws.go。
-	ForceOpenAIUpstreamWS bool
+	ForceOpenAIUpstreamWS                  bool
+	OpenAIWSPoolOptimizationEnabled        bool
+	OpenAIWSPrewarmIdlePerAccount          int
+	OpenAIWSStandbyIdlePerAccount          int
+	OpenAIWSStandbyMaxPerAccount           int
+	OpenAIWSOptimizedMaxConnsPerAccount    int
+	OpenAIWSOptimizedQueuePerConn          int
+	OpenAIWSOptimizedTargetUtilization     float64
+	OpenAIWSOptimizedIdleRecycleSeconds    int
+	OpenAIWSOptimizedMaxAgeSeconds         int
+	OpenAIWSOptimizedHealthIntervalSeconds int
+	OpenAIWSOptimizedSessionTTLSeconds     int
+	OpenAIWSOptimizedDialIntervalMS        int
 	AntigravityUserAgentVersion            string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
 	OpenAICodexUserAgent                   string // OpenAI Codex 上游完整 User-Agent；空值由 Codex 客户端版本号拼出标准 TUI UA
 	OpenAICodexClientVersion               string // 出站声明的 Codex 客户端版本号（管理员覆写）；空值跟随自动同步值

@@ -485,6 +485,21 @@ export default {
         forceOpenAIUpstreamWS: 'Force OpenAI Upstream WebSocket',
         forceOpenAIUpstreamWSHint:
           'When enabled, always use WebSocket to the OpenAI upstream regardless of whether the client uses HTTP or WebSocket. Only overrides the "account has not explicitly enabled WS" downgrade reason; global force-HTTP and per-account force-HTTP switches still apply. Disabled by default.',
+        wsPoolOptimization: 'WS Connection Pool Optimization',
+        wsPoolOptimizationHint: 'Use session-owned connections plus public prewarm and standby pools. When disabled, the current forced WS scheduler remains unchanged.',
+        wsPoolFields: {
+          prewarm: { label: 'Prewarm per account', hint: 'First inventory for new sessions; default 3' },
+          standby: { label: 'Standby per account', hint: 'Second inventory for bursts; default 3' },
+          standbyMax: { label: 'Maximum standby per account', hint: 'Default 8' },
+          maxConnections: { label: 'Maximum connections per account', hint: 'Includes session, prewarm, and standby connections; default 24' },
+          queue: { label: 'Queue per connection', hint: 'Default 1' },
+          utilization: { label: 'Target utilization', hint: '0–1; default 0.8' },
+          idleRecycle: { label: 'Idle recycle (seconds)', hint: 'Default 300 seconds' },
+          maxAge: { label: 'Maximum lifetime (seconds)', hint: 'Default 3600 seconds' },
+          health: { label: 'Health check (seconds)', hint: 'Default 30 seconds' },
+          sessionTTL: { label: 'Session binding (seconds)', hint: 'Default 3600 seconds' },
+          dialInterval: { label: 'Dial interval (milliseconds)', hint: 'Minimum 400ms; shared by every dial path' }
+        },
         cchSigning: 'CCH Signing',
         cchSigningHint: 'Sign the billing header in forwarded requests with CCH hash. When disabled, the placeholder is preserved.',
         claudeOAuthSystemPromptInjection: 'Claude OAuth System Blocks',

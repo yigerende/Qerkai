@@ -129,7 +129,11 @@ func (l *openAIWSAccountDialLimiter) reserveInterval() time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	earliest := l.lastDial.Add(openAIWSDialMinInterval)
+	interval := openAIWSDialMinInterval
+	if OpenAIWSPoolOptimizationActive() {
+		interval = openAIWSOptimizedDialInterval()
+	}
+	earliest := l.lastDial.Add(interval)
 	if l.lastDial.IsZero() || !earliest.After(now) {
 		l.lastDial = now
 		return 0

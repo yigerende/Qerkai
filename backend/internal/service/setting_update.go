@@ -24,6 +24,8 @@ import (
 // A nil or empty set keeps whole-document semantics: every key is written.
 type OmittedSettingKeys map[string]struct{}
 
+var ErrInvalidOpenAIWSPoolSettings = errors.New("invalid OpenAI WS pool settings")
+
 func (o OmittedSettingKeys) dropFrom(updates map[string]string) {
 	for key := range o {
 		delete(updates, key)
@@ -470,6 +472,33 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyForceOpenAIUpstreamWS] = strconv.FormatBool(settings.ForceOpenAIUpstreamWS)
+	if settings.OpenAIWSPrewarmIdlePerAccount < 0 || settings.OpenAIWSStandbyIdlePerAccount < 0 || settings.OpenAIWSStandbyMaxPerAccount < settings.OpenAIWSStandbyIdlePerAccount {
+		return nil, fmt.Errorf("%w: inventory values are invalid", ErrInvalidOpenAIWSPoolSettings)
+	}
+	if settings.OpenAIWSOptimizedMaxConnsPerAccount <= 0 || settings.OpenAIWSPrewarmIdlePerAccount+settings.OpenAIWSStandbyIdlePerAccount > settings.OpenAIWSOptimizedMaxConnsPerAccount {
+		return nil, fmt.Errorf("%w: inventory exceeds the per-account connection limit", ErrInvalidOpenAIWSPoolSettings)
+	}
+	if settings.OpenAIWSOptimizedQueuePerConn <= 0 || settings.OpenAIWSOptimizedTargetUtilization <= 0 || settings.OpenAIWSOptimizedTargetUtilization > 1 {
+		return nil, fmt.Errorf("%w: queue or utilization value is invalid", ErrInvalidOpenAIWSPoolSettings)
+	}
+	if settings.OpenAIWSOptimizedIdleRecycleSeconds <= 0 || settings.OpenAIWSOptimizedMaxAgeSeconds <= 0 || settings.OpenAIWSOptimizedHealthIntervalSeconds <= 0 || settings.OpenAIWSOptimizedSessionTTLSeconds <= 0 {
+		return nil, fmt.Errorf("%w: duration values must be positive", ErrInvalidOpenAIWSPoolSettings)
+	}
+	if settings.OpenAIWSOptimizedDialIntervalMS < 400 {
+		return nil, fmt.Errorf("%w: dial interval must be at least 400ms", ErrInvalidOpenAIWSPoolSettings)
+	}
+	updates[SettingKeyOpenAIWSPoolOptimizationEnabled] = strconv.FormatBool(settings.OpenAIWSPoolOptimizationEnabled)
+	updates[SettingKeyOpenAIWSPrewarmIdlePerAccount] = strconv.Itoa(settings.OpenAIWSPrewarmIdlePerAccount)
+	updates[SettingKeyOpenAIWSStandbyIdlePerAccount] = strconv.Itoa(settings.OpenAIWSStandbyIdlePerAccount)
+	updates[SettingKeyOpenAIWSStandbyMaxPerAccount] = strconv.Itoa(settings.OpenAIWSStandbyMaxPerAccount)
+	updates[SettingKeyOpenAIWSOptimizedMaxConns] = strconv.Itoa(settings.OpenAIWSOptimizedMaxConnsPerAccount)
+	updates[SettingKeyOpenAIWSOptimizedQueuePerConn] = strconv.Itoa(settings.OpenAIWSOptimizedQueuePerConn)
+	updates[SettingKeyOpenAIWSOptimizedTargetUtil] = strconv.FormatFloat(settings.OpenAIWSOptimizedTargetUtilization, 'f', -1, 64)
+	updates[SettingKeyOpenAIWSOptimizedIdleRecycle] = strconv.Itoa(settings.OpenAIWSOptimizedIdleRecycleSeconds)
+	updates[SettingKeyOpenAIWSOptimizedMaxAge] = strconv.Itoa(settings.OpenAIWSOptimizedMaxAgeSeconds)
+	updates[SettingKeyOpenAIWSOptimizedHealthInterval] = strconv.Itoa(settings.OpenAIWSOptimizedHealthIntervalSeconds)
+	updates[SettingKeyOpenAIWSOptimizedSessionTTL] = strconv.Itoa(settings.OpenAIWSOptimizedSessionTTLSeconds)
+	updates[SettingKeyOpenAIWSOptimizedDialIntervalMS] = strconv.Itoa(settings.OpenAIWSOptimizedDialIntervalMS)
 	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
 	updates[SettingKeyEnableClaudeOAuthSystemPromptInjection] = strconv.FormatBool(settings.EnableClaudeOAuthSystemPromptInjection)
 	updates[SettingKeyClaudeOAuthSystemPrompt] = settings.ClaudeOAuthSystemPrompt
@@ -704,6 +733,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
 	})
 	refreshForceUpstreamWSCache(settings.ForceOpenAIUpstreamWS)
+	refreshOpenAIWSPoolOptimizationSettings(settings)
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 		openAITTFTMode:                   normalizeOpenAITTFTMode(settings.OpenAITTFTMode),

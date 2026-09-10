@@ -634,6 +634,19 @@ const (
 	// SettingKeyForceOpenAIUpstreamWS 无视客户端协议，强制与 OpenAI 上游使用 WebSocket（默认 false）
 	// 二次开发功能，实现见 service/openai_force_upstream_ws.go
 	SettingKeyForceOpenAIUpstreamWS = "force_openai_upstream_ws"
+	// 强制 WS 下的会话隔离预热/备用池优化。关闭时严格保留原强制 WS 调度。
+	SettingKeyOpenAIWSPoolOptimizationEnabled = "openai_ws_pool_optimization_enabled"
+	SettingKeyOpenAIWSPrewarmIdlePerAccount   = "openai_ws_prewarm_idle_per_account"
+	SettingKeyOpenAIWSStandbyIdlePerAccount   = "openai_ws_standby_idle_per_account"
+	SettingKeyOpenAIWSStandbyMaxPerAccount    = "openai_ws_standby_max_per_account"
+	SettingKeyOpenAIWSOptimizedMaxConns       = "openai_ws_optimized_max_conns_per_account"
+	SettingKeyOpenAIWSOptimizedQueuePerConn   = "openai_ws_optimized_queue_per_conn"
+	SettingKeyOpenAIWSOptimizedTargetUtil     = "openai_ws_optimized_target_utilization"
+	SettingKeyOpenAIWSOptimizedIdleRecycle    = "openai_ws_optimized_idle_recycle_seconds"
+	SettingKeyOpenAIWSOptimizedMaxAge         = "openai_ws_optimized_max_age_seconds"
+	SettingKeyOpenAIWSOptimizedHealthInterval = "openai_ws_optimized_health_interval_seconds"
+	SettingKeyOpenAIWSOptimizedSessionTTL     = "openai_ws_optimized_session_ttl_seconds"
+	SettingKeyOpenAIWSOptimizedDialIntervalMS = "openai_ws_optimized_dial_interval_ms"
 	// SettingKeyEnableCCHSigning 已废弃（no-op）：新版 Claude Code CLI 已取消 cch 签名字段，
 	// 网关随之不再注入/签名 cch（见 buildBillingAttributionText）。保留该 key 仅为向后兼容，
 	// 开关不再产生任何效果。
