@@ -628,7 +628,6 @@ export interface SystemSettings {
   openai_ws_prewarm_idle_per_account: number;
   openai_ws_standby_idle_per_account: number;
   openai_ws_standby_max_per_account: number;
-  openai_ws_optimized_max_conns_per_account: number;
   openai_ws_optimized_queue_per_conn: number;
   openai_ws_optimized_target_utilization: number;
   openai_ws_optimized_idle_recycle_seconds: number;
@@ -958,7 +957,6 @@ export interface UpdateSettingsRequest {
   openai_ws_prewarm_idle_per_account?: number;
   openai_ws_standby_idle_per_account?: number;
   openai_ws_standby_max_per_account?: number;
-  openai_ws_optimized_max_conns_per_account?: number;
   openai_ws_optimized_queue_per_conn?: number;
   openai_ws_optimized_target_utilization?: number;
   openai_ws_optimized_idle_recycle_seconds?: number;

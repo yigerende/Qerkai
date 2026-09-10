@@ -639,7 +639,6 @@ const (
 	SettingKeyOpenAIWSPrewarmIdlePerAccount   = "openai_ws_prewarm_idle_per_account"
 	SettingKeyOpenAIWSStandbyIdlePerAccount   = "openai_ws_standby_idle_per_account"
 	SettingKeyOpenAIWSStandbyMaxPerAccount    = "openai_ws_standby_max_per_account"
-	SettingKeyOpenAIWSOptimizedMaxConns       = "openai_ws_optimized_max_conns_per_account"
 	SettingKeyOpenAIWSOptimizedQueuePerConn   = "openai_ws_optimized_queue_per_conn"
 	SettingKeyOpenAIWSOptimizedTargetUtil     = "openai_ws_optimized_target_utilization"
 	SettingKeyOpenAIWSOptimizedIdleRecycle    = "openai_ws_optimized_idle_recycle_seconds"

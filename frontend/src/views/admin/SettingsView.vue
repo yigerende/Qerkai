@@ -9812,7 +9812,6 @@ const form = reactive<SettingsForm>({
   openai_ws_prewarm_idle_per_account: 3,
   openai_ws_standby_idle_per_account: 3,
   openai_ws_standby_max_per_account: 8,
-  openai_ws_optimized_max_conns_per_account: 24,
   openai_ws_optimized_queue_per_conn: 1,
   openai_ws_optimized_target_utilization: 0.8,
   openai_ws_optimized_idle_recycle_seconds: 300,
@@ -9872,7 +9871,6 @@ type WSPoolNumberKey =
   | "openai_ws_prewarm_idle_per_account"
   | "openai_ws_standby_idle_per_account"
   | "openai_ws_standby_max_per_account"
-  | "openai_ws_optimized_max_conns_per_account"
   | "openai_ws_optimized_queue_per_conn"
   | "openai_ws_optimized_target_utilization"
   | "openai_ws_optimized_idle_recycle_seconds"
@@ -9886,7 +9884,6 @@ const wsPoolNumberFields = computed<Array<{ key: WSPoolNumberKey; label: string;
   { key: "openai_ws_prewarm_idle_per_account", label: t("admin.settings.gatewayForwarding.wsPoolFields.prewarm.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.prewarm.hint"), min: 0, max: 64 },
   { key: "openai_ws_standby_idle_per_account", label: t("admin.settings.gatewayForwarding.wsPoolFields.standby.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.standby.hint"), min: 0, max: 64 },
   { key: "openai_ws_standby_max_per_account", label: t("admin.settings.gatewayForwarding.wsPoolFields.standbyMax.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.standbyMax.hint"), min: 0, max: 128 },
-  { key: "openai_ws_optimized_max_conns_per_account", label: t("admin.settings.gatewayForwarding.wsPoolFields.maxConnections.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.maxConnections.hint"), min: 1, max: 256 },
   { key: "openai_ws_optimized_queue_per_conn", label: t("admin.settings.gatewayForwarding.wsPoolFields.queue.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.queue.hint"), min: 1, max: 64 },
   { key: "openai_ws_optimized_target_utilization", label: t("admin.settings.gatewayForwarding.wsPoolFields.utilization.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.utilization.hint"), min: 0.1, max: 1, step: 0.05 },
   { key: "openai_ws_optimized_idle_recycle_seconds", label: t("admin.settings.gatewayForwarding.wsPoolFields.idleRecycle.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.idleRecycle.hint"), min: 30, max: 86400 },
@@ -11432,7 +11429,6 @@ async function saveSettings() {
       openai_ws_prewarm_idle_per_account: form.openai_ws_prewarm_idle_per_account,
       openai_ws_standby_idle_per_account: form.openai_ws_standby_idle_per_account,
       openai_ws_standby_max_per_account: form.openai_ws_standby_max_per_account,
-      openai_ws_optimized_max_conns_per_account: form.openai_ws_optimized_max_conns_per_account,
       openai_ws_optimized_queue_per_conn: form.openai_ws_optimized_queue_per_conn,
       openai_ws_optimized_target_utilization: form.openai_ws_optimized_target_utilization,
       openai_ws_optimized_idle_recycle_seconds: form.openai_ws_optimized_idle_recycle_seconds,

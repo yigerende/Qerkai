@@ -251,7 +251,6 @@ type UpdateSettingsRequest struct {
 	OpenAIWSPrewarmIdlePerAccount          *int     `json:"openai_ws_prewarm_idle_per_account"`
 	OpenAIWSStandbyIdlePerAccount          *int     `json:"openai_ws_standby_idle_per_account"`
 	OpenAIWSStandbyMaxPerAccount           *int     `json:"openai_ws_standby_max_per_account"`
-	OpenAIWSOptimizedMaxConnsPerAccount    *int     `json:"openai_ws_optimized_max_conns_per_account"`
 	OpenAIWSOptimizedQueuePerConn          *int     `json:"openai_ws_optimized_queue_per_conn"`
 	OpenAIWSOptimizedTargetUtilization     *float64 `json:"openai_ws_optimized_target_utilization"`
 	OpenAIWSOptimizedIdleRecycleSeconds    *int     `json:"openai_ws_optimized_idle_recycle_seconds"`
@@ -1720,7 +1719,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIWSPrewarmIdlePerAccount:          intValueOrDefault(req.OpenAIWSPrewarmIdlePerAccount, previousSettings.OpenAIWSPrewarmIdlePerAccount),
 		OpenAIWSStandbyIdlePerAccount:          intValueOrDefault(req.OpenAIWSStandbyIdlePerAccount, previousSettings.OpenAIWSStandbyIdlePerAccount),
 		OpenAIWSStandbyMaxPerAccount:           intValueOrDefault(req.OpenAIWSStandbyMaxPerAccount, previousSettings.OpenAIWSStandbyMaxPerAccount),
-		OpenAIWSOptimizedMaxConnsPerAccount:    intValueOrDefault(req.OpenAIWSOptimizedMaxConnsPerAccount, previousSettings.OpenAIWSOptimizedMaxConnsPerAccount),
 		OpenAIWSOptimizedQueuePerConn:          intValueOrDefault(req.OpenAIWSOptimizedQueuePerConn, previousSettings.OpenAIWSOptimizedQueuePerConn),
 		OpenAIWSOptimizedTargetUtilization:     float64ValueOrDefault(req.OpenAIWSOptimizedTargetUtilization, previousSettings.OpenAIWSOptimizedTargetUtilization),
 		OpenAIWSOptimizedIdleRecycleSeconds:    intValueOrDefault(req.OpenAIWSOptimizedIdleRecycleSeconds, previousSettings.OpenAIWSOptimizedIdleRecycleSeconds),

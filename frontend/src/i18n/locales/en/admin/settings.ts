@@ -491,7 +491,6 @@ export default {
           prewarm: { label: 'Prewarm per account', hint: 'First inventory for new sessions; default 3' },
           standby: { label: 'Standby per account', hint: 'Second inventory for bursts; default 3' },
           standbyMax: { label: 'Maximum standby per account', hint: 'Default 8' },
-          maxConnections: { label: 'Maximum connections per account', hint: 'Includes session, prewarm, and standby connections; default 24' },
           queue: { label: 'Queue per connection', hint: 'Default 1' },
           utilization: { label: 'Target utilization', hint: '0–1; default 0.8' },
           idleRecycle: { label: 'Idle recycle (seconds)', hint: 'Default 300 seconds' },

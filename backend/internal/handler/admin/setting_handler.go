@@ -296,7 +296,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIWSPrewarmIdlePerAccount:                          settings.OpenAIWSPrewarmIdlePerAccount,
 		OpenAIWSStandbyIdlePerAccount:                          settings.OpenAIWSStandbyIdlePerAccount,
 		OpenAIWSStandbyMaxPerAccount:                           settings.OpenAIWSStandbyMaxPerAccount,
-		OpenAIWSOptimizedMaxConnsPerAccount:                    settings.OpenAIWSOptimizedMaxConnsPerAccount,
 		OpenAIWSOptimizedQueuePerConn:                          settings.OpenAIWSOptimizedQueuePerConn,
 		OpenAIWSOptimizedTargetUtilization:                     settings.OpenAIWSOptimizedTargetUtilization,
 		OpenAIWSOptimizedIdleRecycleSeconds:                    settings.OpenAIWSOptimizedIdleRecycleSeconds,

@@ -484,7 +484,6 @@ export default {
           prewarm: { label: '预热连接/账号', hint: '新会话第一优先库存，默认 3' },
           standby: { label: '备用连接/账号', hint: '突发流量第二库存，默认 3' },
           standbyMax: { label: '最大备用连接/账号', hint: '默认 8' },
-          maxConnections: { label: '最大连接/账号', hint: '包括会话、预热和备用，默认 24' },
           queue: { label: '单连接排队', hint: '默认 1' },
           utilization: { label: '目标利用率', hint: '0–1，默认 0.8' },
           idleRecycle: { label: '空闲回收（秒）', hint: '默认 300 秒' },

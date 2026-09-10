@@ -15,7 +15,6 @@ type OpenAIWSPoolOptimizationSettings struct {
 	PrewarmIdle           int     `json:"prewarm_idle_per_account"`
 	StandbyIdle           int     `json:"standby_idle_per_account"`
 	StandbyMax            int     `json:"standby_max_per_account"`
-	MaxConns              int     `json:"max_conns_per_account"`
 	QueuePerConn          int     `json:"queue_per_conn"`
 	TargetUtilization     float64 `json:"target_utilization"`
 	IdleRecycleSeconds    int     `json:"idle_recycle_seconds"`
@@ -28,7 +27,7 @@ type OpenAIWSPoolOptimizationSettings struct {
 
 func defaultOpenAIWSPoolOptimizationSettings() OpenAIWSPoolOptimizationSettings {
 	return OpenAIWSPoolOptimizationSettings{
-		PrewarmIdle: 3, StandbyIdle: 3, StandbyMax: 8, MaxConns: 24,
+		PrewarmIdle: 3, StandbyIdle: 3, StandbyMax: 8,
 		QueuePerConn: 1, TargetUtilization: 0.8, IdleRecycleSeconds: 300,
 		MaxAgeSeconds: 3600, HealthIntervalSeconds: 30,
 		SessionTTLSeconds: 3600, SessionIdleSeconds: 300, DialIntervalMS: 400,
@@ -48,7 +47,7 @@ var (
 var openAIWSPoolOptimizationKeys = []string{
 	SettingKeyOpenAIWSPoolOptimizationEnabled, SettingKeyOpenAIWSPrewarmIdlePerAccount,
 	SettingKeyOpenAIWSStandbyIdlePerAccount, SettingKeyOpenAIWSStandbyMaxPerAccount,
-	SettingKeyOpenAIWSOptimizedMaxConns, SettingKeyOpenAIWSOptimizedQueuePerConn,
+	SettingKeyOpenAIWSOptimizedQueuePerConn,
 	SettingKeyOpenAIWSOptimizedTargetUtil, SettingKeyOpenAIWSOptimizedIdleRecycle,
 	SettingKeyOpenAIWSOptimizedMaxAge, SettingKeyOpenAIWSOptimizedHealthInterval,
 	SettingKeyOpenAIWSOptimizedSessionTTL, SettingKeyOpenAIWSOptimizedSessionIdleTTL,
@@ -65,12 +64,6 @@ func normalizeOpenAIWSPoolOptimizationSettings(v OpenAIWSPoolOptimizationSetting
 	}
 	if v.StandbyMax < v.StandbyIdle {
 		v.StandbyMax = max(v.StandbyIdle, d.StandbyMax)
-	}
-	if v.MaxConns <= 0 {
-		v.MaxConns = d.MaxConns
-	}
-	if v.PrewarmIdle+v.StandbyIdle > v.MaxConns {
-		v.StandbyIdle = max(0, v.MaxConns-v.PrewarmIdle)
 	}
 	if v.QueuePerConn <= 0 {
 		v.QueuePerConn = d.QueuePerConn
@@ -105,7 +98,6 @@ func parseOpenAIWSPoolOptimizationValues(values map[string]string) OpenAIWSPoolO
 	v.PrewarmIdle = parseIntSettingDefault(values, SettingKeyOpenAIWSPrewarmIdlePerAccount, v.PrewarmIdle)
 	v.StandbyIdle = parseIntSettingDefault(values, SettingKeyOpenAIWSStandbyIdlePerAccount, v.StandbyIdle)
 	v.StandbyMax = parseIntSettingDefault(values, SettingKeyOpenAIWSStandbyMaxPerAccount, v.StandbyMax)
-	v.MaxConns = parseIntSettingDefault(values, SettingKeyOpenAIWSOptimizedMaxConns, v.MaxConns)
 	v.QueuePerConn = parseIntSettingDefault(values, SettingKeyOpenAIWSOptimizedQueuePerConn, v.QueuePerConn)
 	v.TargetUtilization = parseFloatSettingDefault(values, SettingKeyOpenAIWSOptimizedTargetUtil, v.TargetUtilization)
 	v.IdleRecycleSeconds = parseIntSettingDefault(values, SettingKeyOpenAIWSOptimizedIdleRecycle, v.IdleRecycleSeconds)
@@ -126,7 +118,6 @@ func refreshOpenAIWSPoolOptimizationSettings(settings *SystemSettings) {
 		PrewarmIdle:           settings.OpenAIWSPrewarmIdlePerAccount,
 		StandbyIdle:           settings.OpenAIWSStandbyIdlePerAccount,
 		StandbyMax:            settings.OpenAIWSStandbyMaxPerAccount,
-		MaxConns:              settings.OpenAIWSOptimizedMaxConnsPerAccount,
 		QueuePerConn:          settings.OpenAIWSOptimizedQueuePerConn,
 		TargetUtilization:     settings.OpenAIWSOptimizedTargetUtilization,
 		IdleRecycleSeconds:    settings.OpenAIWSOptimizedIdleRecycleSeconds,

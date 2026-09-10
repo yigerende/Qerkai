@@ -48,7 +48,6 @@ func TestOpenAIWSPoolOptimizationDefaultsAndDialFloor(t *testing.T) {
 	settings := parseOpenAIWSPoolOptimizationValues(nil)
 	require.Equal(t, 3, settings.PrewarmIdle)
 	require.Equal(t, 3, settings.StandbyIdle)
-	require.Equal(t, 24, settings.MaxConns)
 	require.Equal(t, 300, settings.SessionIdleSeconds)
 	require.Equal(t, 400, settings.DialIntervalMS)
 
@@ -222,18 +221,21 @@ func TestOpenAIWSPoolOptimizationDisabledIgnoresSessionOwnership(t *testing.T) {
 	require.False(t, pool.connHasActiveOwner(conn, time.Now()), "disabled optimization must restore legacy cleanup behavior")
 }
 
-func TestOpenAIWSOptimizedPoolReplacesOldestIdleOwnedConnAtCapacity(t *testing.T) {
+func TestOpenAIWSOptimizedPoolDoesNotApplyLegacyPerAccountConnectionLimit(t *testing.T) {
 	refreshForceUpstreamWSCache(true)
 	refreshOpenAIWSPoolOptimizationSettings(&SystemSettings{
-		OpenAIWSPoolOptimizationEnabled: true, OpenAIWSOptimizedMaxConnsPerAccount: 2,
-		OpenAIWSOptimizedQueuePerConn: 1, OpenAIWSOptimizedTargetUtilization: 0.8,
+		OpenAIWSPoolOptimizationEnabled: true,
+		OpenAIWSOptimizedQueuePerConn:   1, OpenAIWSOptimizedTargetUtilization: 0.8,
 		OpenAIWSOptimizedIdleRecycleSeconds: 300, OpenAIWSOptimizedMaxAgeSeconds: 3600,
 		OpenAIWSOptimizedHealthIntervalSeconds: 30, OpenAIWSOptimizedSessionTTLSeconds: 3600,
 		OpenAIWSOptimizedDialIntervalMS: 400,
 	})
 	t.Cleanup(func() { refreshForceUpstreamWSCache(false); refreshOpenAIWSPoolOptimizationSettings(&SystemSettings{}) })
 
-	pool := newOpenAIWSConnPool(&config.Config{})
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 2
+	cfg.Gateway.OpenAIWS.DynamicMaxConnsByAccountConcurrencyEnabled = true
+	pool := newOpenAIWSConnPool(cfg)
 	defer pool.Close()
 	pool.setClientDialerForTest(&openAIWSFakeDialer{})
 	account := &Account{ID: 4105, Name: "full", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 2}
@@ -256,7 +258,8 @@ func TestOpenAIWSOptimizedPoolReplacesOldestIdleOwnedConnAtCapacity(t *testing.T
 	require.NotEqual(t, oldBackup.id, lease.ConnID())
 	require.Equal(t, openAIWSConnRoleSessionPrimary, lease.conn.poolRole)
 	require.Equal(t, "session-c", lease.conn.ownerSession)
-	require.NotContains(t, ap.conns, oldBackup.id)
-	require.Contains(t, ap.conns, newPrimary.id, "an idle backup should be retired before a session primary")
+	require.Contains(t, ap.conns, oldBackup.id, "optimized mode must not evict an owned connection because of the legacy WS cap")
+	require.Contains(t, ap.conns, newPrimary.id)
+	require.Len(t, ap.conns, 3, "optimized mode may exceed the legacy per-account WS connection cap")
 	lease.Release()
 }

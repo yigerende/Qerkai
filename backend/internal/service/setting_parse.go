@@ -872,7 +872,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIWSPrewarmIdlePerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSPrewarmIdlePerAccount, 3)
 	result.OpenAIWSStandbyIdlePerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSStandbyIdlePerAccount, 3)
 	result.OpenAIWSStandbyMaxPerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSStandbyMaxPerAccount, 8)
-	result.OpenAIWSOptimizedMaxConnsPerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedMaxConns, 24)
 	result.OpenAIWSOptimizedQueuePerConn = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedQueuePerConn, 1)
 	result.OpenAIWSOptimizedTargetUtilization = parseFloatSettingDefault(settings, SettingKeyOpenAIWSOptimizedTargetUtil, 0.8)
 	result.OpenAIWSOptimizedIdleRecycleSeconds = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedIdleRecycle, 300)

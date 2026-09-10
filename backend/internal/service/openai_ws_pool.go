@@ -868,7 +868,11 @@ func (p *openAIWSConnPool) runBackgroundCleanupSweep(now time.Time) {
 		maxConns := p.maxConnsHardCap()
 		ap.mu.Lock()
 		if ap.lastAcquire != nil && ap.lastAcquire.Account != nil {
-			maxConns = p.effectiveMaxConnsByAccount(ap.lastAcquire.Account)
+			if ap.lastAcquire.PoolOptimized {
+				maxConns = 0
+			} else {
+				maxConns = p.effectiveMaxConnsByAccount(ap.lastAcquire.Account)
+			}
 		}
 		evicted := p.cleanupAccountLocked(ap, now, maxConns)
 		ap.lastCleanupAt = now
@@ -906,7 +910,12 @@ retryAcquire:
 	}
 	routingAffinity := normalizeOpenAIWSRoutingAffinity(req.Headers)
 	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account)
-	if effectiveMaxConns <= 0 {
+	if req.PoolOptimized {
+		// Optimized mode is bounded by account request concurrency and connection
+		// lifecycle cleanup, not by a second per-account WebSocket connection cap.
+		effectiveMaxConns = 0
+	}
+	if effectiveMaxConns <= 0 && !req.PoolOptimized {
 		return nil, errOpenAIWSConnQueueFull
 	}
 	var evicted []*openAIWSConn
@@ -1110,7 +1119,7 @@ retryAcquire:
 			p.ensureTargetIdleAsync(accountID)
 			return lease, nil
 		}
-		if routingAffinity == "" || len(ap.conns)+ap.creating >= effectiveMaxConns {
+		if routingAffinity == "" || (effectiveMaxConns > 0 && len(ap.conns)+ap.creating >= effectiveMaxConns) {
 			for _, conn := range ap.conns {
 				if conn == nil || conn == best || !conn.matchesHandshakeCompatibility(compatibility) {
 					continue
@@ -1140,7 +1149,7 @@ retryAcquire:
 		}
 	}
 
-	if !req.ForceNewConn && len(ap.conns)+ap.creating >= effectiveMaxConns {
+	if !req.ForceNewConn && effectiveMaxConns > 0 && len(ap.conns)+ap.creating >= effectiveMaxConns {
 		affine := p.pickLeastBusyConnWithRoutingAffinityLocked(ap, compatibility, routingAffinity)
 		if idle := p.pickOldestIdleConnWithoutHandshakeCompatibilityLocked(ap, compatibility); idle != nil {
 			delete(ap.conns, idle.id)
@@ -1177,16 +1186,8 @@ retryAcquire:
 		}
 	}
 
-	if req.ForceNewConn && len(ap.conns)+ap.creating >= effectiveMaxConns {
+	if req.ForceNewConn && effectiveMaxConns > 0 && len(ap.conns)+ap.creating >= effectiveMaxConns {
 		idle := p.pickOldestIdleConnLocked(ap)
-		if idle == nil && req.PoolOptimized {
-			// Session ownership is sticky, not an availability barrier. At the
-			// hard cap, retire the oldest idle owned socket (backup first) and
-			// dial a fresh one for the waiting session. The socket itself is never
-			// shared across sessions, and every replacement still passes through
-			// the account dial limiter below.
-			idle = p.pickOldestIdleOwnedConnLocked(ap)
-		}
 		if idle != nil {
 			delete(ap.conns, idle.id)
 			evicted = append(evicted, idle)
@@ -1194,7 +1195,7 @@ retryAcquire:
 		}
 	}
 
-	if len(ap.conns)+ap.creating < effectiveMaxConns {
+	if effectiveMaxConns <= 0 || len(ap.conns)+ap.creating < effectiveMaxConns {
 		connPick := time.Since(pickStartedAt)
 		p.recordConnPickDuration(connPick)
 		ap.creating++
@@ -1354,27 +1355,6 @@ func (p *openAIWSConnPool) pickOldestIdleConnLocked(ap *openAIWSAccountPool) *op
 		}
 	}
 	return oldest
-}
-
-func (p *openAIWSConnPool) pickOldestIdleOwnedConnLocked(ap *openAIWSAccountPool) *openAIWSConn {
-	if ap == nil || len(ap.conns) == 0 {
-		return nil
-	}
-	for _, role := range []string{openAIWSConnRoleSessionStandby, openAIWSConnRoleSessionPrimary} {
-		var oldest *openAIWSConn
-		for _, conn := range ap.conns {
-			if conn == nil || conn.ownerSession == "" || conn.poolRole != role || conn.isLeased() || conn.waiters.Load() > 0 || p.isConnPinnedLocked(ap, conn.id) {
-				continue
-			}
-			if oldest == nil || conn.lastUsedAt().Before(oldest.lastUsedAt()) {
-				oldest = conn
-			}
-		}
-		if oldest != nil {
-			return oldest
-		}
-	}
-	return nil
 }
 
 func (p *openAIWSConnPool) connHasActiveOwner(conn *openAIWSConn, now time.Time) bool {
@@ -1645,7 +1625,11 @@ func (p *openAIWSConnPool) cleanupAccountLocked(ap *openAIWSAccountPool, now tim
 	}
 
 	if maxConns <= 0 {
-		maxConns = p.maxConnsHardCap()
+		if OpenAIWSPoolOptimizationActive() {
+			maxConns = p.maxIdlePerAccount()
+		} else {
+			maxConns = p.maxConnsHardCap()
+		}
 	}
 	maxIdle := p.maxIdlePerAccount()
 	if maxIdle < 0 || maxIdle > maxConns {
@@ -1817,7 +1801,11 @@ func (p *openAIWSConnPool) ensureTargetIdleAsync(accountID int64) {
 	}
 	effectiveMaxConns := p.maxConnsHardCap()
 	if ap.lastAcquire != nil && ap.lastAcquire.Account != nil {
-		effectiveMaxConns = p.effectiveMaxConnsByAccount(ap.lastAcquire.Account)
+		if ap.lastAcquire.PoolOptimized {
+			effectiveMaxConns = 0
+		} else {
+			effectiveMaxConns = p.effectiveMaxConnsByAccount(ap.lastAcquire.Account)
+		}
 	}
 	target := p.targetConnCountLocked(ap, effectiveMaxConns)
 	if ap.lastAcquire.PoolOptimized {
@@ -1836,7 +1824,7 @@ func (p *openAIWSConnPool) ensureTargetIdleAsync(accountID int64) {
 			}
 		}
 		needInventory := max(0, cfg.PrewarmIdle-publicPrewarm) + max(0, cfg.StandbyIdle-publicStandby)
-		if current := len(ap.conns) + ap.creating; current+needInventory > effectiveMaxConns {
+		if current := len(ap.conns) + ap.creating; effectiveMaxConns > 0 && current+needInventory > effectiveMaxConns {
 			needInventory = max(0, effectiveMaxConns-current)
 		}
 		target = max(target, len(ap.conns)+ap.creating+needInventory)
@@ -1866,15 +1854,11 @@ func (p *openAIWSConnPool) targetConnCountLocked(ap *openAIWSAccountPool, maxCon
 		return 0
 	}
 
-	if maxConns <= 0 {
-		return 0
-	}
-
 	minIdle := p.minIdlePerAccount()
 	if minIdle < 0 {
 		minIdle = 0
 	}
-	if minIdle > maxConns {
+	if maxConns > 0 && minIdle > maxConns {
 		minIdle = maxConns
 	}
 
@@ -1895,7 +1879,7 @@ func (p *openAIWSConnPool) targetConnCountLocked(ap *openAIWSAccountPool, maxCon
 	if target < minIdle {
 		target = minIdle
 	}
-	if target > maxConns {
+	if maxConns > 0 && target > maxConns {
 		target = maxConns
 	}
 	return target
@@ -1965,7 +1949,7 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 			conn.close()
 			continue
 		}
-		if len(ap.conns) >= p.effectiveMaxConnsByAccount(req.Account) {
+		if !req.PoolOptimized && len(ap.conns) >= p.effectiveMaxConnsByAccount(req.Account) {
 			ap.signalChangedLocked()
 			ap.mu.Unlock()
 			conn.close()
@@ -2186,9 +2170,6 @@ func (p *openAIWSConnPool) shouldHealthCheckConn(conn *openAIWSConn) bool {
 }
 
 func (p *openAIWSConnPool) maxConnsHardCap() int {
-	if OpenAIWSPoolOptimizationActive() {
-		return currentOpenAIWSPoolOptimizationSettings().MaxConns
-	}
 	if p != nil && p.cfg != nil && p.cfg.Gateway.OpenAIWS.MaxConnsPerAccount > 0 {
 		return p.cfg.Gateway.OpenAIWS.MaxConnsPerAccount
 	}

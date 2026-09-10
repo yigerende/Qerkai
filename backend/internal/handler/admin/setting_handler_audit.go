@@ -467,7 +467,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAIWSPrewarmIdlePerAccount != after.OpenAIWSPrewarmIdlePerAccount ||
 		before.OpenAIWSStandbyIdlePerAccount != after.OpenAIWSStandbyIdlePerAccount ||
 		before.OpenAIWSStandbyMaxPerAccount != after.OpenAIWSStandbyMaxPerAccount ||
-		before.OpenAIWSOptimizedMaxConnsPerAccount != after.OpenAIWSOptimizedMaxConnsPerAccount ||
 		before.OpenAIWSOptimizedQueuePerConn != after.OpenAIWSOptimizedQueuePerConn ||
 		before.OpenAIWSOptimizedTargetUtilization != after.OpenAIWSOptimizedTargetUtilization ||
 		before.OpenAIWSOptimizedIdleRecycleSeconds != after.OpenAIWSOptimizedIdleRecycleSeconds ||

@@ -32,7 +32,8 @@ func TestSettingHandlerOpenAIWSPoolDefaultsAndPartialUpdate(t *testing.T) {
 	require.Equal(t, float64(3), data["openai_ws_prewarm_idle_per_account"])
 	require.Equal(t, float64(3), data["openai_ws_standby_idle_per_account"])
 	require.Equal(t, float64(8), data["openai_ws_standby_max_per_account"])
-	require.Equal(t, float64(24), data["openai_ws_optimized_max_conns_per_account"])
+	_, hasLegacyConnectionLimit := data["openai_ws_optimized_max_conns_per_account"]
+	require.False(t, hasLegacyConnectionLimit)
 	require.Equal(t, float64(300), data["openai_ws_optimized_session_idle_timeout_seconds"])
 	require.Equal(t, float64(400), data["openai_ws_optimized_dial_interval_ms"])
 

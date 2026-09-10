@@ -245,7 +245,6 @@ type SystemSettings struct {
 	OpenAIWSPrewarmIdlePerAccount          int
 	OpenAIWSStandbyIdlePerAccount          int
 	OpenAIWSStandbyMaxPerAccount           int
-	OpenAIWSOptimizedMaxConnsPerAccount    int
 	OpenAIWSOptimizedQueuePerConn          int
 	OpenAIWSOptimizedTargetUtilization     float64
 	OpenAIWSOptimizedIdleRecycleSeconds    int
