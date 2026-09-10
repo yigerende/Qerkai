@@ -481,7 +481,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if settings.OpenAIWSOptimizedQueuePerConn <= 0 || settings.OpenAIWSOptimizedTargetUtilization <= 0 || settings.OpenAIWSOptimizedTargetUtilization > 1 {
 		return nil, fmt.Errorf("%w: queue or utilization value is invalid", ErrInvalidOpenAIWSPoolSettings)
 	}
-	if settings.OpenAIWSOptimizedIdleRecycleSeconds <= 0 || settings.OpenAIWSOptimizedMaxAgeSeconds <= 0 || settings.OpenAIWSOptimizedHealthIntervalSeconds <= 0 || settings.OpenAIWSOptimizedSessionTTLSeconds <= 0 {
+	if settings.OpenAIWSOptimizedIdleRecycleSeconds <= 0 || settings.OpenAIWSOptimizedMaxAgeSeconds <= 0 || settings.OpenAIWSOptimizedHealthIntervalSeconds <= 0 || settings.OpenAIWSOptimizedSessionTTLSeconds <= 0 || settings.OpenAIWSOptimizedSessionIdleSeconds <= 0 {
 		return nil, fmt.Errorf("%w: duration values must be positive", ErrInvalidOpenAIWSPoolSettings)
 	}
 	if settings.OpenAIWSOptimizedDialIntervalMS < 400 {
@@ -498,6 +498,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAIWSOptimizedMaxAge] = strconv.Itoa(settings.OpenAIWSOptimizedMaxAgeSeconds)
 	updates[SettingKeyOpenAIWSOptimizedHealthInterval] = strconv.Itoa(settings.OpenAIWSOptimizedHealthIntervalSeconds)
 	updates[SettingKeyOpenAIWSOptimizedSessionTTL] = strconv.Itoa(settings.OpenAIWSOptimizedSessionTTLSeconds)
+	updates[SettingKeyOpenAIWSOptimizedSessionIdleTTL] = strconv.Itoa(settings.OpenAIWSOptimizedSessionIdleSeconds)
 	updates[SettingKeyOpenAIWSOptimizedDialIntervalMS] = strconv.Itoa(settings.OpenAIWSOptimizedDialIntervalMS)
 	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
 	updates[SettingKeyEnableClaudeOAuthSystemPromptInjection] = strconv.FormatBool(settings.EnableClaudeOAuthSystemPromptInjection)

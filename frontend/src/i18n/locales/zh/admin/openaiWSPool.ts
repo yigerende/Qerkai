@@ -13,7 +13,7 @@ export default {
     },
     handshake: { title: '握手运行指标', total: '建连尝试', success: '成功', failure: '失败', forbidden: '403', rateLimited: '429', average: '平均握手' },
     accounts: { title: '账号连接池', activeCount: '{count} 个活跃账号池', empty: '当前没有已创建的 OpenAI WS 连接池' },
-    columns: { account: '账号', status: '状态', connections: '连接', inUse: '使用中', session: '会话主/备用', inventory: '预热/备用', creating: '建连中', queue: '排队', connectionId: '连接 ID', role: '角色', sessionId: '会话', age: '存活', idle: '空闲', waiters: '等待' },
+    columns: { account: '账号', status: '状态', connections: '连接', inUse: '使用中', session: '会话主/备用', inventory: '预热/备用', creating: '建连中', queue: '排队', connectionId: '连接 ID', role: '角色', sessionId: '会话', age: '存活', idle: '空闲', unbindIn: '解绑倒计时', waiters: '等待' },
     connectionState: { inUse: '使用中', idle: '空闲' },
     status: { healthy: '正常', replenishing: '补池中', cooldown: '冷却中' },
     roles: { prewarm: '公共预热', standby: '公共备用', sessionPrimary: '会话主连接', sessionStandby: '会话备用', legacy: '原调度连接' },

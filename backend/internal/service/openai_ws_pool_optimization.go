@@ -22,6 +22,7 @@ type OpenAIWSPoolOptimizationSettings struct {
 	MaxAgeSeconds         int     `json:"max_age_seconds"`
 	HealthIntervalSeconds int     `json:"health_interval_seconds"`
 	SessionTTLSeconds     int     `json:"session_ttl_seconds"`
+	SessionIdleSeconds    int     `json:"session_idle_timeout_seconds"`
 	DialIntervalMS        int     `json:"dial_interval_ms"`
 }
 
@@ -30,7 +31,7 @@ func defaultOpenAIWSPoolOptimizationSettings() OpenAIWSPoolOptimizationSettings 
 		PrewarmIdle: 3, StandbyIdle: 3, StandbyMax: 8, MaxConns: 24,
 		QueuePerConn: 1, TargetUtilization: 0.8, IdleRecycleSeconds: 300,
 		MaxAgeSeconds: 3600, HealthIntervalSeconds: 30,
-		SessionTTLSeconds: 3600, DialIntervalMS: 400,
+		SessionTTLSeconds: 3600, SessionIdleSeconds: 300, DialIntervalMS: 400,
 	}
 }
 
@@ -50,7 +51,8 @@ var openAIWSPoolOptimizationKeys = []string{
 	SettingKeyOpenAIWSOptimizedMaxConns, SettingKeyOpenAIWSOptimizedQueuePerConn,
 	SettingKeyOpenAIWSOptimizedTargetUtil, SettingKeyOpenAIWSOptimizedIdleRecycle,
 	SettingKeyOpenAIWSOptimizedMaxAge, SettingKeyOpenAIWSOptimizedHealthInterval,
-	SettingKeyOpenAIWSOptimizedSessionTTL, SettingKeyOpenAIWSOptimizedDialIntervalMS,
+	SettingKeyOpenAIWSOptimizedSessionTTL, SettingKeyOpenAIWSOptimizedSessionIdleTTL,
+	SettingKeyOpenAIWSOptimizedDialIntervalMS,
 }
 
 func normalizeOpenAIWSPoolOptimizationSettings(v OpenAIWSPoolOptimizationSettings) OpenAIWSPoolOptimizationSettings {
@@ -88,6 +90,9 @@ func normalizeOpenAIWSPoolOptimizationSettings(v OpenAIWSPoolOptimizationSetting
 	if v.SessionTTLSeconds <= 0 {
 		v.SessionTTLSeconds = d.SessionTTLSeconds
 	}
+	if v.SessionIdleSeconds <= 0 {
+		v.SessionIdleSeconds = d.SessionIdleSeconds
+	}
 	if v.DialIntervalMS < 400 {
 		v.DialIntervalMS = 400
 	}
@@ -107,6 +112,7 @@ func parseOpenAIWSPoolOptimizationValues(values map[string]string) OpenAIWSPoolO
 	v.MaxAgeSeconds = parseIntSettingDefault(values, SettingKeyOpenAIWSOptimizedMaxAge, v.MaxAgeSeconds)
 	v.HealthIntervalSeconds = parseIntSettingDefault(values, SettingKeyOpenAIWSOptimizedHealthInterval, v.HealthIntervalSeconds)
 	v.SessionTTLSeconds = parseIntSettingDefault(values, SettingKeyOpenAIWSOptimizedSessionTTL, v.SessionTTLSeconds)
+	v.SessionIdleSeconds = parseIntSettingDefault(values, SettingKeyOpenAIWSOptimizedSessionIdleTTL, v.SessionIdleSeconds)
 	v.DialIntervalMS = parseIntSettingDefault(values, SettingKeyOpenAIWSOptimizedDialIntervalMS, v.DialIntervalMS)
 	return normalizeOpenAIWSPoolOptimizationSettings(v)
 }
@@ -127,6 +133,7 @@ func refreshOpenAIWSPoolOptimizationSettings(settings *SystemSettings) {
 		MaxAgeSeconds:         settings.OpenAIWSOptimizedMaxAgeSeconds,
 		HealthIntervalSeconds: settings.OpenAIWSOptimizedHealthIntervalSeconds,
 		SessionTTLSeconds:     settings.OpenAIWSOptimizedSessionTTLSeconds,
+		SessionIdleSeconds:    settings.OpenAIWSOptimizedSessionIdleSeconds,
 		DialIntervalMS:        settings.OpenAIWSOptimizedDialIntervalMS,
 	})
 	openAIWSPoolOptimizationSF.Forget("settings")

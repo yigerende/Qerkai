@@ -879,6 +879,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIWSOptimizedMaxAgeSeconds = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedMaxAge, 3600)
 	result.OpenAIWSOptimizedHealthIntervalSeconds = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedHealthInterval, 30)
 	result.OpenAIWSOptimizedSessionTTLSeconds = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedSessionTTL, 3600)
+	result.OpenAIWSOptimizedSessionIdleSeconds = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedSessionIdleTTL, 300)
 	result.OpenAIWSOptimizedDialIntervalMS = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedDialIntervalMS, 400)
 	result.EnableCCHSigning = settings[SettingKeyEnableCCHSigning] == "true"
 	if v, ok := settings[SettingKeyEnableClaudeOAuthSystemPromptInjection]; ok && v != "" {

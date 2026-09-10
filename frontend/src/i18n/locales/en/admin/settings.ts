@@ -497,7 +497,8 @@ export default {
           idleRecycle: { label: 'Idle recycle (seconds)', hint: 'Default 300 seconds' },
           maxAge: { label: 'Maximum lifetime (seconds)', hint: 'Default 3600 seconds' },
           health: { label: 'Health check (seconds)', hint: 'Default 30 seconds' },
-          sessionTTL: { label: 'Session binding (seconds)', hint: 'Default 3600 seconds' },
+          sessionTTL: { label: 'Maximum session binding (seconds)', hint: 'Hard limit for one binding; default 3600 seconds' },
+          sessionIdleTimeout: { label: 'Session idle unbind (seconds)', hint: 'Resets after each use; unbinds without closing the connection. Default 300 seconds' },
           dialInterval: { label: 'Dial interval (milliseconds)', hint: 'Minimum 400ms; shared by every dial path' }
         },
         cchSigning: 'CCH Signing',

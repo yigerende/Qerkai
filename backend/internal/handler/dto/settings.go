@@ -216,6 +216,7 @@ type SystemSettings struct {
 	OpenAIWSOptimizedMaxAgeSeconds         int     `json:"openai_ws_optimized_max_age_seconds"`
 	OpenAIWSOptimizedHealthIntervalSeconds int     `json:"openai_ws_optimized_health_interval_seconds"`
 	OpenAIWSOptimizedSessionTTLSeconds     int     `json:"openai_ws_optimized_session_ttl_seconds"`
+	OpenAIWSOptimizedSessionIdleSeconds    int     `json:"openai_ws_optimized_session_idle_timeout_seconds"`
 	OpenAIWSOptimizedDialIntervalMS        int     `json:"openai_ws_optimized_dial_interval_ms"`
 	EnableCCHSigning                       bool    `json:"enable_cch_signing"`
 	EnableClaudeOAuthSystemPromptInjection bool    `json:"enable_claude_oauth_system_prompt_injection"`

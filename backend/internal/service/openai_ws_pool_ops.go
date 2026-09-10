@@ -15,6 +15,8 @@ type OpenAIWSConnectionOpsSnapshot struct {
 	LastUsedAt  int64  `json:"last_used_at"`
 	AgeSeconds  int64  `json:"age_seconds"`
 	IdleSeconds int64  `json:"idle_seconds"`
+	UnbindAt    int64  `json:"unbind_at"`
+	UnbindIn    int64  `json:"unbind_in_seconds"`
 	Waiters     int32  `json:"waiters"`
 	Prewarmed   bool   `json:"prewarmed"`
 }
@@ -75,6 +77,9 @@ func GetOpenAIWSPoolOpsSnapshot() OpenAIWSPoolOpsSnapshot {
 			return true
 		}
 		ap.mu.Lock()
+		if out.OptimizationEnabled {
+			pool.releaseExpiredOwnersLocked(ap, now)
+		}
 		row := OpenAIWSAccountPoolOpsSnapshot{AccountID: accountID, AccountName: ap.accountName, Creating: ap.creating, Status: "healthy", Connections: make([]OpenAIWSConnectionOpsSnapshot, 0, len(ap.conns))}
 		if ap.prewarmActive {
 			row.Status = "replenishing"
@@ -109,7 +114,15 @@ func GetOpenAIWSPoolOpsSnapshot() OpenAIWSPoolOpsSnapshot {
 			if len(session) > 12 {
 				session = session[:12]
 			}
-			row.Connections = append(row.Connections, OpenAIWSConnectionOpsSnapshot{ID: conn.id, Role: conn.poolRole, Session: session, State: state, CreatedAt: conn.createdAt().Unix(), LastUsedAt: conn.lastUsedAt().Unix(), AgeSeconds: int64(conn.age(now).Seconds()), IdleSeconds: int64(conn.idleDuration(now).Seconds()), Waiters: waiters, Prewarmed: conn.isPrewarmed()})
+			unbindAt, unbindIn := int64(0), int64(0)
+			if deadline := pool.sessionOwnerUnbindDeadline(conn, now); !deadline.IsZero() {
+				unbindAt = deadline.Unix()
+				unbindIn = int64(deadline.Sub(now).Seconds())
+				if unbindIn < 0 {
+					unbindIn = 0
+				}
+			}
+			row.Connections = append(row.Connections, OpenAIWSConnectionOpsSnapshot{ID: conn.id, Role: conn.poolRole, Session: session, State: state, CreatedAt: conn.createdAt().Unix(), LastUsedAt: conn.lastUsedAt().Unix(), AgeSeconds: int64(conn.age(now).Seconds()), IdleSeconds: int64(conn.idleDuration(now).Seconds()), UnbindAt: unbindAt, UnbindIn: unbindIn, Waiters: waiters, Prewarmed: conn.isPrewarmed()})
 		}
 		row.Total = len(row.Connections)
 		ap.mu.Unlock()

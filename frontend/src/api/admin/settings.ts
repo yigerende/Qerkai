@@ -635,6 +635,7 @@ export interface SystemSettings {
   openai_ws_optimized_max_age_seconds: number;
   openai_ws_optimized_health_interval_seconds: number;
   openai_ws_optimized_session_ttl_seconds: number;
+  openai_ws_optimized_session_idle_timeout_seconds: number;
   openai_ws_optimized_dial_interval_ms: number;
   enable_cch_signing: boolean;
   enable_claude_oauth_system_prompt_injection: boolean;
@@ -964,6 +965,7 @@ export interface UpdateSettingsRequest {
   openai_ws_optimized_max_age_seconds?: number;
   openai_ws_optimized_health_interval_seconds?: number;
   openai_ws_optimized_session_ttl_seconds?: number;
+  openai_ws_optimized_session_idle_timeout_seconds?: number;
   openai_ws_optimized_dial_interval_ms?: number;
   enable_cch_signing?: boolean;
   enable_claude_oauth_system_prompt_injection?: boolean;
@@ -1582,7 +1584,8 @@ export async function resetWebSearchUsage(payload: {
 
 export interface OpenAIWSConnectionOps {
   id: string; role: string; session: string; state: string; created_at: number;
-  last_used_at: number; age_seconds: number; idle_seconds: number; waiters: number; prewarmed: boolean;
+  last_used_at: number; age_seconds: number; idle_seconds: number; unbind_at: number;
+  unbind_in_seconds: number; waiters: number; prewarmed: boolean;
 }
 export interface OpenAIWSAccountPoolOps {
   account_id: number; account_name: string; total: number; in_use: number; waiters: number; creating: number;

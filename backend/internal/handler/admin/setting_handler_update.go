@@ -258,6 +258,7 @@ type UpdateSettingsRequest struct {
 	OpenAIWSOptimizedMaxAgeSeconds         *int     `json:"openai_ws_optimized_max_age_seconds"`
 	OpenAIWSOptimizedHealthIntervalSeconds *int     `json:"openai_ws_optimized_health_interval_seconds"`
 	OpenAIWSOptimizedSessionTTLSeconds     *int     `json:"openai_ws_optimized_session_ttl_seconds"`
+	OpenAIWSOptimizedSessionIdleSeconds    *int     `json:"openai_ws_optimized_session_idle_timeout_seconds"`
 	OpenAIWSOptimizedDialIntervalMS        *int     `json:"openai_ws_optimized_dial_interval_ms"`
 	EnableCCHSigning                       *bool    `json:"enable_cch_signing"`
 	EnableClaudeOAuthSystemPromptInjection *bool    `json:"enable_claude_oauth_system_prompt_injection"`
@@ -1726,6 +1727,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIWSOptimizedMaxAgeSeconds:         intValueOrDefault(req.OpenAIWSOptimizedMaxAgeSeconds, previousSettings.OpenAIWSOptimizedMaxAgeSeconds),
 		OpenAIWSOptimizedHealthIntervalSeconds: intValueOrDefault(req.OpenAIWSOptimizedHealthIntervalSeconds, previousSettings.OpenAIWSOptimizedHealthIntervalSeconds),
 		OpenAIWSOptimizedSessionTTLSeconds:     intValueOrDefault(req.OpenAIWSOptimizedSessionTTLSeconds, previousSettings.OpenAIWSOptimizedSessionTTLSeconds),
+		OpenAIWSOptimizedSessionIdleSeconds:    intValueOrDefault(req.OpenAIWSOptimizedSessionIdleSeconds, previousSettings.OpenAIWSOptimizedSessionIdleSeconds),
 		OpenAIWSOptimizedDialIntervalMS:        intValueOrDefault(req.OpenAIWSOptimizedDialIntervalMS, previousSettings.OpenAIWSOptimizedDialIntervalMS),
 		EnableCCHSigning: func() bool {
 			if req.EnableCCHSigning != nil {

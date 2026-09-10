@@ -490,7 +490,8 @@ export default {
           idleRecycle: { label: '空闲回收（秒）', hint: '默认 300 秒' },
           maxAge: { label: '最大寿命（秒）', hint: '默认 3600 秒' },
           health: { label: '健康检查（秒）', hint: '默认 30 秒' },
-          sessionTTL: { label: '会话绑定（秒）', hint: '默认 3600 秒' },
+          sessionTTL: { label: '最长会话绑定（秒）', hint: '单次绑定硬上限，默认 3600 秒' },
+          sessionIdleTimeout: { label: '会话空闲解绑（秒）', hint: '每次使用后重新计时；超时仅解绑并保留连接，默认 300 秒' },
           dialInterval: { label: '建连间隔（毫秒）', hint: '最低 400ms，所有建连共用' }
         },
         cchSigning: 'CCH 签名',

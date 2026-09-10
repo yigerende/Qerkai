@@ -646,6 +646,7 @@ const (
 	SettingKeyOpenAIWSOptimizedMaxAge         = "openai_ws_optimized_max_age_seconds"
 	SettingKeyOpenAIWSOptimizedHealthInterval = "openai_ws_optimized_health_interval_seconds"
 	SettingKeyOpenAIWSOptimizedSessionTTL     = "openai_ws_optimized_session_ttl_seconds"
+	SettingKeyOpenAIWSOptimizedSessionIdleTTL = "openai_ws_optimized_session_idle_timeout_seconds"
 	SettingKeyOpenAIWSOptimizedDialIntervalMS = "openai_ws_optimized_dial_interval_ms"
 	// SettingKeyEnableCCHSigning 已废弃（no-op）：新版 Claude Code CLI 已取消 cch 签名字段，
 	// 网关随之不再注入/签名 cch（见 buildBillingAttributionText）。保留该 key 仅为向后兼容，

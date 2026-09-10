@@ -252,6 +252,7 @@ type SystemSettings struct {
 	OpenAIWSOptimizedMaxAgeSeconds         int
 	OpenAIWSOptimizedHealthIntervalSeconds int
 	OpenAIWSOptimizedSessionTTLSeconds     int
+	OpenAIWSOptimizedSessionIdleSeconds    int
 	OpenAIWSOptimizedDialIntervalMS        int
 	AntigravityUserAgentVersion            string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
 	OpenAICodexUserAgent                   string // OpenAI Codex 上游完整 User-Agent；空值由 Codex 客户端版本号拼出标准 TUI UA

@@ -9819,6 +9819,7 @@ const form = reactive<SettingsForm>({
   openai_ws_optimized_max_age_seconds: 3600,
   openai_ws_optimized_health_interval_seconds: 30,
   openai_ws_optimized_session_ttl_seconds: 3600,
+  openai_ws_optimized_session_idle_timeout_seconds: 300,
   openai_ws_optimized_dial_interval_ms: 400,
   enable_cch_signing: false,
   enable_claude_oauth_system_prompt_injection: true,
@@ -9878,6 +9879,7 @@ type WSPoolNumberKey =
   | "openai_ws_optimized_max_age_seconds"
   | "openai_ws_optimized_health_interval_seconds"
   | "openai_ws_optimized_session_ttl_seconds"
+  | "openai_ws_optimized_session_idle_timeout_seconds"
   | "openai_ws_optimized_dial_interval_ms";
 
 const wsPoolNumberFields = computed<Array<{ key: WSPoolNumberKey; label: string; hint: string; min: number; max: number; step?: number }>>(() => [
@@ -9891,6 +9893,7 @@ const wsPoolNumberFields = computed<Array<{ key: WSPoolNumberKey; label: string;
   { key: "openai_ws_optimized_max_age_seconds", label: t("admin.settings.gatewayForwarding.wsPoolFields.maxAge.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.maxAge.hint"), min: 60, max: 86400 },
   { key: "openai_ws_optimized_health_interval_seconds", label: t("admin.settings.gatewayForwarding.wsPoolFields.health.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.health.hint"), min: 5, max: 3600 },
   { key: "openai_ws_optimized_session_ttl_seconds", label: t("admin.settings.gatewayForwarding.wsPoolFields.sessionTTL.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.sessionTTL.hint"), min: 60, max: 86400 },
+  { key: "openai_ws_optimized_session_idle_timeout_seconds", label: t("admin.settings.gatewayForwarding.wsPoolFields.sessionIdleTimeout.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.sessionIdleTimeout.hint"), min: 30, max: 86400 },
   { key: "openai_ws_optimized_dial_interval_ms", label: t("admin.settings.gatewayForwarding.wsPoolFields.dialInterval.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.dialInterval.hint"), min: 400, max: 10000 },
 ]);
 
@@ -11436,6 +11439,7 @@ async function saveSettings() {
       openai_ws_optimized_max_age_seconds: form.openai_ws_optimized_max_age_seconds,
       openai_ws_optimized_health_interval_seconds: form.openai_ws_optimized_health_interval_seconds,
       openai_ws_optimized_session_ttl_seconds: form.openai_ws_optimized_session_ttl_seconds,
+      openai_ws_optimized_session_idle_timeout_seconds: form.openai_ws_optimized_session_idle_timeout_seconds,
       openai_ws_optimized_dial_interval_ms: Math.max(400, form.openai_ws_optimized_dial_interval_ms),
       enable_cch_signing: form.enable_cch_signing,
       enable_claude_oauth_system_prompt_injection:

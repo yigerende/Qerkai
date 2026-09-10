@@ -49,10 +49,105 @@ func TestOpenAIWSPoolOptimizationDefaultsAndDialFloor(t *testing.T) {
 	require.Equal(t, 3, settings.PrewarmIdle)
 	require.Equal(t, 3, settings.StandbyIdle)
 	require.Equal(t, 24, settings.MaxConns)
+	require.Equal(t, 300, settings.SessionIdleSeconds)
 	require.Equal(t, 400, settings.DialIntervalMS)
 
 	settings = parseOpenAIWSPoolOptimizationValues(map[string]string{SettingKeyOpenAIWSOptimizedDialIntervalMS: "100"})
 	require.Equal(t, 400, settings.DialIntervalMS)
+}
+
+func TestOpenAIWSOptimizedPoolUnbindsIdleSessionWithoutClosingConnection(t *testing.T) {
+	refreshForceUpstreamWSCache(true)
+	refreshOpenAIWSPoolOptimizationSettings(&SystemSettings{
+		OpenAIWSPoolOptimizationEnabled:     true,
+		OpenAIWSOptimizedSessionTTLSeconds:  3600,
+		OpenAIWSOptimizedSessionIdleSeconds: 60,
+	})
+	t.Cleanup(func() { refreshForceUpstreamWSCache(false); refreshOpenAIWSPoolOptimizationSettings(&SystemSettings{}) })
+
+	pool := newOpenAIWSConnPool(&config.Config{})
+	defer pool.Close()
+	ap := pool.getOrCreateAccountPool(4201)
+	conn := newOpenAIWSConn("idle-owner", 4201, &openAIWSFakeConn{}, nil)
+	conn.poolRole = openAIWSConnRoleSessionPrimary
+	conn.ownerSession = "session-a"
+	conn.ownerUntil = time.Now().Add(time.Hour)
+	conn.lastUsedNano.Store(time.Now().Add(-61 * time.Second).UnixNano())
+	ap.conns[conn.id] = conn
+
+	ap.mu.Lock()
+	pool.releaseExpiredOwnersLocked(ap, time.Now())
+	ap.mu.Unlock()
+
+	require.Empty(t, conn.ownerSession)
+	require.Equal(t, openAIWSConnRoleStandby, conn.poolRole)
+	select {
+	case <-conn.closedCh:
+		t.Fatal("idle session unbind must keep the websocket connection open")
+	default:
+	}
+}
+
+func TestOpenAIWSOptimizedPoolRefreshesIdleWindowAndKeepsHardBindingDeadline(t *testing.T) {
+	refreshForceUpstreamWSCache(true)
+	refreshOpenAIWSPoolOptimizationSettings(&SystemSettings{
+		OpenAIWSPoolOptimizationEnabled:     true,
+		OpenAIWSOptimizedSessionTTLSeconds:  3600,
+		OpenAIWSOptimizedSessionIdleSeconds: 60,
+	})
+	t.Cleanup(func() { refreshForceUpstreamWSCache(false); refreshOpenAIWSPoolOptimizationSettings(&SystemSettings{}) })
+
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 2
+	pool := newOpenAIWSConnPool(cfg)
+	defer pool.Close()
+	account := &Account{ID: 4202, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 2}
+	ap := pool.getOrCreateAccountPool(account.ID)
+	conn := newOpenAIWSConn("owned", account.ID, &openAIWSFakeConn{}, nil)
+	conn.poolRole = openAIWSConnRoleSessionPrimary
+	conn.ownerSession = "session-a"
+	hardDeadline := time.Now().Add(10 * time.Minute)
+	conn.ownerUntil = hardDeadline
+	conn.lastUsedNano.Store(time.Now().Add(-30 * time.Second).UnixNano())
+	ap.conns[conn.id] = conn
+
+	lease, err := pool.Acquire(context.Background(), openAIWSAcquireRequest{Account: account, WSURL: "wss://example.test", PoolOptimized: true, SessionHash: "session-a"})
+	require.NoError(t, err)
+	require.Equal(t, conn.id, lease.ConnID())
+	require.Equal(t, hardDeadline, conn.ownerUntil, "reuse must not extend the hard binding deadline")
+	lease.Release()
+
+	ap.mu.Lock()
+	pool.releaseExpiredOwnersLocked(ap, time.Now().Add(30*time.Second))
+	ap.mu.Unlock()
+	require.Equal(t, "session-a", conn.ownerSession, "release should restart the idle unbind window")
+}
+
+func TestOpenAIWSOptimizedPoolDoesNotUnbindLeasedSession(t *testing.T) {
+	refreshForceUpstreamWSCache(true)
+	refreshOpenAIWSPoolOptimizationSettings(&SystemSettings{
+		OpenAIWSPoolOptimizationEnabled:     true,
+		OpenAIWSOptimizedSessionTTLSeconds:  3600,
+		OpenAIWSOptimizedSessionIdleSeconds: 60,
+	})
+	t.Cleanup(func() { refreshForceUpstreamWSCache(false); refreshOpenAIWSPoolOptimizationSettings(&SystemSettings{}) })
+
+	pool := newOpenAIWSConnPool(&config.Config{})
+	defer pool.Close()
+	ap := pool.getOrCreateAccountPool(4203)
+	conn := newOpenAIWSConn("busy-owner", 4203, &openAIWSFakeConn{}, nil)
+	conn.poolRole = openAIWSConnRoleSessionPrimary
+	conn.ownerSession = "session-a"
+	conn.ownerUntil = time.Now().Add(-time.Second)
+	conn.lastUsedNano.Store(time.Now().Add(-time.Minute).UnixNano())
+	require.True(t, conn.tryAcquire())
+	ap.conns[conn.id] = conn
+
+	ap.mu.Lock()
+	pool.releaseExpiredOwnersLocked(ap, time.Now())
+	ap.mu.Unlock()
+	require.Equal(t, "session-a", conn.ownerSession)
+	conn.release()
 }
 
 func TestOpenAIWSOptimizedPoolPrefersSessionPrimaryThenStandby(t *testing.T) {

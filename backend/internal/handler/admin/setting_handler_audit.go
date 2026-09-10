@@ -474,6 +474,7 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 		before.OpenAIWSOptimizedMaxAgeSeconds != after.OpenAIWSOptimizedMaxAgeSeconds ||
 		before.OpenAIWSOptimizedHealthIntervalSeconds != after.OpenAIWSOptimizedHealthIntervalSeconds ||
 		before.OpenAIWSOptimizedSessionTTLSeconds != after.OpenAIWSOptimizedSessionTTLSeconds ||
+		before.OpenAIWSOptimizedSessionIdleSeconds != after.OpenAIWSOptimizedSessionIdleSeconds ||
 		before.OpenAIWSOptimizedDialIntervalMS != after.OpenAIWSOptimizedDialIntervalMS {
 		changed = append(changed, "openai_ws_pool_optimization_parameters")
 	}

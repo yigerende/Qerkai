@@ -303,6 +303,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIWSOptimizedMaxAgeSeconds:                         settings.OpenAIWSOptimizedMaxAgeSeconds,
 		OpenAIWSOptimizedHealthIntervalSeconds:                 settings.OpenAIWSOptimizedHealthIntervalSeconds,
 		OpenAIWSOptimizedSessionTTLSeconds:                     settings.OpenAIWSOptimizedSessionTTLSeconds,
+		OpenAIWSOptimizedSessionIdleSeconds:                    settings.OpenAIWSOptimizedSessionIdleSeconds,
 		OpenAIWSOptimizedDialIntervalMS:                        settings.OpenAIWSOptimizedDialIntervalMS,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 settings.EnableClaudeOAuthSystemPromptInjection,

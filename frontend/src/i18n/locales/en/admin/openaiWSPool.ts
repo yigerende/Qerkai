@@ -13,7 +13,7 @@ export default {
     },
     handshake: { title: 'Handshake Metrics', total: 'Attempts', success: 'Succeeded', failure: 'Failed', forbidden: '403', rateLimited: '429', average: 'Average handshake' },
     accounts: { title: 'Account Pools', activeCount: '{count} active account pools', empty: 'No OpenAI WS connection pools have been created' },
-    columns: { account: 'Account', status: 'Status', connections: 'Connections', inUse: 'In use', session: 'Primary / backup', inventory: 'Prewarm / standby', creating: 'Connecting', queue: 'Queued', connectionId: 'Connection ID', role: 'Role', sessionId: 'Session', age: 'Age', idle: 'Idle', waiters: 'Waiters' },
+    columns: { account: 'Account', status: 'Status', connections: 'Connections', inUse: 'In use', session: 'Primary / backup', inventory: 'Prewarm / standby', creating: 'Connecting', queue: 'Queued', connectionId: 'Connection ID', role: 'Role', sessionId: 'Session', age: 'Age', idle: 'Idle', unbindIn: 'Unbind in', waiters: 'Waiters' },
     connectionState: { inUse: 'In use', idle: 'Idle' },
     status: { healthy: 'Healthy', replenishing: 'Replenishing', cooldown: 'Cooldown' },
     roles: { prewarm: 'Public prewarm', standby: 'Public standby', sessionPrimary: 'Session primary', sessionStandby: 'Session backup', legacy: 'Original scheduler' },

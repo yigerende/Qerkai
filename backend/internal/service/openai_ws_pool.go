@@ -280,6 +280,7 @@ type openAIWSConn struct {
 	lastUsedNano  atomic.Int64
 	prewarmed     atomic.Bool
 	// poolRole/ownerSession/ownerUntil 受所属 account pool 的 mu 保护。
+	// ownerUntil 是本次会话绑定的硬截止时间；空闲解绑时间由 lastUsedAt 派生。
 	poolRole     string
 	ownerSession string
 	ownerUntil   time.Time
@@ -954,7 +955,6 @@ retryAcquire:
 			}
 		}
 		if selected != nil {
-			selected.ownerUntil = now.Add(time.Duration(currentOpenAIWSPoolOptimizationSettings().SessionTTLSeconds) * time.Second)
 			connPick := time.Since(pickStartedAt)
 			p.recordConnPickDuration(connPick)
 			ap.mu.Unlock()
@@ -1381,20 +1381,57 @@ func (p *openAIWSConnPool) connHasActiveOwner(conn *openAIWSConn, now time.Time)
 	if !OpenAIWSPoolOptimizationActive() {
 		return false
 	}
-	return conn != nil && conn.ownerSession != "" && (conn.ownerUntil.IsZero() || now.Before(conn.ownerUntil))
+	if conn == nil || conn.ownerSession == "" {
+		return false
+	}
+	if conn.isLeased() || conn.waiters.Load() > 0 {
+		return true
+	}
+	deadline := p.sessionOwnerUnbindDeadline(conn, now)
+	return deadline.IsZero() || now.Before(deadline)
+}
+
+func (p *openAIWSConnPool) sessionOwnerUnbindDeadline(conn *openAIWSConn, now time.Time) time.Time {
+	if conn == nil || conn.ownerSession == "" {
+		return time.Time{}
+	}
+	deadline := conn.ownerUntil
+	settings := currentOpenAIWSPoolOptimizationSettings()
+	if settings.SessionIdleSeconds > 0 {
+		idleBase := conn.lastUsedAt()
+		// A running request refreshes lastUsedAt when it releases the lease. Until
+		// then, show and enforce a full idle window after the current request.
+		if conn.isLeased() || conn.waiters.Load() > 0 || idleBase.IsZero() {
+			idleBase = now
+		}
+		idleDeadline := idleBase.Add(time.Duration(settings.SessionIdleSeconds) * time.Second)
+		if deadline.IsZero() || idleDeadline.Before(deadline) {
+			deadline = idleDeadline
+		}
+	}
+	return deadline
 }
 
 func (p *openAIWSConnPool) releaseExpiredOwnersLocked(ap *openAIWSAccountPool, now time.Time) {
 	if ap == nil {
 		return
 	}
+	released := false
 	for _, conn := range ap.conns {
-		if conn == nil || conn.ownerSession == "" || conn.ownerUntil.IsZero() || now.Before(conn.ownerUntil) {
+		if conn == nil || conn.ownerSession == "" || conn.isLeased() || conn.waiters.Load() > 0 {
+			continue
+		}
+		deadline := p.sessionOwnerUnbindDeadline(conn, now)
+		if deadline.IsZero() || now.Before(deadline) {
 			continue
 		}
 		conn.ownerSession = ""
 		conn.ownerUntil = time.Time{}
 		conn.poolRole = openAIWSConnRoleStandby
+		released = true
+	}
+	if released {
+		ap.signalChangedLocked()
 	}
 }
 
@@ -1559,6 +1596,9 @@ func (p *openAIWSConnPool) isConnPinnedLocked(ap *openAIWSAccountPool, connID st
 func (p *openAIWSConnPool) cleanupAccountLocked(ap *openAIWSAccountPool, now time.Time, maxConns int) []*openAIWSConn {
 	if ap == nil {
 		return nil
+	}
+	if OpenAIWSPoolOptimizationActive() {
+		p.releaseExpiredOwnersLocked(ap, now)
 	}
 	maxAge := p.maxConnAge()
 
