@@ -754,7 +754,13 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			// 在首个 token 前先缓冲事件（如 response.created），
 			// 以便上游早期断连时仍可安全回退到 HTTP，不给下游发送半截流。
 			// 二次开发：判据由 firstTokenMs 换成 sawSemanticToken，见其声明处注释。
+			// network TTFT 模式按 CPA 语义直接转发每个非终止事件，
+			// 包括 response.created 等结构帧；否则下游 Sub2API 只能在
+			// 真正 delta 到达时看到首个事件，导致链路中的 first_token_ms 变慢。
 			shouldBuffer := !sawSemanticToken && !isTokenEvent && !isTerminalEvent
+			if shouldBuffer && shouldUseNetworkTTFT(s, ctx, account) {
+				shouldBuffer = false
+			}
 			if shouldBuffer {
 				buffered := make([]byte, len(message))
 				copy(buffered, message)

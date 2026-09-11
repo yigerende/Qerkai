@@ -35,7 +35,7 @@ func TestNetworkTTFTAcceptsStructuralEventsAsFirstFrame(t *testing.T) {
 // TestBufferWindowIgnoresNetworkTTFT 核心用例：缓冲判据只认真实 token 事件。
 //
 // 复刻 v2 收帧循环里的两个变量与判定，确保 network 口径不会提前关闭缓冲窗口。
-// 若有人把 shouldBuffer 改回依赖 firstTokenMs，本用例会失败。
+// network 模式按 CPA 语义直接出站，不缓存首帧前的结构事件。
 func TestBufferWindowIgnoresNetworkTTFT(t *testing.T) {
 	restore := setTTFTModeForTest(t, OpenAITTFTModeNetwork)
 	defer restore()
@@ -67,16 +67,18 @@ func TestBufferWindowIgnoresNetworkTTFT(t *testing.T) {
 		}
 		isTerminal := isOpenAIWSTerminalEvent(eventType)
 		shouldBuffer := !sawSemanticToken && !isTokenEvent && !isTerminal
+		if shouldBuffer && shouldUseNetworkTTFT(svc, ctx, account) {
+			shouldBuffer = false
+		}
 		if shouldBuffer {
 			bufferedCount++
 		}
-		// 前 4 个结构性事件必须仍在缓冲窗口内。
-		if i < 4 && !shouldBuffer {
-			t.Fatalf("idx=%d event=%s 应被缓冲，实际未缓冲（缓冲窗口被 TTFT 口径提前关闭）", i+1, eventType)
+		if shouldBuffer {
+			t.Fatalf("idx=%d event=%s 不应被 network 模式缓冲", i+1, eventType)
 		}
 	}
-	if bufferedCount != 4 {
-		t.Fatalf("bufferedCount = %d, want 4", bufferedCount)
+	if bufferedCount != 0 {
+		t.Fatalf("bufferedCount = %d, want 0", bufferedCount)
 	}
 	// TTFT 仍应按 network 口径在第一帧记录，两者互不干扰。
 	if firstTokenMs == nil {
