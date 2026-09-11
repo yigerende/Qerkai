@@ -241,6 +241,7 @@ type SystemSettings struct {
 	// ForceOpenAIUpstreamWS 无视客户端协议，强制与 OpenAI 上游使用 WebSocket（默认 false）。
 	// 二次开发功能，详见 service/openai_force_upstream_ws.go。
 	ForceOpenAIUpstreamWS                  bool
+	OpenAIWSChannelProbeHTTP               bool
 	OpenAIWSPoolOptimizationEnabled        bool
 	OpenAIWSPrewarmIdlePerAccount          int
 	OpenAIWSStandbyIdlePerAccount          int

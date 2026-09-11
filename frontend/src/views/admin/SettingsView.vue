@@ -5341,6 +5341,18 @@
                 <Toggle v-model="form.enable_metadata_passthrough" />
               </div>
 
+              <div class="flex items-center justify-between">
+                <div>
+                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t("admin.settings.gatewayForwarding.openAIWSChannelProbeHTTP") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.gatewayForwarding.openAIWSChannelProbeHTTPHint") }}
+                  </p>
+                </div>
+                <Toggle v-model="form.openai_ws_channel_probe_http" />
+              </div>
+
               <!-- Force OpenAI Upstream WebSocket -->
               <div class="flex items-center justify-between">
                 <div>
@@ -9808,6 +9820,7 @@ const form = reactive<SettingsForm>({
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   force_openai_upstream_ws: false,
+  openai_ws_channel_probe_http: false,
   openai_ws_pool_optimization_enabled: false,
   openai_ws_prewarm_idle_per_account: 3,
   openai_ws_standby_idle_per_account: 3,
@@ -11425,6 +11438,7 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       force_openai_upstream_ws: form.force_openai_upstream_ws,
+      openai_ws_channel_probe_http: form.openai_ws_channel_probe_http,
       openai_ws_pool_optimization_enabled: form.openai_ws_pool_optimization_enabled,
       openai_ws_prewarm_idle_per_account: form.openai_ws_prewarm_idle_per_account,
       openai_ws_standby_idle_per_account: form.openai_ws_standby_idle_per_account,

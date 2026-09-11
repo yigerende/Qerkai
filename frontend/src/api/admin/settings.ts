@@ -624,6 +624,7 @@ export interface SystemSettings {
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   force_openai_upstream_ws: boolean;
+  openai_ws_channel_probe_http: boolean;
   openai_ws_pool_optimization_enabled: boolean;
   openai_ws_prewarm_idle_per_account: number;
   openai_ws_standby_idle_per_account: number;
@@ -953,6 +954,7 @@ export interface UpdateSettingsRequest {
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   force_openai_upstream_ws?: boolean;
+  openai_ws_channel_probe_http?: boolean;
   openai_ws_pool_optimization_enabled?: boolean;
   openai_ws_prewarm_idle_per_account?: number;
   openai_ws_standby_idle_per_account?: number;

@@ -247,6 +247,7 @@ type UpdateSettingsRequest struct {
 	EnableFingerprintUnification           *bool    `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool    `json:"enable_metadata_passthrough"`
 	ForceOpenAIUpstreamWS                  *bool    `json:"force_openai_upstream_ws"`
+	OpenAIWSChannelProbeHTTP               *bool    `json:"openai_ws_channel_probe_http"`
 	OpenAIWSPoolOptimizationEnabled        *bool    `json:"openai_ws_pool_optimization_enabled"`
 	OpenAIWSPrewarmIdlePerAccount          *int     `json:"openai_ws_prewarm_idle_per_account"`
 	OpenAIWSStandbyIdlePerAccount          *int     `json:"openai_ws_standby_idle_per_account"`
@@ -1714,6 +1715,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.ForceOpenAIUpstreamWS
 			}
 			return previousSettings.ForceOpenAIUpstreamWS
+		}(),
+		OpenAIWSChannelProbeHTTP: func() bool {
+			if req.OpenAIWSChannelProbeHTTP != nil {
+				return *req.OpenAIWSChannelProbeHTTP
+			}
+			return previousSettings.OpenAIWSChannelProbeHTTP
 		}(),
 		OpenAIWSPoolOptimizationEnabled:        boolValueOrDefault(req.OpenAIWSPoolOptimizationEnabled, previousSettings.OpenAIWSPoolOptimizationEnabled),
 		OpenAIWSPrewarmIdlePerAccount:          intValueOrDefault(req.OpenAIWSPrewarmIdlePerAccount, previousSettings.OpenAIWSPrewarmIdlePerAccount),

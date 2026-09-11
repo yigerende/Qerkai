@@ -205,6 +205,7 @@ type SystemSettings struct {
 	EnableFingerprintUnification           bool    `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              bool    `json:"enable_metadata_passthrough"`
 	ForceOpenAIUpstreamWS                  bool    `json:"force_openai_upstream_ws"`
+	OpenAIWSChannelProbeHTTP               bool    `json:"openai_ws_channel_probe_http"`
 	OpenAIWSPoolOptimizationEnabled        bool    `json:"openai_ws_pool_optimization_enabled"`
 	OpenAIWSPrewarmIdlePerAccount          int     `json:"openai_ws_prewarm_idle_per_account"`
 	OpenAIWSStandbyIdlePerAccount          int     `json:"openai_ws_standby_idle_per_account"`

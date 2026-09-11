@@ -149,6 +149,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	requestView := newOpenAIRequestView(body)
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
+	if !reqStream && OpenAIWSChannelProbeHTTPEnabled() && IsSub2APIChannelProbeRequest(body) {
+		wsDecision = openAIWSHTTPDecision("sub2api_channel_probe_http")
+	}
 
 	if account.Platform == PlatformGrok {
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)

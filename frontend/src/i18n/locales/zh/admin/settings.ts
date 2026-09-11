@@ -478,6 +478,8 @@ export default {
         forceOpenAIUpstreamWS: '强制 OpenAI 上游 WebSocket',
         forceOpenAIUpstreamWSHint:
           '开启后，无论客户端使用 HTTP 还是 WebSocket，与 OpenAI 上游之间一律使用 WebSocket。仅覆盖「账号未显式启用 WS」这一种降级原因；全局强制 HTTP、账号级强制 HTTP 等开关仍然生效。默认关闭。',
+        openAIWSChannelProbeHTTP: 'Sub 渠道探点绕过强制 WS',
+        openAIWSChannelProbeHTTPHint: '开启后，识别 Sub2API 渠道监控的固定算术探点请求时，改走原来的 HTTP/SSE 上游；默认关闭。',
         wsPoolOptimization: 'WS 连接池优化调度',
         wsPoolOptimizationHint: '启用会话专属连接、公共预热池和公共备用池；关闭后仍按当前强制 WS 原逻辑执行。',
         wsPoolFields: {

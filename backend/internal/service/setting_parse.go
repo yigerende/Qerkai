@@ -868,6 +868,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
 	result.ForceOpenAIUpstreamWS = settings[SettingKeyForceOpenAIUpstreamWS] == "true"
+	result.OpenAIWSChannelProbeHTTP = settings[SettingKeyOpenAIWSChannelProbeHTTP] == "true"
 	result.OpenAIWSPoolOptimizationEnabled = settings[SettingKeyOpenAIWSPoolOptimizationEnabled] == "true"
 	result.OpenAIWSPrewarmIdlePerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSPrewarmIdlePerAccount, 3)
 	result.OpenAIWSStandbyIdlePerAccount = parseIntSettingDefault(settings, SettingKeyOpenAIWSStandbyIdlePerAccount, 3)

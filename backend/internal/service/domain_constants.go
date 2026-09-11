@@ -634,6 +634,9 @@ const (
 	// SettingKeyForceOpenAIUpstreamWS 无视客户端协议，强制与 OpenAI 上游使用 WebSocket（默认 false）
 	// 二次开发功能，实现见 service/openai_force_upstream_ws.go
 	SettingKeyForceOpenAIUpstreamWS = "force_openai_upstream_ws"
+	// SettingKeyOpenAIWSChannelProbeHTTP lets recognized Sub2API probes bypass
+	// forced upstream WS and use the legacy HTTP/SSE path (default false).
+	SettingKeyOpenAIWSChannelProbeHTTP = "openai_ws_channel_probe_http"
 	// 强制 WS 下的会话隔离预热/备用池优化。关闭时严格保留原强制 WS 调度。
 	SettingKeyOpenAIWSPoolOptimizationEnabled = "openai_ws_pool_optimization_enabled"
 	SettingKeyOpenAIWSPrewarmIdlePerAccount   = "openai_ws_prewarm_idle_per_account"

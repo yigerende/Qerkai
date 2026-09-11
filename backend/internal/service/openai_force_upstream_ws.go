@@ -61,10 +61,42 @@ type cachedForceUpstreamWS struct {
 var (
 	forceUpstreamWSCache    atomic.Value // *cachedForceUpstreamWS
 	forceUpstreamWSSF       singleflight.Group
+	channelProbeHTTPCache   atomic.Value // *cachedForceUpstreamWS
+	channelProbeHTTPSF      singleflight.Group
 	forceUpstreamWSSettings atomic.Pointer[SettingService]
 	// forceUpstreamWSOverride 仅供测试直接指定开关值，生产路径始终为空。
 	forceUpstreamWSOverride atomic.Pointer[bool]
 )
+
+// OpenAIWSChannelProbeHTTPEnabled reports whether recognized Sub2API channel
+// probes should use the legacy HTTP/SSE upstream path.
+func OpenAIWSChannelProbeHTTPEnabled() bool {
+	if cached, ok := channelProbeHTTPCache.Load().(*cachedForceUpstreamWS); ok && cached != nil && time.Now().UnixNano() < cached.expiresAt {
+		return cached.value
+	}
+	svc := forceUpstreamWSSettings.Load()
+	if svc == nil || svc.settingRepo == nil {
+		return false
+	}
+	result, _, _ := channelProbeHTTPSF.Do(SettingKeyOpenAIWSChannelProbeHTTP, func() (any, error) {
+		if cached, ok := channelProbeHTTPCache.Load().(*cachedForceUpstreamWS); ok && cached != nil && time.Now().UnixNano() < cached.expiresAt {
+			return cached.value, nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), forceUpstreamWSDBTimeout)
+		defer cancel()
+		raw, err := svc.settingRepo.GetValue(ctx, SettingKeyOpenAIWSChannelProbeHTTP)
+		enabled := err == nil && strings.EqualFold(strings.TrimSpace(raw), "true")
+		channelProbeHTTPCache.Store(&cachedForceUpstreamWS{value: enabled, expiresAt: time.Now().Add(forceUpstreamWSCacheTTL).UnixNano()})
+		return enabled, nil
+	})
+	value, _ := result.(bool)
+	return value
+}
+
+func refreshOpenAIWSChannelProbeHTTPCache(enabled bool) {
+	channelProbeHTTPSF.Forget(SettingKeyOpenAIWSChannelProbeHTTP)
+	channelProbeHTTPCache.Store(&cachedForceUpstreamWS{value: enabled, expiresAt: time.Now().Add(forceUpstreamWSCacheTTL).UnixNano()})
+}
 
 // registerForceUpstreamWSSettingService 由 NewSettingService 调用，
 // 让 resolver 装饰器能在没有 context 与 service 引用的情况下读取设置。

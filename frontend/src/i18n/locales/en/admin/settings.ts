@@ -485,6 +485,8 @@ export default {
         forceOpenAIUpstreamWS: 'Force OpenAI Upstream WebSocket',
         forceOpenAIUpstreamWSHint:
           'When enabled, always use WebSocket to the OpenAI upstream regardless of whether the client uses HTTP or WebSocket. Only overrides the "account has not explicitly enabled WS" downgrade reason; global force-HTTP and per-account force-HTTP switches still apply. Disabled by default.',
+        openAIWSChannelProbeHTTP: 'Bypass forced WS for Sub channel probes',
+        openAIWSChannelProbeHTTPHint: 'When enabled, recognized Sub2API channel arithmetic probes use the legacy HTTP/SSE upstream path; disabled by default.',
         wsPoolOptimization: 'WS Connection Pool Optimization',
         wsPoolOptimizationHint: 'Use session-owned connections plus public prewarm and standby pools. When disabled, the current forced WS scheduler remains unchanged.',
         wsPoolFields: {

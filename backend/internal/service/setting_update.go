@@ -472,6 +472,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyForceOpenAIUpstreamWS] = strconv.FormatBool(settings.ForceOpenAIUpstreamWS)
+	updates[SettingKeyOpenAIWSChannelProbeHTTP] = strconv.FormatBool(settings.OpenAIWSChannelProbeHTTP)
 	if settings.OpenAIWSPrewarmIdlePerAccount < 0 || settings.OpenAIWSStandbyIdlePerAccount < 0 || settings.OpenAIWSStandbyMaxPerAccount < settings.OpenAIWSStandbyIdlePerAccount {
 		return nil, fmt.Errorf("%w: inventory values are invalid", ErrInvalidOpenAIWSPoolSettings)
 	}
@@ -730,6 +731,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
 	})
 	refreshForceUpstreamWSCache(settings.ForceOpenAIUpstreamWS)
+	refreshOpenAIWSChannelProbeHTTPCache(settings.OpenAIWSChannelProbeHTTP)
 	refreshOpenAIWSPoolOptimizationSettings(settings)
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
