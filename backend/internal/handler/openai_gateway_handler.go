@@ -772,6 +772,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			}()
 			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
 		}()
+		markOpenAIUpstream5xxRetryCompleted(c, forwardStart, result, err)
 		var cyberBlockBodyHTTP []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyHTTP = sessionHashBody
@@ -1354,6 +1355,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}()
 			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
 		}()
+		markOpenAIUpstream5xxRetryCompleted(c, forwardStart, result, err)
 		var cyberBlockBodyMsg []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyMsg = body
@@ -2920,6 +2922,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					cyberMarked,
 					turnErr,
 				)
+				if turnErr == nil && result != nil {
+					markOpenAIUpstream5xxRetryCompleted(c, turnStart, result, nil)
+				}
 				if turnErr != nil {
 					if result == nil || result.ImageCount <= 0 {
 						return

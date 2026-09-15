@@ -250,6 +250,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			}()
 			return h.gatewayService.ForwardImages(requestCtx, c, account, body, parsed, channelMapping.MappedModel)
 		}()
+		markOpenAIUpstream5xxRetryCompleted(c, forwardStart, result, err)
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs

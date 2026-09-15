@@ -79,9 +79,9 @@ type OpenAIUpstream5xxRetryLogEntry struct {
 	RetryDelayMS int64 `json:"retry_delay_ms"`
 	// ExtraLatencyMS 因重试额外付出的耗时（毫秒）。
 	//
-	// 口径：从「首个 502/503 被拦下」到「本条事件发生」的墙钟时间差。
-	// 这正是相比「不重试直接失败」多花掉的时间 —— 也就是重试机制对本次请求
-	// 的真实成本。intercepted 事件恒为 0（此刻还没有额外开销）。
+	// 口径：从「首个 502/503 被拦下」到「重试链路终点」的墙钟时间差。
+	// 成功流式请求的终点是最终重试首个有效输出，不包含其后的完整生成时间；
+	// intercepted 事件恒为 0（此刻还没有额外开销）。
 	ExtraLatencyMS int64 `json:"extra_latency_ms"`
 	// RetryCount 到本条事件为止，本次请求累计发生的重试次数。
 	RetryCount int `json:"retry_count"`

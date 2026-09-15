@@ -387,6 +387,34 @@ func TestOpenAIUpstream5xxRetryTrackerSucceeded(t *testing.T) {
 	}
 }
 
+func TestOpenAIUpstream5xxRetryTrackerUsesMarkedCompletion(t *testing.T) {
+	restore := setOpenAIUpstream5xxRetryForTest(testOpenAIUpstream5xxRetryConfig())
+	defer restore()
+	ClearOpenAIUpstream5xxRetryLog()
+	defer ClearOpenAIUpstream5xxRetryLog()
+
+	c := newOpenAIUpstream5xxRetryTestContext(t)
+	NoteOpenAIUpstream5xxRetryIntercept(c, testOpenAIUpstream5xxOAuthAccount(),
+		&UpstreamFailoverError{StatusCode: http.StatusBadGateway}, "m", 1, 0, 500*time.Millisecond)
+	tracker := openAIUpstream5xxRetryTrackerFrom(c)
+	tracker.mu.Lock()
+	tracker.firstInterceptAt = time.Now().Add(-100 * time.Millisecond)
+	tracker.mu.Unlock()
+	completedAt := time.Now().Add(-40 * time.Millisecond)
+	MarkOpenAIUpstream5xxRetryCompleted(c, completedAt)
+	// 模拟最终流在首个有效输出后仍持续了一段时间；这段时间不应进入指标。
+	time.Sleep(20 * time.Millisecond)
+	FlushOpenAIUpstream5xxRetryTracker(c, http.StatusOK)
+
+	page := GetOpenAIUpstream5xxRetryLog(OpenAIUpstream5xxRetryLogFilter{Event: OpenAIUpstream5xxRetryEventSucceeded})
+	if len(page.Entries) != 1 {
+		t.Fatalf("expected one succeeded entry, got %d", len(page.Entries))
+	}
+	if got := page.Entries[0].ExtraLatencyMS; got < 45 || got > 90 {
+		t.Fatalf("extra latency = %dms, want marked completion interval near 60ms", got)
+	}
+}
+
 func TestOpenAIUpstream5xxRetryTrackerExhausted(t *testing.T) {
 	restore := setOpenAIUpstream5xxRetryForTest(testOpenAIUpstream5xxRetryConfig())
 	defer restore()

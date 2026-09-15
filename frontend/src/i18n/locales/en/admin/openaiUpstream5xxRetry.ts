@@ -23,8 +23,8 @@ export default {
       succeeded: 'Retry succeeded',
       exhausted: 'Budget exhausted',
       skipped: 'Not retried',
-      avgExtraLatency: 'Avg extra latency',
-      maxExtraLatency: 'Max extra latency',
+      avgExtraLatency: 'Avg retry extra latency',
+      maxExtraLatency: 'Max retry extra latency',
       capacity: 'Buffer capacity'
     },
     filters: {
@@ -57,7 +57,7 @@ export default {
       transport: 'Transport',
       attempt: 'Progress',
       delay: 'Delay',
-      extraLatency: 'Extra latency',
+      extraLatency: 'Retry extra latency',
       requestId: 'Request ID',
       message: 'Notes'
     },

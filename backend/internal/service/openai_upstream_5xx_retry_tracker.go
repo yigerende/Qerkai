@@ -13,12 +13,12 @@ import (
 
 // 502/503 重试的请求级追踪（二次开发功能，非上游代码）
 //
-// 职责：把「拦截」与「最终结果」串成一条可读链路，并算出本次重试为客户端
-// 额外增加了多少毫秒。
+// 职责：把「拦截」与「最终结果」串成一条可读链路，并算出重试链路本身
+// 额外占用了多少毫秒。
 //
 // 为什么需要 tracker 而不是在拦截点直接写完整日志：
 //   - 「重试成功 / 重试耗尽」只有请求走完才知道；
-//   - 「多了多少 ms」需要「第一次拦截时刻 → 请求结束时刻」的差值；
+//   - 「多了多少 ms」需要「第一次拦截时刻 → 重试终点」的差值；
 //   - 6 个 handler failover 循环各有多个成功/失败出口，逐个接管会散落十几处改动。
 //
 // 因此拦截时只在 gin context 上挂一个 tracker，终局事件统一由访问日志中间件
@@ -47,6 +47,10 @@ type openAIUpstream5xxRetryTracker struct {
 	lastAccountName string
 	lastModel       string
 	lastMessage     string
+	// completedAt 是重试链路的终点。成功流式请求取最终重试首个有效输出的时刻，
+	// 避免把后续完整生成时间算进重试额外耗时；非流式请求或耗尽请求由 Flush
+	// 使用请求结束时刻兜底。
+	completedAt time.Time
 	// flushed 防止重复落盘。
 	flushed bool
 }
@@ -134,6 +138,33 @@ func RecordOpenAIUpstream5xxRetrySkipped(c *gin.Context, account *Account, statu
 	})
 }
 
+// MarkOpenAIUpstream5xxRetryCompleted 标记重试链路已经完成。
+//
+// 流式成功请求应传入最终重试首个有效输出的时间点，而不是整个请求返回的时间点。
+// 该函数只更新已经存在且确实发生过拦截的 tracker，不会为普通请求创建追踪对象。
+func MarkOpenAIUpstream5xxRetryCompleted(c *gin.Context, completedAt time.Time) {
+	if c == nil {
+		return
+	}
+	raw, ok := c.Get(openAIUpstream5xxRetryTrackerKey)
+	if !ok {
+		return
+	}
+	tracker, ok := raw.(*openAIUpstream5xxRetryTracker)
+	if !ok || tracker == nil {
+		return
+	}
+	if completedAt.IsZero() {
+		completedAt = time.Now()
+	}
+
+	tracker.mu.Lock()
+	if tracker.intercepts > 0 && (tracker.completedAt.IsZero() || completedAt.Before(tracker.completedAt)) {
+		tracker.completedAt = completedAt
+	}
+	tracker.mu.Unlock()
+}
+
 // FlushOpenAIUpstream5xxRetryTracker 在请求结束后落盘终局事件。
 //
 // 由访问日志中间件调用（请求结束后必然执行且只执行一次）。
@@ -141,7 +172,8 @@ func RecordOpenAIUpstream5xxRetrySkipped(c *gin.Context, account *Account, statu
 //   - 2xx  → 重试成功；
 //   - 其他 → 重试耗尽（等待时间已白花）。
 //
-// 额外耗时 = 现在 - 第一次拦截时刻，即相比「首次 502 直接失败」多花的墙钟时间。
+// 额外耗时 = 重试终点 - 第一次拦截时刻。成功流式请求的重试终点是首个有效输出，
+// 不包含首个输出之后的完整生成时间；没有提前标记终点时才退回请求结束时刻。
 //
 // 本次请求没有任何拦截时直接返回，不产生任何写入。
 func FlushOpenAIUpstream5xxRetryTracker(c *gin.Context, clientStatus int) {
@@ -175,7 +207,14 @@ func FlushOpenAIUpstream5xxRetryTracker(c *gin.Context, clientStatus int) {
 		UpstreamMessage: tracker.lastMessage,
 	}
 	if !tracker.firstInterceptAt.IsZero() {
-		entry.ExtraLatencyMS = time.Since(tracker.firstInterceptAt).Milliseconds()
+		endAt := tracker.completedAt
+		if endAt.IsZero() {
+			endAt = time.Now()
+		}
+		if endAt.Before(tracker.firstInterceptAt) {
+			endAt = tracker.firstInterceptAt
+		}
+		entry.ExtraLatencyMS = endAt.Sub(tracker.firstInterceptAt).Milliseconds()
 	}
 	tracker.mu.Unlock()
 

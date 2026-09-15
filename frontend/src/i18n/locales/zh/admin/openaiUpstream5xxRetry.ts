@@ -23,8 +23,8 @@ export default {
       succeeded: '重试成功',
       exhausted: '预算耗尽',
       skipped: '未重试',
-      avgExtraLatency: '平均额外耗时',
-      maxExtraLatency: '最大额外耗时',
+      avgExtraLatency: '平均重试额外耗时',
+      maxExtraLatency: '最大重试额外耗时',
       capacity: '缓冲容量'
     },
     filters: {
@@ -57,7 +57,7 @@ export default {
       transport: '协议',
       attempt: '重试进度',
       delay: '间隔',
-      extraLatency: '额外耗时',
+      extraLatency: '重试额外耗时',
       requestId: '请求 ID',
       message: '备注'
     },

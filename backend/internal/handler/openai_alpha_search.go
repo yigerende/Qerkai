@@ -184,6 +184,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			}
 			return h.gatewayService.ForwardAlphaSearch(c.Request.Context(), c, account, forwardBody)
 		}()
+		markOpenAIUpstream5xxRetryCompleted(c, forwardStart, result, err)
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, time.Since(forwardStart).Milliseconds())
 
 		if err == nil {

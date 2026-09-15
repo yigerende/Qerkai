@@ -47,6 +47,28 @@ func noteOpenAIUpstream5xxRetry(
 	)
 }
 
+// markOpenAIUpstream5xxRetryCompleted 把成功重试的终点标记在首个有效输出处。
+// 流式 Forward 会等整条流结束后才返回，但 result.FirstTokenMs 保留了首个输出
+// 相对本次 attempt 开始的时间，因此可以避免把后续生成时间计入重试额外耗时。
+func markOpenAIUpstream5xxRetryCompleted(
+	c *gin.Context,
+	attemptStartedAt time.Time,
+	result *service.OpenAIForwardResult,
+	err error,
+) {
+	if err != nil || result == nil {
+		return
+	}
+	completedAt := time.Now()
+	if result.FirstTokenMs != nil && !attemptStartedAt.IsZero() && *result.FirstTokenMs >= 0 {
+		completedAt = attemptStartedAt.Add(time.Duration(*result.FirstTokenMs) * time.Millisecond)
+		if completedAt.After(time.Now()) {
+			completedAt = time.Now()
+		}
+	}
+	service.MarkOpenAIUpstream5xxRetryCompleted(c, completedAt)
+}
+
 // openAIUpstream5xxRetryBudgetExhausted 报告本次请求的累计重试预算是否用尽。
 //
 // 调用位置：handler 换号预算检查之前。返回 true 时调用方应按「failover 耗尽」
