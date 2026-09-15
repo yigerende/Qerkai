@@ -53,9 +53,10 @@ const (
 //
 // 全部为值类型，无指针、无切片：写入时整体赋值进数组槽位，不产生逃逸分配。
 type OpenAIUpstream5xxRetryLogEntry struct {
-	Seq      uint64 `json:"seq"`
-	AtUnixMS int64  `json:"at_unix_ms"`
-	Event    string `json:"event"`
+	StopReason string `json:"stop_reason,omitempty"`
+	Seq        uint64 `json:"seq"`
+	AtUnixMS   int64  `json:"at_unix_ms"`
+	Event      string `json:"event"`
 	// StatusCode 本条事件对外呈现的状态码：
 	// intercepted / skipped 为上游状态码；succeeded / exhausted 为最终返回客户端的状态码。
 	StatusCode int `json:"status_code"`

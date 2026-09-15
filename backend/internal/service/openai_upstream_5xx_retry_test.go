@@ -62,7 +62,7 @@ func TestMarkOpenAIUpstream5xxRetryableMarks502And503(t *testing.T) {
 	defer restore()
 
 	for _, statusCode := range []int{http.StatusBadGateway, http.StatusServiceUnavailable} {
-		failoverErr := &UpstreamFailoverError{StatusCode: statusCode}
+		failoverErr := &UpstreamFailoverError{StatusCode: statusCode, ResponseBody: businessRetryTestPayload(statusCode, "error")}
 		markOpenAIUpstream5xxRetryable(failoverErr, testOpenAIUpstream5xxOAuthAccount())
 
 		if !failoverErr.RetryableOnSameAccount {
@@ -193,9 +193,8 @@ func TestMarkOpenAIUpstream5xxRetryablePreservesCapacityShed(t *testing.T) {
 	}
 }
 
-// TestOpenAIUpstream5xxRetryEnabledRequiresPositiveSameAccount 确认
-// SameAccount=0 时视为未启用 —— 否则会打上可重试标记却没有任何预算可用。
-func TestOpenAIUpstream5xxRetryEnabledRequiresPositiveSameAccount(t *testing.T) {
+// Zero same-account budget still allows a retry on another account.
+func TestOpenAIUpstream5xxRetryEnabledAllowsImmediateAccountSwitch(t *testing.T) {
 	restore := setOpenAIUpstream5xxRetryForTest(OpenAIUpstream5xxRetryConfig{
 		Enabled:     true,
 		SameAccount: 0,
@@ -203,8 +202,8 @@ func TestOpenAIUpstream5xxRetryEnabledRequiresPositiveSameAccount(t *testing.T) 
 	})
 	defer restore()
 
-	if OpenAIUpstream5xxRetryEnabled() {
-		t.Fatal("SameAccount=0 must be treated as disabled")
+	if !OpenAIUpstream5xxRetryEnabled() {
+		t.Fatal("SameAccount=0 must allow account switching")
 	}
 }
 
@@ -222,7 +221,7 @@ func TestOpenAIUpstream5xxSameAccountRetryLimitOverridesPoolDefault(t *testing.T
 	defer restore()
 
 	account := testOpenAIUpstream5xxOAuthAccount()
-	failoverErr := &UpstreamFailoverError{StatusCode: http.StatusBadGateway}
+	failoverErr := &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: businessRetryTestPayload(502, "error")}
 	markOpenAIUpstream5xxRetryable(failoverErr, account)
 
 	if limit := OpenAIUpstream5xxSameAccountRetryLimit(failoverErr, account); limit != 6 {
@@ -255,7 +254,7 @@ func TestOpenAIUpstream5xxTotalRetryBudgetExhausted(t *testing.T) {
 	defer restore()
 
 	account := testOpenAIUpstream5xxOAuthAccount()
-	failoverErr := &UpstreamFailoverError{StatusCode: http.StatusBadGateway}
+	failoverErr := businessRetryTestFailure(http.StatusBadGateway)
 
 	cases := []struct {
 		name        string
@@ -356,13 +355,10 @@ func TestOpenAIUpstream5xxRetryTrackerSucceeded(t *testing.T) {
 
 	c := newOpenAIUpstream5xxRetryTestContext(t)
 	account := testOpenAIUpstream5xxOAuthAccount()
-	failoverErr := &UpstreamFailoverError{
-		StatusCode:          http.StatusBadGateway,
-		ResponseBody:        []byte(`{"error":{"message":"upstream overloaded"}}`),
-		SameAccountRetryMax: 2,
-	}
+	failoverErr := businessRetryTestFailure(http.StatusBadGateway)
 
 	NoteOpenAIUpstream5xxRetryIntercept(c, account, failoverErr, "gpt-5.3-codex", 1, 0, 500*time.Millisecond)
+	BeginOpenAIUpstream5xxUsageAttempt(c)
 	FlushOpenAIUpstream5xxRetryTracker(c, http.StatusOK)
 
 	page := GetOpenAIUpstream5xxRetryLog(OpenAIUpstream5xxRetryLogFilter{})
@@ -379,7 +375,7 @@ func TestOpenAIUpstream5xxRetryTrackerSucceeded(t *testing.T) {
 	if page.Entries[1].Event != OpenAIUpstream5xxRetryEventIntercepted {
 		t.Fatalf("oldest event = %q, want %q", page.Entries[1].Event, OpenAIUpstream5xxRetryEventIntercepted)
 	}
-	if page.Entries[1].UpstreamMessage != "upstream overloaded" {
+	if page.Entries[1].UpstreamMessage != truncateOpenAIUpstream5xxRetryMessage(businessProcessingMessage) {
 		t.Fatalf("upstream message = %q", page.Entries[1].UpstreamMessage)
 	}
 	if page.Stats.Succeeded != 1 || page.Stats.Intercepted != 1 {
@@ -395,7 +391,8 @@ func TestOpenAIUpstream5xxRetryTrackerUsesMarkedCompletion(t *testing.T) {
 
 	c := newOpenAIUpstream5xxRetryTestContext(t)
 	NoteOpenAIUpstream5xxRetryIntercept(c, testOpenAIUpstream5xxOAuthAccount(),
-		&UpstreamFailoverError{StatusCode: http.StatusBadGateway}, "m", 1, 0, 500*time.Millisecond)
+		businessRetryTestFailure(http.StatusBadGateway), "m", 1, 0, 500*time.Millisecond)
+	BeginOpenAIUpstream5xxUsageAttempt(c)
 	tracker := openAIUpstream5xxRetryTrackerFrom(c)
 	tracker.mu.Lock()
 	tracker.firstInterceptAt = time.Now().Add(-100 * time.Millisecond)
@@ -423,10 +420,12 @@ func TestOpenAIUpstream5xxRetryTrackerExhausted(t *testing.T) {
 
 	c := newOpenAIUpstream5xxRetryTestContext(t)
 	account := testOpenAIUpstream5xxOAuthAccount()
-	failoverErr := &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, SameAccountRetryMax: 2}
+	failoverErr := businessRetryTestFailure(http.StatusServiceUnavailable)
 
 	NoteOpenAIUpstream5xxRetryIntercept(c, account, failoverErr, "gpt-5.3-codex", 1, 0, 500*time.Millisecond)
+	BeginOpenAIUpstream5xxUsageAttempt(c)
 	NoteOpenAIUpstream5xxRetryIntercept(c, account, failoverErr, "gpt-5.3-codex", 2, 1, 500*time.Millisecond)
+	BeginOpenAIUpstream5xxUsageAttempt(c)
 	FlushOpenAIUpstream5xxRetryTracker(c, http.StatusServiceUnavailable)
 
 	page := GetOpenAIUpstream5xxRetryLog(OpenAIUpstream5xxRetryLogFilter{})
@@ -447,8 +446,9 @@ func TestFlushOpenAIUpstream5xxRetryTrackerIsIdempotent(t *testing.T) {
 	defer ClearOpenAIUpstream5xxRetryLog()
 
 	c := newOpenAIUpstream5xxRetryTestContext(t)
-	failoverErr := &UpstreamFailoverError{StatusCode: http.StatusBadGateway, SameAccountRetryMax: 2}
+	failoverErr := businessRetryTestFailure(http.StatusBadGateway)
 	NoteOpenAIUpstream5xxRetryIntercept(c, testOpenAIUpstream5xxOAuthAccount(), failoverErr, "m", 1, 0, time.Millisecond)
+	BeginOpenAIUpstream5xxUsageAttempt(c)
 
 	FlushOpenAIUpstream5xxRetryTracker(c, http.StatusOK)
 	FlushOpenAIUpstream5xxRetryTracker(c, http.StatusOK)

@@ -8,6 +8,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUsageLogFromServiceAdmin_IncludesOpenAIUpstream5xxRetryCount(t *testing.T) {
+	zero, positive := 0, 3
+	for _, count := range []*int{nil, &zero, &positive} {
+		log := &service.UsageLog{OpenAIUpstream5xxRetryCount: count}
+		adminDTO := UsageLogFromServiceAdmin(log)
+		require.Equal(t, count, adminDTO.OpenAIUpstream5xxRetryCount)
+		payload, err := json.Marshal(adminDTO)
+		require.NoError(t, err)
+		var fields map[string]any
+		require.NoError(t, json.Unmarshal(payload, &fields))
+		require.Contains(t, fields, "openai_upstream_5xx_retry_count")
+		if count == nil {
+			require.Nil(t, fields["openai_upstream_5xx_retry_count"])
+		} else {
+			require.Equal(t, float64(*count), fields["openai_upstream_5xx_retry_count"])
+		}
+		userPayload, err := json.Marshal(UsageLogFromService(log))
+		require.NoError(t, err)
+		require.NotContains(t, string(userPayload), "openai_upstream_5xx_retry_count")
+	}
+}
+
 func TestUsageLogFromService_IncludesOpenAIWSMode(t *testing.T) {
 	t.Parallel()
 

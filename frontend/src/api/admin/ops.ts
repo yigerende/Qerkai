@@ -1332,6 +1332,7 @@ export interface OpenAIUpstream5xxRetryLogEntry {
   extra_latency_ms: number
   retry_count: number
   upstream_message: string
+  stop_reason?: string
 }
 
 export interface OpenAIUpstream5xxRetryLogStats {

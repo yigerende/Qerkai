@@ -176,6 +176,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		}
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		writerSizeBeforeForward := c.Writer.Size()
+		service.BeginOpenAIUpstream5xxUsageAttempt(c)
 		forwardStart := time.Now()
 		var result *service.OpenAIForwardResult
 		result, err = func() (*service.OpenAIForwardResult, error) {
@@ -261,6 +262,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			h.handleFailoverExhausted(c, failoverErr, false)
 			return
 		}
+		service.ArmOpenAIUpstream5xxUsageRetry(c, account, failoverErr)
 		reqLog.Warn("openai_alpha_search.upstream_failover_switching",
 			zap.Int64("account_id", account.ID),
 			zap.Int("upstream_status", failoverErr.StatusCode),

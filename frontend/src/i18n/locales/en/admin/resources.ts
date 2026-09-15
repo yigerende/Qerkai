@@ -522,6 +522,7 @@ export default {
       group: 'Group',
       requestId: 'Request ID',
       upstreamRequestId: 'Upstream ID',
+      openaiUpstream5xxRetryCount: '502/503 Retries',
       requestIdCopied: 'Request ID copied',
       upstreamRequestIdCopied: 'Upstream ID copied',
       allModels: 'All Models',

@@ -886,6 +886,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if wsErr == nil {
 				break
 			}
+			var businessRetryErr *UpstreamFailoverError
+			if errors.As(wsErr, &businessRetryErr) && businessRetryErr.OpenAIUpstream5xxRetry != nil {
+				break
+			}
 			if c != nil && c.Writer != nil && c.Writer.Written() {
 				break
 			}

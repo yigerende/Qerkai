@@ -687,7 +687,8 @@ type AdminUsageLog struct {
 	// ModelMappingChain 模型映射链，如 "a→b→c"
 	ModelMappingChain *string `json:"model_mapping_chain,omitempty"`
 	// UpstreamRequestID 是直接上游声明的请求标识，仅管理端可见。
-	UpstreamRequestID *string `json:"upstream_request_id,omitempty"`
+	UpstreamRequestID           *string `json:"upstream_request_id,omitempty"`
+	OpenAIUpstream5xxRetryCount *int    `json:"openai_upstream_5xx_retry_count"`
 	// BillingTier 计费层级标签（per_request/image 模式）
 	BillingTier *string `json:"billing_tier,omitempty"`
 

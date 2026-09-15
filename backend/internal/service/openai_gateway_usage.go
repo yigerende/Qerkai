@@ -60,14 +60,15 @@ type CyberPolicyUsageInput struct {
 	OutputTokens int
 	// 渠道归因与请求级 meta，使 cyber 计费行与正常 RecordUsage 行口径一致
 	// （否则 cyber 行 channel_id 等为空，渠道维度统计会遗漏 cyber 命中）。
-	InboundEndpoint    string
-	UpstreamEndpoint   string
-	UserAgent          string
-	IPAddress          string
-	SessionID          string
-	RequestPayloadHash string
-	APIKeyService      APIKeyQuotaUpdater
-	NativeCompactionV2 bool
+	InboundEndpoint             string
+	UpstreamEndpoint            string
+	UserAgent                   string
+	IPAddress                   string
+	SessionID                   string
+	RequestPayloadHash          string
+	APIKeyService               APIKeyQuotaUpdater
+	NativeCompactionV2          bool
+	OpenAIUpstream5xxRetryCount int
 	ChannelUsageFields
 }
 
@@ -82,9 +83,10 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 		return
 	}
 	result := &OpenAIForwardResult{
-		RequestID: in.RequestID,
-		Model:     in.Model,
-		Stream:    in.Stream,
+		OpenAIUpstream5xxRetryCount: in.OpenAIUpstream5xxRetryCount,
+		RequestID:                   in.RequestID,
+		Model:                       in.Model,
+		Stream:                      in.Stream,
 		Usage: OpenAIUsage{
 			InputTokens:  in.InputTokens,
 			OutputTokens: in.OutputTokens,
@@ -367,34 +369,35 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	usageLog := &UsageLog{
-		UserID:                   user.ID,
-		APIKeyID:                 apiKey.ID,
-		AccountID:                account.ID,
-		RequestID:                requestID,
-		UpstreamRequestID:        usageUpstreamRequestIDPtr(account, result.UpstreamHeaders, result.OpenAIWSMode),
-		Model:                    result.Model,
-		RequestedModel:           requestedModel,
-		UpstreamModel:            optionalTrimmedStringPtr(result.UpstreamModel),
-		UpstreamResponseModel:    optionalTrimmedStringPtr(result.UpstreamResponseModel),
-		UpstreamModelMismatch:    upstreamModelMismatch(sentModel, result.UpstreamResponseModel),
-		ServiceTier:              result.ServiceTier,
-		ReasoningEffort:          result.ReasoningEffort,
-		RequestedReasoningEffort: coalesceRequestedReasoningEffort(result.RequestedReasoningEffort, result.ReasoningEffort),
-		InboundEndpoint:          optionalTrimmedStringPtr(input.InboundEndpoint),
-		UpstreamEndpoint:         optionalTrimmedStringPtr(input.UpstreamEndpoint),
-		InputTokens:              actualInputTokens,
-		OutputTokens:             result.Usage.OutputTokens,
-		CacheCreationTokens:      result.Usage.CacheCreationInputTokens,
-		CacheReadTokens:          result.Usage.CacheReadInputTokens,
-		ImageInputTokens:         result.Usage.ImageInputTokens,
-		ImageOutputTokens:        result.Usage.ImageOutputTokens,
-		ImageCount:               result.ImageCount,
-		ImageSize:                optionalTrimmedStringPtr(result.ImageSize),
-		ImageInputSize:           optionalTrimmedStringPtr(result.ImageInputSize),
-		ImageOutputSize:          optionalTrimmedStringPtr(result.ImageOutputSize),
-		ImageSizeSource:          optionalTrimmedStringPtr(result.ImageSizeSource),
-		ImageSizeBreakdown:       result.ImageSizeBreakdown,
-		NativeCompactionV2:       input.NativeCompactionV2,
+		UserID:                      user.ID,
+		APIKeyID:                    apiKey.ID,
+		AccountID:                   account.ID,
+		RequestID:                   requestID,
+		UpstreamRequestID:           usageUpstreamRequestIDPtr(account, result.UpstreamHeaders, result.OpenAIWSMode),
+		Model:                       result.Model,
+		RequestedModel:              requestedModel,
+		UpstreamModel:               optionalTrimmedStringPtr(result.UpstreamModel),
+		UpstreamResponseModel:       optionalTrimmedStringPtr(result.UpstreamResponseModel),
+		UpstreamModelMismatch:       upstreamModelMismatch(sentModel, result.UpstreamResponseModel),
+		ServiceTier:                 result.ServiceTier,
+		ReasoningEffort:             result.ReasoningEffort,
+		RequestedReasoningEffort:    coalesceRequestedReasoningEffort(result.RequestedReasoningEffort, result.ReasoningEffort),
+		InboundEndpoint:             optionalTrimmedStringPtr(input.InboundEndpoint),
+		UpstreamEndpoint:            optionalTrimmedStringPtr(input.UpstreamEndpoint),
+		InputTokens:                 actualInputTokens,
+		OutputTokens:                result.Usage.OutputTokens,
+		CacheCreationTokens:         result.Usage.CacheCreationInputTokens,
+		CacheReadTokens:             result.Usage.CacheReadInputTokens,
+		ImageInputTokens:            result.Usage.ImageInputTokens,
+		ImageOutputTokens:           result.Usage.ImageOutputTokens,
+		ImageCount:                  result.ImageCount,
+		ImageSize:                   optionalTrimmedStringPtr(result.ImageSize),
+		ImageInputSize:              optionalTrimmedStringPtr(result.ImageInputSize),
+		ImageOutputSize:             optionalTrimmedStringPtr(result.ImageOutputSize),
+		ImageSizeSource:             optionalTrimmedStringPtr(result.ImageSizeSource),
+		ImageSizeBreakdown:          result.ImageSizeBreakdown,
+		NativeCompactionV2:          input.NativeCompactionV2,
+		OpenAIUpstream5xxRetryCount: &result.OpenAIUpstream5xxRetryCount,
 	}
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {

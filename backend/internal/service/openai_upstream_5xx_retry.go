@@ -12,29 +12,9 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// 上游 502/503 过载重试（二次开发功能，非上游代码）
-//
-// 需求：OpenAI 上游偶发返回 502/503（"服务过载"）时，上游代码会把该错误直接
-// 抛给客户端 —— Codex CLI 侧表现为一次可见的失败。这类错误具备两个特征：
-//   1. 请求确定未被处理（上游返回的是网关层错误，不含任何模型输出）；
-//   2. 复发概率低，几百毫秒后原账号重试即可成功。
-//
-// 因此在网关内部做短间隔原地重试，对客户端完全透明。
-//
-// 设计取舍（为降低与上游的长期合并冲突）：
-//   - 判定、配置与观测全部集中在本新增文件与 openai_upstream_5xx_retry_log.go，
-//     上游不存在同名文件，冲突代价为零。
-//   - 不新造重试机械：复用上游 UpstreamFailoverError 上既有的
-//     RetryableOnSameAccount / RequestScopedTransient / SameAccountRetryMax /
-//     SameAccountRetryDelay 契约，由 handler 层现成的 sameAccountRetryAllowed
-//     循环执行重试。本文件只负责「给错误打上可重试标记」。
-//   - 对上游文件的改动是每处 1~6 行的接入点，无逻辑重写。
-//
-// 关闭开关后的行为保证：
-//
-//	本文件所有导出/包内入口的第一件事都是 OpenAIUpstream5xxRetryEnabled() 判定，
-//	返回 false 时立即原样返回，不修改任何 failoverErr 字段、不写日志、不影响
-//	账号降温、不改变重试预算。即开关关闭时链路与上游原始逻辑逐字节一致。
+// Settings and ownership helpers for the opt-in HTTP/SSE -> forced WS retry.
+// The WS reader matches the two provider messages and checks output safety.
+// A 502/503 status alone says nothing about whether a model processed a request.
 
 const (
 	// openAIUpstream5xxRetryCacheTTL 与 force_openai_upstream_ws 的缓存周期一致。
@@ -48,7 +28,6 @@ const (
 )
 
 // 默认值：原账号 2 次、整请求累计 5 次、间隔 500ms。
-// N=2 × 500ms 落在「客户端感知不到、又足以跨过上游瞬时抖动」的量级。
 const (
 	DefaultOpenAIUpstream5xxRetrySameAccount = 2
 	DefaultOpenAIUpstream5xxRetryTotal       = 5
@@ -228,9 +207,8 @@ func openAIUpstream5xxRetryIntSetting(ctx context.Context, svc *SettingService, 
 // 这是所有接入点的第一道判定：返回 false 时整条链路必须与上游原始逻辑一致。
 func OpenAIUpstream5xxRetryEnabled() bool {
 	config := OpenAIUpstream5xxRetrySettings()
-	// SameAccount=0 且 Total 无意义时视为未启用，避免打上可重试标记后
-	// 因预算为 0 而白跑一次判定。
-	return config.Enabled && config.SameAccount > 0
+	// Zero same-account retries means switch accounts immediately.
+	return config.Enabled && config.Total > 0
 }
 
 // setOpenAIUpstream5xxRetryForTest 供测试覆盖配置，返回还原函数。
@@ -241,12 +219,8 @@ func setOpenAIUpstream5xxRetryForTest(config OpenAIUpstream5xxRetryConfig) func(
 
 // isOpenAIUpstream5xxRetryStatus 判断状态码是否属于本功能覆盖范围。
 //
-// 只认 502 与 503：这两者语义明确 —— 上游网关层未能把请求交给模型，
-// 请求确定未被处理，原地重试绝对安全。
-//
-// 刻意不含 500/504：500 可能来自模型侧已开始处理后的内部错误，
-// 504 意味着上游已在等待模型响应（重试会造成重复计费与重复副作用）。
-// 这两者继续走上游既有的 failover 语义。
+// This is a coarse filter only; interception also requires the provider message
+// and the HTTP/SSE forced-WS output guard in openai_ws_business_retry.go.
 func isOpenAIUpstream5xxRetryStatus(statusCode int) bool {
 	switch statusCode {
 	case http.StatusBadGateway, http.StatusServiceUnavailable:
@@ -274,7 +248,8 @@ func isOpenAIUpstream5xxRetryAccount(account *Account) bool {
 	return account.IsOpenAIOAuthLike()
 }
 
-// IsOpenAIUpstream5xxRetryCandidate 报告「本次失败是否由本功能接管重试」。
+// IsOpenAIUpstream5xxRetryCandidate checks settings, status and account type.
+// Callers must use IsOpenAIUpstream5xxRetryOwned to determine actual ownership.
 //
 // 供 handler 层复用同一判据，避免各处重复展开条件。
 func IsOpenAIUpstream5xxRetryCandidate(statusCode int, account *Account) bool {
@@ -285,9 +260,8 @@ func IsOpenAIUpstream5xxRetryCandidate(statusCode int, account *Account) bool {
 
 // markOpenAIUpstream5xxRetryable 给 502/503 的 failover 错误打上同账号可重试标记。
 //
-// 由 newOpenAIAccountFailoverErrorWithClassificationHeaders 调用 —— 那是所有
-// 账号相关 OpenAI 上游失败（HTTP/SSE、WS 握手、WS 流内终止事件、passthrough）
-// 构造 failover 错误的唯一漏斗，一处接入即全链路覆盖。
+// Generic failover construction must not call this: handshake and other routes
+// retain their existing behavior. The targeted WS reader owns interception.
 //
 // 三项字段的作用：
 //   - RetryableOnSameAccount：让 handler 的 sameAccountRetryAllowed 允许原地重试；
@@ -309,14 +283,12 @@ func markOpenAIUpstream5xxRetryable(failoverErr *UpstreamFailoverError, account 
 	if !isOpenAIUpstream5xxRetryAccount(account) {
 		return
 	}
+	if openAIUpstream5xxBusinessErrorStatus(failoverErr.ResponseBody) != failoverErr.StatusCode {
+		return
+	}
 	// 凭证类失败（账号/工作区停用等）已由上游归入 AccountAuth 阶段并要求换号，
 	// 重试同一账号必然再次失败。
 	if failoverErr.Stage == GatewayFailureStageAccountAuth {
-		return
-	}
-	// 上游已判定为请求级瞬时故障（容量降载 capacity shed）时，重试预算与
-	// 客户端文案都已由上游填好。不覆盖，保持既有语义。
-	if failoverErr.RequestScopedTransient {
 		return
 	}
 	// 上游已给出更具体的失败归因（如 413 请求体超限）时不接管。
@@ -324,8 +296,10 @@ func markOpenAIUpstream5xxRetryable(failoverErr *UpstreamFailoverError, account 
 		return
 	}
 	config := OpenAIUpstream5xxRetrySettings()
-	failoverErr.RetryableOnSameAccount = true
+	failoverErr.OpenAIUpstream5xxRetry = &config
+	failoverErr.RetryableOnSameAccount = config.SameAccount > 0
 	failoverErr.RequestScopedTransient = true
+	failoverErr.SameAccountRetryDeadline = time.Time{}
 	failoverErr.SameAccountRetryMax = config.SameAccount
 	failoverErr.SameAccountRetryDelay = config.Delay
 }
@@ -336,22 +310,12 @@ func markOpenAIUpstream5xxRetryable(failoverErr *UpstreamFailoverError, account 
 // account.GetPoolModeRetryCount()，非池模式账号恒为 defaultPoolModeRetryCount(3)，
 // 会把管理员配置的 N>3 静默截断到 3。
 //
-// 返回 0 表示「本功能不接管，沿用上游预算」。判据完全由 status + account + 配置
-// 重新导出，因此不需要在 UpstreamFailoverError 上新增标记字段（那会改动上游结构体）。
+// An explicit config snapshot distinguishes owned failures from legacy retries.
 func OpenAIUpstream5xxSameAccountRetryLimit(failoverErr *UpstreamFailoverError, account *Account) int {
-	if failoverErr == nil {
+	if !IsOpenAIUpstream5xxRetryOwned(failoverErr, account) {
 		return 0
 	}
-	if !IsOpenAIUpstream5xxRetryCandidate(failoverErr.StatusCode, account) {
-		return 0
-	}
-	config := OpenAIUpstream5xxRetrySettings()
-	// 只在该错误确实由 markOpenAIUpstream5xxRetryable 标记过时接管：
-	// SameAccountRetryMax 与当前配置一致是其充分特征。
-	if failoverErr.SameAccountRetryMax != config.SameAccount {
-		return 0
-	}
-	return config.SameAccount
+	return failoverErr.OpenAIUpstream5xxRetry.SameAccount
 }
 
 // OpenAIUpstream5xxTotalRetryBudgetExhausted 判断本次请求的累计重试预算是否用尽。
@@ -367,18 +331,20 @@ func OpenAIUpstream5xxTotalRetryBudgetExhausted(
 	sameAccountRetryCount map[int64]int,
 	switchCount int,
 ) bool {
-	if failoverErr == nil {
+	if !IsOpenAIUpstream5xxRetryOwned(failoverErr, account) {
 		return false
 	}
-	if !IsOpenAIUpstream5xxRetryCandidate(failoverErr.StatusCode, account) {
-		return false
-	}
-	config := OpenAIUpstream5xxRetrySettings()
+	config := *failoverErr.OpenAIUpstream5xxRetry
 	used := switchCount
 	for _, count := range sameAccountRetryCount {
 		used += count
 	}
 	return used >= config.Total
+}
+
+func IsOpenAIUpstream5xxRetryOwned(failoverErr *UpstreamFailoverError, account *Account) bool {
+	return failoverErr != nil && failoverErr.OpenAIUpstream5xxRetry != nil &&
+		failoverErr.OpenAIUpstream5xxRetry.Enabled && isOpenAIUpstream5xxRetryAccount(account)
 }
 
 // 关于账号降温：本功能无需任何跳过逻辑。

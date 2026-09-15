@@ -19,9 +19,9 @@ export default {
     },
     stats: {
       total: 'Records',
-      intercepted: 'Intercepted',
+      intercepted: 'Retries started',
       succeeded: 'Retry succeeded',
-      exhausted: 'Budget exhausted',
+      exhausted: 'Retry failed',
       skipped: 'Not retried',
       avgExtraLatency: 'Avg retry extra latency',
       maxExtraLatency: 'Max retry extra latency',
@@ -36,15 +36,15 @@ export default {
       reset: 'Reset'
     },
     events: {
-      intercepted: 'Intercepted',
+      intercepted: 'Retry started',
       succeeded: 'Retry succeeded',
-      exhausted: 'Budget exhausted',
+      exhausted: 'Retry failed',
       skipped: 'Not retried'
     },
     eventHints: {
-      intercepted: 'Upstream returned 502/503; intercepted and about to retry on the same account',
+      intercepted: 'A designated upstream error triggered this switch and the next request started; counted in usage logs',
       succeeded: 'Upstream succeeded after retry; the client never saw a failure',
-      exhausted: 'Retry budget ran out and the error was returned to the client',
+      exhausted: 'The request failed or was canceled after retries; see notes for the stop reason',
       skipped: 'Matched 502/503 but was not retried (see notes column)'
     },
     columns: {
@@ -67,6 +67,14 @@ export default {
       unknown: 'Unknown'
     },
     attemptValue: 'attempt {attempt} / same-account {same}/{max}',
+    attemptSwitch: 'attempt {attempt} / switch account',
+    stopReasons: {
+      retry_count_exhausted: 'Total retry limit reached',
+      retry_time_exhausted: 'Retry time budget exhausted',
+      no_available_account: 'No available account',
+      client_disconnected: 'Client disconnected',
+      output_started: 'Output started; retries stopped'
+    },
     attemptTerminal: '{n} retries total',
     empty: 'No retry records yet',
     emptyFiltered: 'No records match the current filters',

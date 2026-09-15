@@ -19,9 +19,9 @@ export default {
     },
     stats: {
       total: '记录总数',
-      intercepted: '已拦截',
+      intercepted: '已执行重试',
       succeeded: '重试成功',
-      exhausted: '预算耗尽',
+      exhausted: '重试未恢复',
       skipped: '未重试',
       avgExtraLatency: '平均重试额外耗时',
       maxExtraLatency: '最大重试额外耗时',
@@ -36,15 +36,15 @@ export default {
       reset: '重置'
     },
     events: {
-      intercepted: '已拦截待重试',
+      intercepted: '已开始重试',
       succeeded: '重试成功',
-      exhausted: '预算耗尽',
+      exhausted: '重试未恢复',
       skipped: '未重试'
     },
     eventHints: {
-      intercepted: '上游返回 502/503，已拦下并准备原账号重试',
+      intercepted: '指定上游错误触发本开关，下一次请求已开始；与使用日志计数一致',
       succeeded: '重试后上游返回成功，客户端未感知失败',
-      exhausted: '重试预算用尽，最终把错误返回给了客户端',
+      exhausted: '重试后请求最终失败或取消，停止原因见备注',
       skipped: '命中 502/503 但本次未重试（原因见备注列）'
     },
     columns: {
@@ -67,6 +67,14 @@ export default {
       unknown: '未知'
     },
     attemptValue: '第 {attempt} 次 / 同账号 {same}/{max}',
+    attemptSwitch: '第 {attempt} 次 / 换账号',
+    stopReasons: {
+      retry_count_exhausted: '累计重试次数用尽',
+      retry_time_exhausted: '重试时间预算用尽',
+      no_available_account: '无可用账号',
+      client_disconnected: '客户端已断开',
+      output_started: '已开始输出，停止重试'
+    },
     attemptTerminal: '共重试 {n} 次',
     empty: '暂无重试观测记录',
     emptyFiltered: '没有符合筛选条件的记录',

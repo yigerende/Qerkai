@@ -21,6 +21,20 @@ var (
 	usageLogPlaceholderRe       = regexp.MustCompile(`\$(\d+)`)
 )
 
+func TestPrepareUsageLogInsert_OpenAIUpstream5xxRetryCount(t *testing.T) {
+	zero, positive := 0, 3
+	for _, count := range []*int{nil, &zero, &positive} {
+		prepared := prepareUsageLogInsert(&service.UsageLog{OpenAIUpstream5xxRetryCount: count})
+		idx := len(prepared.args) - 5
+		require.Equal(t, "integer", usageLogInsertArgTypes[idx])
+		arg := prepared.args[idx].(sql.NullInt64)
+		require.Equal(t, count != nil, arg.Valid)
+		if count != nil {
+			require.Equal(t, int64(*count), arg.Int64)
+		}
+	}
+}
+
 // newSQLCapturingMock 返回把实际下发 SQL 记录到 captured 的 sqlmock；语句一律视为匹配，
 // 参数仍由 WithArgs 校验。
 func newSQLCapturingMock(t *testing.T, captured *[]string) (*sql.DB, sqlmock.Sqlmock) {

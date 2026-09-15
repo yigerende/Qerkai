@@ -251,6 +251,16 @@
           </div>
         </template>
 
+        <template #cell-openai_upstream_5xx_retry_count="{ row }">
+          <span
+            data-testid="openai-upstream-5xx-retry-count"
+            class="whitespace-nowrap text-sm tabular-nums"
+            :class="row.openai_upstream_5xx_retry_count > 0
+              ? 'font-medium text-amber-600 dark:text-amber-400'
+              : 'text-gray-500 dark:text-gray-400'"
+          >{{ row.openai_upstream_5xx_retry_count ?? '-' }}</span>
+        </template>
+
         <template #cell-created_at="{ value }">
           <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatDateTime(value) }}</span>
         </template>

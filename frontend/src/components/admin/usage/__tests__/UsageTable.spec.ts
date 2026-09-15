@@ -93,6 +93,7 @@ const DataTableStub = {
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />
+        <slot name="cell-openai_upstream_5xx_retry_count" :row="row" />
         <slot name="cell-request_id" :row="row" />
         <slot name="cell-upstream_request_id" :row="row" />
       </div>
@@ -129,6 +130,25 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
+  it('shows retry counts including zero and keeps historical counts unknown', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [0, 3, null, undefined].map((count, index) => ({
+          ...baseImageRow,
+          request_id: `retry-${index}`,
+          openai_upstream_5xx_retry_count: count,
+        })),
+        columns: [],
+      },
+      global: {
+        stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true },
+      },
+    })
+
+    expect(wrapper.findAll('[data-testid="openai-upstream-5xx-retry-count"]').map(cell => cell.text()))
+      .toEqual(['0', '3', '-', '-'])
+  })
+
   beforeEach(() => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       x: 0,

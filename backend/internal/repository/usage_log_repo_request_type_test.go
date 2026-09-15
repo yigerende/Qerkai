@@ -99,6 +99,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
+			sqlmock.AnyArg(), // openai_upstream_5xx_retry_count
 			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
 			log.NativeCompactionV2,
@@ -194,6 +195,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
+			sqlmock.AnyArg(), // openai_upstream_5xx_retry_count
 			sqlmock.AnyArg(), // upstream_request_id
 			sqlmock.AnyArg(), // session_id
 			log.NativeCompactionV2,
@@ -957,6 +959,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullFloat64{},
+			sql.NullInt64{},  // openai_upstream_5xx_retry_count
 			sql.NullString{}, // upstream_request_id
 			sql.NullString{},
 			false, // native_compaction_v2
@@ -973,6 +976,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		require.NotNil(t, log.ImageSizeSource)
 		require.Equal(t, "output", *log.ImageSizeSource)
 		require.Equal(t, map[string]int{"4K": 2}, log.ImageSizeBreakdown)
+		require.Nil(t, log.OpenAIUpstream5xxRetryCount)
 	})
 
 	t.Run("request_type_ws_v2_overrides_legacy", func(t *testing.T) {
@@ -1032,19 +1036,22 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			false,
 			false,
-			sql.NullInt64{},   // channel_id
-			sql.NullString{},  // model_mapping_chain
-			sql.NullString{},  // billing_tier
-			sql.NullString{},  // billing_mode
-			sql.NullFloat64{}, // account_stats_cost
-			sql.NullString{},  // upstream_request_id
-			sql.NullString{},  // session_id
-			false,             // native_compaction_v2
+			sql.NullInt64{},                      // channel_id
+			sql.NullString{},                     // model_mapping_chain
+			sql.NullString{},                     // billing_tier
+			sql.NullString{},                     // billing_mode
+			sql.NullFloat64{},                    // account_stats_cost
+			sql.NullInt64{Int64: 3, Valid: true}, // openai_upstream_5xx_retry_count
+			sql.NullString{},                     // upstream_request_id
+			sql.NullString{},                     // session_id
+			false,                                // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
 		require.Equal(t, "priority", *log.ServiceTier)
+		require.NotNil(t, log.OpenAIUpstream5xxRetryCount)
+		require.Equal(t, 3, *log.OpenAIUpstream5xxRetryCount)
 		require.Equal(t, service.RequestTypeWSV2, log.RequestType)
 		require.True(t, log.Stream)
 		require.True(t, log.OpenAIWSMode)
@@ -1095,19 +1102,22 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			false,
 			false,
-			sql.NullInt64{},   // channel_id
-			sql.NullString{},  // model_mapping_chain
-			sql.NullString{},  // billing_tier
-			sql.NullString{},  // billing_mode
-			sql.NullFloat64{}, // account_stats_cost
-			sql.NullString{},  // upstream_request_id
-			sql.NullString{},  // session_id
-			true,              // native_compaction_v2
+			sql.NullInt64{},                      // channel_id
+			sql.NullString{},                     // model_mapping_chain
+			sql.NullString{},                     // billing_tier
+			sql.NullString{},                     // billing_mode
+			sql.NullFloat64{},                    // account_stats_cost
+			sql.NullInt64{Int64: 0, Valid: true}, // openai_upstream_5xx_retry_count
+			sql.NullString{},                     // upstream_request_id
+			sql.NullString{},                     // session_id
+			true,                                 // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
 		require.Equal(t, "flex", *log.ServiceTier)
+		require.NotNil(t, log.OpenAIUpstream5xxRetryCount)
+		require.Zero(t, *log.OpenAIUpstream5xxRetryCount)
 		require.Equal(t, service.RequestTypeStream, log.RequestType)
 		require.True(t, log.Stream)
 		require.False(t, log.OpenAIWSMode)
@@ -1164,6 +1174,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			sql.NullInt64{},   // openai_upstream_5xx_retry_count
 			sql.NullString{},  // upstream_request_id
 			sql.NullString{},  // session_id
 			false,             // native_compaction_v2

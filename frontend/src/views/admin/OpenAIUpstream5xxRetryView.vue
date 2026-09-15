@@ -124,7 +124,7 @@
                     {{ entry.request_id || entry.client_request_id || '-' }}
                   </div>
                 </td>
-                <td class="px-3 py-3"><div class="max-w-[18rem] truncate text-xs text-gray-500 dark:text-gray-400" :title="entry.upstream_message">{{ entry.upstream_message || '-' }}</div></td>
+                <td class="px-3 py-3"><div class="max-w-[18rem] truncate text-xs text-gray-500 dark:text-gray-400" :title="messageText(entry)">{{ messageText(entry) }}</div></td>
               </tr>
               <tr v-if="!loading && !page.entries.length">
                 <td colspan="12" class="px-4 py-12 text-center text-gray-400">
@@ -171,7 +171,7 @@ import {
   type OpenAIUpstream5xxRetryLogResponse,
 } from '@/api/admin/ops'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const appStore = useAppStore()
 
 const PAGE_SIZE = 50
@@ -303,11 +303,22 @@ const transportText = (transport: string) => {
 const attemptText = (entry: OpenAIUpstream5xxRetryLogEntry) => {
   if (isTerminal(entry.event)) return t('admin.openaiUpstream5xxRetry.attemptTerminal', { n: entry.retry_count })
   if (entry.event === 'skipped') return '-'
+  if (!entry.same_account_attempt) return t('admin.openaiUpstream5xxRetry.attemptSwitch', { attempt: entry.attempt })
   return t('admin.openaiUpstream5xxRetry.attemptValue', {
     attempt: entry.attempt,
     same: entry.same_account_attempt,
     max: entry.same_account_max,
   })
+}
+
+const messageText = (entry: OpenAIUpstream5xxRetryLogEntry) => {
+  if (!entry.stop_reason) return entry.upstream_message || '-'
+  const [reason, ...details] = entry.stop_reason.split(':')
+  const key = `admin.openaiUpstream5xxRetry.stopReasons.${reason}`
+  const label = te(key) ? t(key) : reason
+  const stop = [label, ...details].join(': ')
+  return entry.upstream_message && entry.upstream_message !== entry.stop_reason
+    ? `${stop}; ${entry.upstream_message}` : stop
 }
 
 const eventClass = (event: string) => {

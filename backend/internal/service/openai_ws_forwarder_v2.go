@@ -37,6 +37,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		return nil, wrapOpenAIWSFallback("invalid_state", errors.New("service or account is nil"))
 	}
 	responseModelObserver := &upstreamResponseModelObserver{}
+	businessRetry := s.openAIWSBusinessRetryState(c, account, reqStream, startTime)
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
 	if err != nil {
@@ -127,6 +128,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if savedTurnState, ok := stateStore.GetSessionTurnState(groupID, sessionHash); ok {
 			turnState = savedTurnState
 		}
+	}
+	if businessRetry != nil {
+		turnState = s.guardOpenAIWSBusinessTurnState(c, account, turnState)
 	}
 	preferredConnID := ""
 	if stateStore != nil && previousResponseID != "" {
@@ -337,6 +341,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		len(handshakeTurnState),
 	)
 	if handshakeTurnState != "" {
+		if businessRetry != nil {
+			s.noteOpenAIWSBusinessTurnState(c, account, handshakeTurnState)
+		}
 		if stateStore != nil && sessionHash != "" {
 			stateStore.BindSessionTurnState(groupID, sessionHash, handshakeTurnState, s.openAIWSSessionStickyTTL())
 		}
@@ -458,6 +465,12 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if clientDisconnected {
 			return
 		}
+		if businessRetry != nil {
+			message = businessRetry.prepareFrame(message)
+			if len(message) == 0 {
+				return
+			}
+		}
 		var frame []byte
 		if chatBridge != nil {
 			converted := chatBridge.TransformStreamFrame(message)
@@ -477,6 +490,19 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		_, wErr := c.Writer.Write(frame)
 		if wErr == nil {
 			wroteDownstream = true
+			if businessRetry != nil {
+				if businessRetry.outputStarted {
+					MarkOpenAIUpstream5xxRetryCompleted(c, time.Now())
+				}
+				if gjson.GetBytes(message, "type").String() == "codex.response.metadata" {
+					gjson.GetBytes(message, "headers").ForEach(func(key, value gjson.Result) bool {
+						if strings.EqualFold(key.String(), openAIWSTurnStateHeader) {
+							s.noteOpenAIWSBusinessTurnState(c, account, value.String())
+						}
+						return true
+					})
+				}
+			}
 			pendingFlushEvents++
 			flushStreamWriter(forceFlush)
 			return
@@ -623,6 +649,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if firstTokenMs == nil && isOpenAIWSFirstTokenEvent(s, ctx, account, eventType, isTokenEvent) {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
+			if businessRetry != nil && businessRetry.firstFrameAt.IsZero() {
+				businessRetry.firstFrameAt = time.Now()
+			}
 		}
 		if debugEnabled && shouldLogOpenAIWSEvent(eventCount, eventType) {
 			logOpenAIWSModeDebug(
@@ -656,6 +685,11 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 		if eventType == "error" || eventType == "response.failed" {
 			markOpenAICyberPolicyEvent(c, message, http.StatusOK, usage)
+			if !clientDisconnected {
+				if failure := s.newOpenAIWSBusinessRetryError(c, businessRetry, account, responseID, message, mappedModel, lease.HandshakeHeaders()); failure != nil {
+					return nil, failure
+				}
+			}
 		}
 
 		if eventType == "error" {
@@ -857,6 +891,12 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		ttl := s.openAIWSResponseStickyTTL()
 		logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
 		stateStore.BindResponseConn(responseID, lease.ConnID(), ttl)
+		if businessRetry != nil && businessRetry.clientResponseID != "" && businessRetry.clientResponseID != responseID &&
+			(businessRetry.terminalEvent == "response.completed" || businessRetry.terminalEvent == "response.done") {
+			clientID := businessRetry.clientResponseID
+			logOpenAIWSBindResponseAccountWarn(groupID, account.ID, clientID, stateStore.BindResponseAccount(ctx, groupID, clientID, account.ID, ttl))
+			stateStore.BindResponseConn(clientID, lease.ConnID(), ttl)
+		}
 	}
 	if stateStore != nil && storeDisabled && sessionHash != "" {
 		stateStore.BindSessionConn(groupID, sessionHash, lease.ConnID(), s.openAIWSSessionStickyTTL())
@@ -884,6 +924,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		clientDisconnected,
 	)
 
+	if businessRetry != nil && !businessRetry.firstFrameAt.IsZero() {
+		ms := int(businessRetry.firstFrameAt.Sub(businessRetry.startedAt).Milliseconds())
+		firstTokenMs = &ms
+	}
 	return &OpenAIForwardResult{
 		RequestID:                     responseID,
 		Usage:                         *usage,

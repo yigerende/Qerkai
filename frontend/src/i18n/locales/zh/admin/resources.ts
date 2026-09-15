@@ -519,6 +519,7 @@ export default {
       group: '分组',
       requestId: '请求ID',
       upstreamRequestId: '上游ID',
+      openaiUpstream5xxRetryCount: '502/503 重试',
       requestIdCopied: '请求ID已复制',
       upstreamRequestIdCopied: '上游ID已复制',
       allModels: '全部模型',

@@ -265,9 +265,10 @@ type OpenAIForwardResult struct {
 	ReasoningEffort *string
 	// RequestedReasoningEffort is the client-requested effort before mapping.
 	// Empty/nil means it should fall back to ReasoningEffort at persistence.
-	RequestedReasoningEffort *string
-	Stream                   bool
-	OpenAIWSMode             bool
+	RequestedReasoningEffort    *string
+	Stream                      bool
+	OpenAIWSMode                bool
+	OpenAIUpstream5xxRetryCount int
 	// UpstreamTerminalEvent is the normalized terminal event observed on an
 	// upstream Responses WebSocket turn. Empty preserves legacy/non-WS success.
 	UpstreamTerminalEvent string
