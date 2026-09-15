@@ -49,6 +49,13 @@ pnpm-debug.log*
 *.log.err
 *.log.out
 
+# 本地 pnpm 11+ 自动生成的 workspace 配置。本项目的构建环境（Dockerfile、
+# deploy/Dockerfile、CI）全部钉在 pnpm 9，依赖版本锁定由 package.json 的
+# pnpm.overrides 提供并已被 pnpm 9 正常读取，无需此文件。
+# 它使用 pnpm 11 语法（overrides / allowBuilds 顶层键、无 packages 字段），
+# 若提交进仓库会被 pnpm 9 当作 workspace 根处理，破坏 --frozen-lockfile 构建。
+frontend/pnpm-workspace.yaml
+
 # ===================
 # 环境配置
 # ===================
