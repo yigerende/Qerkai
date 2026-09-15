@@ -8,6 +8,7 @@ import audit from './audit'
 import promptAudit from './promptAudit'
 import plugins from './plugins'
 import openaiWSPool from './openaiWSPool'
+import openaiUpstream5xxRetry from './openaiUpstream5xxRetry'
 
 export default {
   ...overview,
@@ -20,4 +21,5 @@ export default {
   ...promptAudit,
   ...plugins,
   ...openaiWSPool,
+  ...openaiUpstream5xxRetry,
 }

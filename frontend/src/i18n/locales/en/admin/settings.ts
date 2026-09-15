@@ -485,6 +485,14 @@ export default {
         forceOpenAIUpstreamWS: 'Force OpenAI Upstream WebSocket',
         forceOpenAIUpstreamWSHint:
           'When enabled, always use WebSocket to the OpenAI upstream regardless of whether the client uses HTTP or WebSocket. Only overrides the "account has not explicitly enabled WS" downgrade reason; global force-HTTP and per-account force-HTTP switches still apply. Disabled by default.',
+        openaiUpstream5xxRetry: 'Auto-retry OpenAI upstream 502/503',
+        openaiUpstream5xxRetryHint:
+          'When enabled, an OpenAI OAuth/SetupToken account that hits an upstream 502/503 (service overloaded) is retried on the same account after a short delay, fully transparent to the client. Only 502 and 503 are covered — both mean the request never reached the model, so a retry cannot double-bill; 500 and 504 keep the existing account-switch behavior. Streaming requests that already wrote content to the client are not retried (avoids duplicate output). Disabled by default.',
+        openaiUpstream5xxRetryFields: {
+          sameAccount: { label: 'Retries per account', hint: '0–10, default 2; 0 disables retrying' },
+          total: { label: 'Per-request total cap', hint: '1–20, default 5; same-account retries plus account switches' },
+          delay: { label: 'Retry delay (ms)', hint: '0–5000, default 500' },
+        },
         openAIWSChannelProbeHTTP: 'Bypass forced WS for Sub channel probes',
         openAIWSChannelProbeHTTPHint: 'When enabled, recognized Sub2API channel arithmetic probes use the legacy HTTP/SSE upstream path; disabled by default.',
         wsPoolOptimization: 'WS Connection Pool Optimization',

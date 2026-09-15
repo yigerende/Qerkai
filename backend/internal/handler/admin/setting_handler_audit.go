@@ -464,6 +464,15 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAIWSPoolOptimizationEnabled != after.OpenAIWSPoolOptimizationEnabled {
 		changed = append(changed, "openai_ws_pool_optimization_enabled")
 	}
+	// 二次开发：上游 502/503 过载重试。
+	if before.OpenAIUpstream5xxRetryEnabled != after.OpenAIUpstream5xxRetryEnabled {
+		changed = append(changed, "openai_upstream_5xx_retry_enabled")
+	}
+	if before.OpenAIUpstream5xxRetrySameAccount != after.OpenAIUpstream5xxRetrySameAccount ||
+		before.OpenAIUpstream5xxRetryTotal != after.OpenAIUpstream5xxRetryTotal ||
+		before.OpenAIUpstream5xxRetryDelayMS != after.OpenAIUpstream5xxRetryDelayMS {
+		changed = append(changed, "openai_upstream_5xx_retry_params")
+	}
 	if before.OpenAIWSPrewarmIdlePerAccount != after.OpenAIWSPrewarmIdlePerAccount ||
 		before.OpenAIWSStandbyIdlePerAccount != after.OpenAIWSStandbyIdlePerAccount ||
 		before.OpenAIWSStandbyMaxPerAccount != after.OpenAIWSStandbyMaxPerAccount ||

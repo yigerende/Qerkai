@@ -603,6 +603,18 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresAdmin: true, title: 'OpenAI WS Pool', titleKey: 'admin.openaiWSPool.title' }
   },
   {
+    path: '/admin/openai-upstream-5xx-retry',
+    name: 'AdminOpenAIUpstream5xxRetry',
+    component: () => import('@/views/admin/OpenAIUpstream5xxRetryView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'OpenAI 502/503 Retry',
+      titleKey: 'admin.openaiUpstream5xxRetry.title',
+      descriptionKey: 'admin.openaiUpstream5xxRetry.description'
+    }
+  },
+  {
     path: '/admin/risk-control',
     name: 'AdminRiskControl',
     component: () => import('@/views/admin/RiskControlView.vue'),

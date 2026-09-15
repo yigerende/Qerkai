@@ -177,6 +177,7 @@ export default {
     subscriptions: 'Subscriptions',
     accounts: 'Accounts',
     openaiWSPool: 'WS Pool Ops',
+    openaiUpstream5xxRetry: '502/503 Retry',
     plugins: 'Plugins',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',

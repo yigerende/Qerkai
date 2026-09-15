@@ -290,6 +290,9 @@ func NewSettingService(settingRepo SettingRepository, cfg *config.Config) *Setti
 	// 二次开发：注册到包级引用，供 OpenAI 上游协议 resolver 在无 context/service
 	// 的调用场景读取强制 WS 开关。详见 service/openai_force_upstream_ws.go。
 	registerForceUpstreamWSSettingService(svc)
+	// 二次开发：同因注册，供 502/503 重试判定在 failover 错误构造点读取配置。
+	// 详见 service/openai_upstream_5xx_retry.go。
+	registerOpenAIUpstream5xxRetrySettingService(svc)
 	return svc
 }
 

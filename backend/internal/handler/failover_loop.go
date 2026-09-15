@@ -114,6 +114,14 @@ func effectiveSameAccountRetryLimit(failoverErr *service.UpstreamFailoverError, 
 	if account == nil {
 		return 0
 	}
+	// 二次开发：上游 502/503 重试的次数由系统设置独立给出，不受
+	// GetPoolModeRetryCount() 约束 —— 非池模式账号在那里恒为默认值 3，
+	// 会把管理员配置的 N（上限 10）静默截断。
+	// 开关关闭时 OpenAIUpstream5xxSameAccountRetryLimit 返回 0，走原逻辑。
+	// 详见 service/openai_upstream_5xx_retry.go。
+	if limit := service.OpenAIUpstream5xxSameAccountRetryLimit(failoverErr, account); limit > 0 {
+		return limit
+	}
 	limit := account.GetPoolModeRetryCount()
 	if limit > 0 && failoverErr != nil && failoverErr.SameAccountRetryMax > 0 && failoverErr.SameAccountRetryMax < limit {
 		return failoverErr.SameAccountRetryMax

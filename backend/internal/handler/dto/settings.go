@@ -218,6 +218,11 @@ type SystemSettings struct {
 	OpenAIWSOptimizedSessionTTLSeconds     int     `json:"openai_ws_optimized_session_ttl_seconds"`
 	OpenAIWSOptimizedSessionIdleSeconds    int     `json:"openai_ws_optimized_session_idle_timeout_seconds"`
 	OpenAIWSOptimizedDialIntervalMS        int     `json:"openai_ws_optimized_dial_interval_ms"`
+	// 二次开发：OpenAI 上游 502/503 过载重试。详见 service/openai_upstream_5xx_retry.go。
+	OpenAIUpstream5xxRetryEnabled     bool `json:"openai_upstream_5xx_retry_enabled"`
+	OpenAIUpstream5xxRetrySameAccount int  `json:"openai_upstream_5xx_retry_same_account"`
+	OpenAIUpstream5xxRetryTotal       int  `json:"openai_upstream_5xx_retry_total"`
+	OpenAIUpstream5xxRetryDelayMS     int  `json:"openai_upstream_5xx_retry_delay_ms"`
 	EnableCCHSigning                       bool    `json:"enable_cch_signing"`
 	EnableClaudeOAuthSystemPromptInjection bool    `json:"enable_claude_oauth_system_prompt_injection"`
 	ClaudeOAuthSystemPrompt                string  `json:"claude_oauth_system_prompt"`

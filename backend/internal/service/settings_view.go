@@ -254,6 +254,12 @@ type SystemSettings struct {
 	OpenAIWSOptimizedSessionTTLSeconds     int
 	OpenAIWSOptimizedSessionIdleSeconds    int
 	OpenAIWSOptimizedDialIntervalMS        int
+	// OpenAIUpstream5xxRetry* 上游 502/503 过载时的网关内部重试（默认关闭）。
+	// 二次开发功能，详见 service/openai_upstream_5xx_retry.go。
+	OpenAIUpstream5xxRetryEnabled     bool
+	OpenAIUpstream5xxRetrySameAccount int
+	OpenAIUpstream5xxRetryTotal       int
+	OpenAIUpstream5xxRetryDelayMS     int
 	AntigravityUserAgentVersion            string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
 	OpenAICodexUserAgent                   string // OpenAI Codex 上游完整 User-Agent；空值由 Codex 客户端版本号拼出标准 TUI UA
 	OpenAICodexClientVersion               string // 出站声明的 Codex 客户端版本号（管理员覆写）；空值跟随自动同步值

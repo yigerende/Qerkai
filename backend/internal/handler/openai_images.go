@@ -297,6 +297,10 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 							zap.Int64("account_id", account.ID),
 							zap.Int("upstream_status", failoverErr.StatusCode),
 						)
+						// 二次开发：记录「命中 502/503 但因已写出语义字节而不重试」，
+						// 开关关闭时为 no-op。
+						recordOpenAIUpstream5xxRetrySkipped(c, account, failoverErr, requestModel,
+							openAIUpstream5xxRetrySkipReasonStreamStarted)
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -319,6 +323,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 								zap.Int("retry_count", sameAccountRetryCount[account.ID]),
 								zap.Duration("retry_delay", retryDelay),
 							)
+							// 二次开发：记录 502/503 拦截，开关关闭时为 no-op。
+							noteOpenAIUpstream5xxRetry(c, account, failoverErr, requestModel,
+								sameAccountRetryCount[account.ID], sameAccountRetryCount, switchCount, retryDelay)
 							select {
 							case <-requestCtx.Done():
 								return
@@ -330,6 +337,12 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					// 二次开发：502/503 重试的整请求累计预算用尽后停止 failover，
+					// 按正常错误返回客户端。开关关闭时恒为 false。
+					if openAIUpstream5xxRetryBudgetExhausted(account, failoverErr, sameAccountRetryCount, switchCount) {
+						h.handleFailoverExhausted(c, failoverErr, streamStarted)
+						return
+					}
 					if switchCount >= maxAccountSwitches {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return

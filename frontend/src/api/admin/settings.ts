@@ -623,6 +623,11 @@ export interface SystemSettings {
   openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
+  // 上游 502/503 过载重试（二次开发功能）
+  openai_upstream_5xx_retry_enabled: boolean;
+  openai_upstream_5xx_retry_same_account: number;
+  openai_upstream_5xx_retry_total: number;
+  openai_upstream_5xx_retry_delay_ms: number;
   force_openai_upstream_ws: boolean;
   openai_ws_channel_probe_http: boolean;
   openai_ws_pool_optimization_enabled: boolean;
@@ -953,6 +958,11 @@ export interface UpdateSettingsRequest {
   openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
+  // 上游 502/503 过载重试（二次开发功能）
+  openai_upstream_5xx_retry_enabled?: boolean;
+  openai_upstream_5xx_retry_same_account?: number;
+  openai_upstream_5xx_retry_total?: number;
+  openai_upstream_5xx_retry_delay_ms?: number;
   force_openai_upstream_ws?: boolean;
   openai_ws_channel_probe_http?: boolean;
   openai_ws_pool_optimization_enabled?: boolean;

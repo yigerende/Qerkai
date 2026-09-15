@@ -478,6 +478,14 @@ export default {
         forceOpenAIUpstreamWS: '强制 OpenAI 上游 WebSocket',
         forceOpenAIUpstreamWSHint:
           '开启后，无论客户端使用 HTTP 还是 WebSocket，与 OpenAI 上游之间一律使用 WebSocket。仅覆盖「账号未显式启用 WS」这一种降级原因；全局强制 HTTP、账号级强制 HTTP 等开关仍然生效。默认关闭。',
+        openaiUpstream5xxRetry: 'OpenAI 上游 502/503 自动重试',
+        openaiUpstream5xxRetryHint:
+          '开启后，OpenAI OAuth/SetupToken 账号遇到上游 502/503（服务过载）时，在原账号上短间隔重试，对客户端完全透明。仅覆盖 502/503 —— 这两者语义明确为「请求未被模型处理」，重试不会重复计费；500/504 仍走原有换号逻辑。已向客户端写出内容的流式请求不重试（避免重复输出）。默认关闭。',
+        openaiUpstream5xxRetryFields: {
+          sameAccount: { label: '同账号重试次数', hint: '0–10，默认 2；设为 0 等同关闭' },
+          total: { label: '整请求累计上限', hint: '1–20，默认 5；含同账号重试与换号次数之和' },
+          delay: { label: '重试间隔（毫秒）', hint: '0–5000，默认 500' },
+        },
         openAIWSChannelProbeHTTP: 'Sub 渠道探点绕过强制 WS',
         openAIWSChannelProbeHTTPHint: '开启后，识别 Sub2API 渠道监控的固定算术探点请求时，改走原来的 HTTP/SSE 上游；默认关闭。',
         wsPoolOptimization: 'WS 连接池优化调度',

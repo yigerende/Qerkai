@@ -650,6 +650,12 @@ const (
 	SettingKeyOpenAIWSOptimizedSessionTTL     = "openai_ws_optimized_session_ttl_seconds"
 	SettingKeyOpenAIWSOptimizedSessionIdleTTL = "openai_ws_optimized_session_idle_timeout_seconds"
 	SettingKeyOpenAIWSOptimizedDialIntervalMS = "openai_ws_optimized_dial_interval_ms"
+	// 上游 502/503 过载重试（二次开发功能，实现见 service/openai_upstream_5xx_retry.go）。
+	// 默认全部关闭，关闭时链路与上游原始逻辑一致。
+	SettingKeyOpenAIUpstream5xxRetryEnabled     = "openai_upstream_5xx_retry_enabled"
+	SettingKeyOpenAIUpstream5xxRetrySameAccount = "openai_upstream_5xx_retry_same_account"
+	SettingKeyOpenAIUpstream5xxRetryTotal       = "openai_upstream_5xx_retry_total"
+	SettingKeyOpenAIUpstream5xxRetryDelayMS     = "openai_upstream_5xx_retry_delay_ms"
 	// SettingKeyEnableCCHSigning 已废弃（no-op）：新版 Claude Code CLI 已取消 cch 签名字段，
 	// 网关随之不再注入/签名 cch（见 buildBillingAttributionText）。保留该 key 仅为向后兼容，
 	// 开关不再产生任何效果。

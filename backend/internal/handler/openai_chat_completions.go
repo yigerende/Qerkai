@@ -326,6 +326,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						return
 					}
 					if c.Writer.Size() != writerSizeBeforeForward {
+						// 二次开发：记录「命中 502/503 但因已写出语义字节而不重试」，
+						// 开关关闭时为 no-op。
+						recordOpenAIUpstream5xxRetrySkipped(c, account, failoverErr, reqModel,
+							openAIUpstream5xxRetrySkipReasonStreamStarted)
 						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
@@ -350,6 +354,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 								zap.Int("retry_count", sameAccountRetryCount[account.ID]),
 								zap.Duration("retry_delay", retryDelay),
 							)
+							// 二次开发：记录 502/503 拦截，开关关闭时为 no-op。
+							noteOpenAIUpstream5xxRetry(c, account, failoverErr, reqModel,
+								sameAccountRetryCount[account.ID], sameAccountRetryCount, switchCount, retryDelay)
 							select {
 							case <-c.Request.Context().Done():
 								return
@@ -361,6 +368,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					// 二次开发：502/503 重试的请求级累计预算用尽后停止 failover，
+					// 按正常错误返回客户端。开关关闭时恒为 false，沿用下方原有预算判定。
+					if openAIUpstream5xxRetryBudgetExhausted(account, failoverErr, sameAccountRetryCount, switchCount) {
+						h.handleFailoverExhausted(c, failoverErr, streamStarted)
+						return
+					}
 					// 二次开发：模型无权限的换号预算放宽到 20，冷启动阶段黑名单尚未
 					// 建立时需要更多机会找到有权限的账号。详见
 					// openai_model_access_denied.go。

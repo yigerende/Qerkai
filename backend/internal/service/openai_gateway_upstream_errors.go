@@ -358,6 +358,12 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		failoverErr.SameAccountRetryDeadline = s.openAIOAuth429RetryDeadline(account)
 		failoverErr.SameAccountRetryDelay = openAIOAuth429SameAccountRetryDelay(responseHeaders, failoverErr.SameAccountRetryDeadline)
 	}
+	// 二次开发：上游 502/503 过载时给错误打上同账号可重试标记，由 handler 层现成的
+	// sameAccountRetryAllowed 循环执行原地重试。开关关闭时该调用不修改任何字段。
+	// 这里是所有账号相关 OpenAI 上游失败构造 failover 错误的唯一漏斗，一处接入即
+	// 覆盖 HTTP/SSE、WS 握手、WS 流内终止事件与 passthrough 四条链路。
+	// 详见 openai_upstream_5xx_retry.go。
+	markOpenAIUpstream5xxRetryable(failoverErr, account)
 	return failoverErr
 }
 

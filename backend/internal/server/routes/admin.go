@@ -232,6 +232,11 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 			settings.PUT("/metric-thresholds", h.Admin.Ops.UpdateMetricThresholds)
 		}
 
+		// 二次开发：OpenAI 上游 502/503 重试观测（进程内环形缓冲，非落库）。
+		// 详见 service/openai_upstream_5xx_retry_log.go。
+		ops.GET("/openai-upstream-5xx-retry", h.Admin.Ops.GetOpenAIUpstream5xxRetryLog)
+		ops.DELETE("/openai-upstream-5xx-retry", h.Admin.Ops.ClearOpenAIUpstream5xxRetryLog)
+
 		// WebSocket realtime (QPS/TPS)
 		ws := ops.Group("/ws")
 		{

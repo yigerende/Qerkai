@@ -217,7 +217,10 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			return
 		}
 		if failoverErr.RetryableOnSameAccount {
-			retryLimit := account.GetPoolModeRetryCount()
+			// 二次开发：改用 effectiveSameAccountRetryLimit，使 502/503 重试的
+			// 管理员配置次数不被 GetPoolModeRetryCount() 的默认 3 静默截断。
+			// 非 502/503 场景该函数返回值与 GetPoolModeRetryCount() 完全一致。
+			retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 			if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 				sameAccountRetryCount[account.ID]++
 				retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])
@@ -228,6 +231,9 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 					zap.Int("retry_count", sameAccountRetryCount[account.ID]),
 					zap.Duration("retry_delay", retryDelay),
 				)
+				// 二次开发：记录 502/503 拦截，开关关闭时为 no-op。
+				noteOpenAIUpstream5xxRetry(c, account, failoverErr, requestedModel,
+					sameAccountRetryCount[account.ID], sameAccountRetryCount, switchCount, retryDelay)
 				select {
 				case <-c.Request.Context().Done():
 					return
@@ -239,6 +245,12 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		h.gatewayService.RecordOpenAIAccountSwitch()
 		failedAccountIDs[account.ID] = struct{}{}
 		lastFailoverErr = failoverErr
+		// 二次开发：502/503 重试的整请求累计预算用尽后停止 failover，
+		// 按正常错误返回客户端。开关关闭时恒为 false。
+		if openAIUpstream5xxRetryBudgetExhausted(account, failoverErr, sameAccountRetryCount, switchCount) {
+			h.handleFailoverExhausted(c, failoverErr, false)
+			return
+		}
 		if switchCount >= h.maxAccountSwitches {
 			h.handleFailoverExhausted(c, failoverErr, false)
 			return

@@ -38,6 +38,11 @@ func Logger() gin.HandlerFunc {
 		accountID, hasAccountID := c.Request.Context().Value(ctxkey.AccountID).(int64)
 		platform, _ := c.Request.Context().Value(ctxkey.Platform).(string)
 		model, _ := c.Request.Context().Value(ctxkey.Model).(string)
+		// 二次开发：请求结束后落盘 502/503 重试的终局事件（成功/耗尽 + 额外耗时）。
+		// 放在访问日志采样早退之前——那个 return 只跳过日志行，不应连带丢掉重试观测。
+		// 未开启开关、或本次请求没有任何 502/503 拦截时为 no-op。
+		// 详见 service/openai_upstream_5xx_retry_tracker.go。
+		service.FlushOpenAIUpstream5xxRetryTracker(c, statusCode)
 		reason, rejected := GetIngressRejectReason(c)
 		if rejected {
 			recordIngressReject(c, reason)

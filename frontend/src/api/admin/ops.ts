@@ -1305,6 +1305,83 @@ async function updateMetricThresholds(thresholds: OpsMetricThresholds): Promise<
   await apiClient.put('/admin/ops/settings/metric-thresholds', thresholds)
 }
 
+// ==================== OpenAI 上游 502/503 重试观测 ====================
+//
+// 二次开发功能。数据源是后端进程内环形缓冲（不落库），进程重启即清空。
+// 详见 backend/internal/service/openai_upstream_5xx_retry_log.go。
+
+export type OpenAIUpstream5xxRetryEvent = 'intercepted' | 'succeeded' | 'exhausted' | 'skipped'
+
+export interface OpenAIUpstream5xxRetryLogEntry {
+  seq: number
+  at_unix_ms: number
+  event: OpenAIUpstream5xxRetryEvent
+  status_code: number
+  upstream_status: number
+  request_id: string
+  client_request_id: string
+  account_id: number
+  account_name: string
+  model: string
+  transport: string
+  path: string
+  attempt: number
+  same_account_attempt: number
+  same_account_max: number
+  retry_delay_ms: number
+  extra_latency_ms: number
+  retry_count: number
+  upstream_message: string
+}
+
+export interface OpenAIUpstream5xxRetryLogStats {
+  total: number
+  intercepted: number
+  succeeded: number
+  exhausted: number
+  skipped: number
+  extra_latency_ms_total: number
+  avg_extra_latency_ms: number
+  max_extra_latency_ms: number
+}
+
+export interface OpenAIUpstream5xxRetryLogConfig {
+  enabled: boolean
+  same_account: number
+  total: number
+  delay_ms: number
+}
+
+export interface OpenAIUpstream5xxRetryLogResponse {
+  entries: OpenAIUpstream5xxRetryLogEntry[]
+  total: number
+  capacity: number
+  stats: OpenAIUpstream5xxRetryLogStats
+  config: OpenAIUpstream5xxRetryLogConfig
+}
+
+export interface OpenAIUpstream5xxRetryLogQuery {
+  event?: OpenAIUpstream5xxRetryEvent
+  status_code?: number
+  account_id?: number
+  page?: number
+  page_size?: number
+}
+
+export async function getOpenAIUpstream5xxRetryLog(
+  params: OpenAIUpstream5xxRetryLogQuery = {}
+): Promise<OpenAIUpstream5xxRetryLogResponse> {
+  const { data } = await apiClient.get<OpenAIUpstream5xxRetryLogResponse>(
+    '/admin/ops/openai-upstream-5xx-retry',
+    { params }
+  )
+  return data
+}
+
+export async function clearOpenAIUpstream5xxRetryLog(): Promise<void> {
+  await apiClient.delete('/admin/ops/openai-upstream-5xx-retry')
+}
+
 export const opsAPI = {
   getDashboardSnapshotV2,
   getDashboardOverview,
@@ -1355,7 +1432,9 @@ export const opsAPI = {
   updateMetricThresholds,
   listSystemLogs,
   cleanupSystemLogs,
-  getSystemLogSinkHealth
+  getSystemLogSinkHealth,
+  getOpenAIUpstream5xxRetryLog,
+  clearOpenAIUpstream5xxRetryLog
 }
 
 export default opsAPI

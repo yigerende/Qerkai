@@ -260,6 +260,11 @@ type UpdateSettingsRequest struct {
 	OpenAIWSOptimizedSessionTTLSeconds     *int     `json:"openai_ws_optimized_session_ttl_seconds"`
 	OpenAIWSOptimizedSessionIdleSeconds    *int     `json:"openai_ws_optimized_session_idle_timeout_seconds"`
 	OpenAIWSOptimizedDialIntervalMS        *int     `json:"openai_ws_optimized_dial_interval_ms"`
+	// 二次开发：上游 502/503 过载重试。详见 service/openai_upstream_5xx_retry.go。
+	OpenAIUpstream5xxRetryEnabled     *bool `json:"openai_upstream_5xx_retry_enabled"`
+	OpenAIUpstream5xxRetrySameAccount *int  `json:"openai_upstream_5xx_retry_same_account"`
+	OpenAIUpstream5xxRetryTotal       *int  `json:"openai_upstream_5xx_retry_total"`
+	OpenAIUpstream5xxRetryDelayMS     *int  `json:"openai_upstream_5xx_retry_delay_ms"`
 	EnableCCHSigning                       *bool    `json:"enable_cch_signing"`
 	EnableClaudeOAuthSystemPromptInjection *bool    `json:"enable_claude_oauth_system_prompt_injection"`
 	ClaudeOAuthSystemPrompt                *string  `json:"claude_oauth_system_prompt"`
@@ -1734,6 +1739,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIWSOptimizedSessionTTLSeconds:     intValueOrDefault(req.OpenAIWSOptimizedSessionTTLSeconds, previousSettings.OpenAIWSOptimizedSessionTTLSeconds),
 		OpenAIWSOptimizedSessionIdleSeconds:    intValueOrDefault(req.OpenAIWSOptimizedSessionIdleSeconds, previousSettings.OpenAIWSOptimizedSessionIdleSeconds),
 		OpenAIWSOptimizedDialIntervalMS:        intValueOrDefault(req.OpenAIWSOptimizedDialIntervalMS, previousSettings.OpenAIWSOptimizedDialIntervalMS),
+		// 二次开发：上游 502/503 过载重试。详见 service/openai_upstream_5xx_retry.go。
+		OpenAIUpstream5xxRetryEnabled:     boolValueOrDefault(req.OpenAIUpstream5xxRetryEnabled, previousSettings.OpenAIUpstream5xxRetryEnabled),
+		OpenAIUpstream5xxRetrySameAccount: intValueOrDefault(req.OpenAIUpstream5xxRetrySameAccount, previousSettings.OpenAIUpstream5xxRetrySameAccount),
+		OpenAIUpstream5xxRetryTotal:       intValueOrDefault(req.OpenAIUpstream5xxRetryTotal, previousSettings.OpenAIUpstream5xxRetryTotal),
+		OpenAIUpstream5xxRetryDelayMS:     intValueOrDefault(req.OpenAIUpstream5xxRetryDelayMS, previousSettings.OpenAIUpstream5xxRetryDelayMS),
 		EnableCCHSigning: func() bool {
 			if req.EnableCCHSigning != nil {
 				return *req.EnableCCHSigning

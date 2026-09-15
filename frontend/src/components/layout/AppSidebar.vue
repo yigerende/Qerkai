@@ -480,6 +480,10 @@ const PluginIcon = {
   render: () => h(Icon, { name: 'cube' })
 }
 
+const SyncIcon = {
+  render: () => h(Icon, { name: 'sync' })
+}
+
 const BellIcon = {
   render: () =>
     h(
@@ -779,6 +783,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
     { path: '/admin/openai-ws-pool', label: t('nav.openaiWSPool'), icon: ServerIcon },
+    { path: '/admin/openai-upstream-5xx-retry', label: t('nav.openaiUpstream5xxRetry'), icon: SyncIcon },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },

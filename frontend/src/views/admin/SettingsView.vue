@@ -5393,6 +5393,38 @@
                 </div>
               </div>
 
+              <!-- 二次开发：OpenAI 上游 502/503 自动重试。与强制 WS 无关，
+                   故为同级开关而非嵌套项。 -->
+              <div class="flex items-center justify-between">
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.openaiUpstream5xxRetry",
+                      )
+                    }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.openaiUpstream5xxRetryHint",
+                      )
+                    }}
+                  </p>
+                </div>
+                <Toggle v-model="form.openai_upstream_5xx_retry_enabled" />
+              </div>
+
+              <div v-if="form.openai_upstream_5xx_retry_enabled" class="grid grid-cols-1 gap-4 rounded-lg bg-gray-50 p-4 dark:bg-dark-700/50 sm:grid-cols-3">
+                <label v-for="field in openaiUpstream5xxRetryNumberFields" :key="field.key" class="block">
+                  <span class="mb-1.5 block text-xs font-medium text-gray-600 dark:text-gray-300">{{ field.label }}</span>
+                  <input v-model.number="form[field.key]" type="number" :min="field.min" :max="field.max" step="1" class="input" />
+                  <span class="mt-1 block text-[11px] text-gray-400">{{ field.hint }}</span>
+                </label>
+              </div>
+
               <!-- CCH Signing -->
               <div class="flex items-center justify-between">
                 <div>
@@ -9820,6 +9852,10 @@ const form = reactive<SettingsForm>({
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   force_openai_upstream_ws: false,
+  openai_upstream_5xx_retry_enabled: false,
+  openai_upstream_5xx_retry_same_account: 2,
+  openai_upstream_5xx_retry_total: 5,
+  openai_upstream_5xx_retry_delay_ms: 500,
   openai_ws_channel_probe_http: false,
   openai_ws_pool_optimization_enabled: false,
   openai_ws_prewarm_idle_per_account: 3,
@@ -9892,6 +9928,18 @@ type WSPoolNumberKey =
   | "openai_ws_optimized_session_ttl_seconds"
   | "openai_ws_optimized_session_idle_timeout_seconds"
   | "openai_ws_optimized_dial_interval_ms";
+
+type OpenAIUpstream5xxRetryNumberKey =
+  | "openai_upstream_5xx_retry_same_account"
+  | "openai_upstream_5xx_retry_total"
+  | "openai_upstream_5xx_retry_delay_ms";
+
+// 上下界与后端 clamp 常量保持一致（openai_upstream_5xx_retry.go）。
+const openaiUpstream5xxRetryNumberFields = computed<Array<{ key: OpenAIUpstream5xxRetryNumberKey; label: string; hint: string; min: number; max: number }>>(() => [
+  { key: "openai_upstream_5xx_retry_same_account", label: t("admin.settings.gatewayForwarding.openaiUpstream5xxRetryFields.sameAccount.label"), hint: t("admin.settings.gatewayForwarding.openaiUpstream5xxRetryFields.sameAccount.hint"), min: 0, max: 10 },
+  { key: "openai_upstream_5xx_retry_total", label: t("admin.settings.gatewayForwarding.openaiUpstream5xxRetryFields.total.label"), hint: t("admin.settings.gatewayForwarding.openaiUpstream5xxRetryFields.total.hint"), min: 1, max: 20 },
+  { key: "openai_upstream_5xx_retry_delay_ms", label: t("admin.settings.gatewayForwarding.openaiUpstream5xxRetryFields.delay.label"), hint: t("admin.settings.gatewayForwarding.openaiUpstream5xxRetryFields.delay.hint"), min: 0, max: 5000 },
+]);
 
 const wsPoolNumberFields = computed<Array<{ key: WSPoolNumberKey; label: string; hint: string; min: number; max: number; step?: number }>>(() => [
   { key: "openai_ws_prewarm_idle_per_account", label: t("admin.settings.gatewayForwarding.wsPoolFields.prewarm.label"), hint: t("admin.settings.gatewayForwarding.wsPoolFields.prewarm.hint"), min: 0, max: 64 },
@@ -11438,6 +11486,10 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       force_openai_upstream_ws: form.force_openai_upstream_ws,
+      openai_upstream_5xx_retry_enabled: form.openai_upstream_5xx_retry_enabled,
+      openai_upstream_5xx_retry_same_account: form.openai_upstream_5xx_retry_same_account,
+      openai_upstream_5xx_retry_total: form.openai_upstream_5xx_retry_total,
+      openai_upstream_5xx_retry_delay_ms: form.openai_upstream_5xx_retry_delay_ms,
       openai_ws_channel_probe_http: form.openai_ws_channel_probe_http,
       openai_ws_pool_optimization_enabled: form.openai_ws_pool_optimization_enabled,
       openai_ws_prewarm_idle_per_account: form.openai_ws_prewarm_idle_per_account,

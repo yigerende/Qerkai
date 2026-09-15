@@ -497,6 +497,27 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAIWSOptimizedSessionTTL] = strconv.Itoa(settings.OpenAIWSOptimizedSessionTTLSeconds)
 	updates[SettingKeyOpenAIWSOptimizedSessionIdleTTL] = strconv.Itoa(settings.OpenAIWSOptimizedSessionIdleSeconds)
 	updates[SettingKeyOpenAIWSOptimizedDialIntervalMS] = strconv.Itoa(settings.OpenAIWSOptimizedDialIntervalMS)
+	// 二次开发：上游 502/503 过载重试。越界即拒绝，避免把明显误配置写进设置表
+	// （例如把间隔填成 60000ms 会让单次请求空等一分钟）。
+	if settings.OpenAIUpstream5xxRetrySameAccount < MinOpenAIUpstream5xxRetrySameAccount ||
+		settings.OpenAIUpstream5xxRetrySameAccount > MaxOpenAIUpstream5xxRetrySameAccount {
+		return nil, fmt.Errorf("%s must be between %d and %d", SettingKeyOpenAIUpstream5xxRetrySameAccount,
+			MinOpenAIUpstream5xxRetrySameAccount, MaxOpenAIUpstream5xxRetrySameAccount)
+	}
+	if settings.OpenAIUpstream5xxRetryTotal < MinOpenAIUpstream5xxRetryTotal ||
+		settings.OpenAIUpstream5xxRetryTotal > MaxOpenAIUpstream5xxRetryTotal {
+		return nil, fmt.Errorf("%s must be between %d and %d", SettingKeyOpenAIUpstream5xxRetryTotal,
+			MinOpenAIUpstream5xxRetryTotal, MaxOpenAIUpstream5xxRetryTotal)
+	}
+	if settings.OpenAIUpstream5xxRetryDelayMS < MinOpenAIUpstream5xxRetryDelayMS ||
+		settings.OpenAIUpstream5xxRetryDelayMS > MaxOpenAIUpstream5xxRetryDelayMS {
+		return nil, fmt.Errorf("%s must be between %d and %d", SettingKeyOpenAIUpstream5xxRetryDelayMS,
+			MinOpenAIUpstream5xxRetryDelayMS, MaxOpenAIUpstream5xxRetryDelayMS)
+	}
+	updates[SettingKeyOpenAIUpstream5xxRetryEnabled] = strconv.FormatBool(settings.OpenAIUpstream5xxRetryEnabled)
+	updates[SettingKeyOpenAIUpstream5xxRetrySameAccount] = strconv.Itoa(settings.OpenAIUpstream5xxRetrySameAccount)
+	updates[SettingKeyOpenAIUpstream5xxRetryTotal] = strconv.Itoa(settings.OpenAIUpstream5xxRetryTotal)
+	updates[SettingKeyOpenAIUpstream5xxRetryDelayMS] = strconv.Itoa(settings.OpenAIUpstream5xxRetryDelayMS)
 	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
 	updates[SettingKeyEnableClaudeOAuthSystemPromptInjection] = strconv.FormatBool(settings.EnableClaudeOAuthSystemPromptInjection)
 	updates[SettingKeyClaudeOAuthSystemPrompt] = settings.ClaudeOAuthSystemPrompt
@@ -732,6 +753,8 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	})
 	refreshForceUpstreamWSCache(settings.ForceOpenAIUpstreamWS)
 	refreshOpenAIWSChannelProbeHTTPCache(settings.OpenAIWSChannelProbeHTTP)
+	// 二次开发：让 502/503 重试开关与参数立即生效，无需等一个 TTL 周期。
+	refreshOpenAIUpstream5xxRetryCache(settings)
 	refreshOpenAIWSPoolOptimizationSettings(settings)
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
