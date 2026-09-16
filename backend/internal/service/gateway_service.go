@@ -686,6 +686,8 @@ type GatewayFailureReason string
 type UpstreamFailoverError struct {
 	OpenAIUpstream5xxRetry     *OpenAIUpstream5xxRetryConfig // Non-nil only when the opt-in business retry owns this error.
 	OpenAIWSRetryAfterMetadata bool
+	OpenAIUpstream5xxRuleID    string
+	OpenAIUpstream5xxRuleName  string
 	StatusCode                 int
 	ResponseBody               []byte        // 上游响应体，用于错误透传规则匹配
 	ResponseHeaders            http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息

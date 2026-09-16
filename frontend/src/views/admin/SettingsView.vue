@@ -5425,6 +5425,8 @@
                 </label>
               </div>
 
+              <OpenAIUpstream5xxRetryRules v-if="form.openai_upstream_5xx_retry_enabled" v-model="form.openai_upstream_5xx_retry_rules" />
+
               <!-- CCH Signing -->
               <div class="flex items-center justify-between">
                 <div>
@@ -8900,6 +8902,8 @@ import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
+import OpenAIUpstream5xxRetryRules from "@/views/admin/settings/OpenAIUpstream5xxRetryRules.vue";
+import { defaultOpenAIUpstream5xxRetryRules } from "@/api/admin/openaiRetryRules";
 import { useClipboard } from "@/composables/useClipboard";
 import {
   useStepUp,
@@ -9856,6 +9860,7 @@ const form = reactive<SettingsForm>({
   openai_upstream_5xx_retry_same_account: 2,
   openai_upstream_5xx_retry_total: 5,
   openai_upstream_5xx_retry_delay_ms: 500,
+  openai_upstream_5xx_retry_rules: defaultOpenAIUpstream5xxRetryRules(),
   openai_ws_channel_probe_http: false,
   openai_ws_pool_optimization_enabled: false,
   openai_ws_prewarm_idle_per_account: 3,
@@ -11490,6 +11495,7 @@ async function saveSettings() {
       openai_upstream_5xx_retry_same_account: form.openai_upstream_5xx_retry_same_account,
       openai_upstream_5xx_retry_total: form.openai_upstream_5xx_retry_total,
       openai_upstream_5xx_retry_delay_ms: form.openai_upstream_5xx_retry_delay_ms,
+      openai_upstream_5xx_retry_rules: form.openai_upstream_5xx_retry_rules,
       openai_ws_channel_probe_http: form.openai_ws_channel_probe_http,
       openai_ws_pool_optimization_enabled: form.openai_ws_pool_optimization_enabled,
       openai_ws_prewarm_idle_per_account: form.openai_ws_prewarm_idle_per_account,

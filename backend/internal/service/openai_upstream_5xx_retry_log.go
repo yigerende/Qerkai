@@ -53,10 +53,16 @@ const (
 //
 // 全部为值类型，无指针、无切片：写入时整体赋值进数组槽位，不产生逃逸分配。
 type OpenAIUpstream5xxRetryLogEntry struct {
-	StopReason string `json:"stop_reason,omitempty"`
-	Seq        uint64 `json:"seq"`
-	AtUnixMS   int64  `json:"at_unix_ms"`
-	Event      string `json:"event"`
+	RuleID        string `json:"rule_id,omitempty"`
+	RuleName      string `json:"rule_name,omitempty"`
+	WSRetryCount  int    `json:"ws_retry_count"`
+	WSRetryStatus string `json:"ws_retry_status,omitempty"`
+	WSRetryReason string `json:"ws_retry_reason,omitempty"`
+	FinalMessage  string `json:"final_message,omitempty"`
+	StopReason    string `json:"stop_reason,omitempty"`
+	Seq           uint64 `json:"seq"`
+	AtUnixMS      int64  `json:"at_unix_ms"`
+	Event         string `json:"event"`
 	// StatusCode 本条事件对外呈现的状态码：
 	// intercepted / skipped 为上游状态码；succeeded / exhausted 为最终返回客户端的状态码。
 	StatusCode int `json:"status_code"`
@@ -177,6 +183,7 @@ func recordOpenAIUpstream5xxRetryEvent(entry OpenAIUpstream5xxRetryLogEntry) {
 		entry.AtUnixMS = time.Now().UnixMilli()
 	}
 	entry.UpstreamMessage = truncateOpenAIUpstream5xxRetryMessage(entry.UpstreamMessage)
+	entry.FinalMessage = truncateOpenAIUpstream5xxRetryMessage(entry.FinalMessage)
 	entry.AccountName = truncateOpenAIUpstream5xxRetryMessage(entry.AccountName)
 	entry.Model = truncateOpenAIUpstream5xxRetryMessage(entry.Model)
 	openAIUpstream5xxRetryLog.append(entry)

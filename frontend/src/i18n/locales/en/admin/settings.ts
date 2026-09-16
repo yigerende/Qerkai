@@ -487,7 +487,7 @@ export default {
           'When enabled, always use WebSocket to the OpenAI upstream regardless of whether the client uses HTTP or WebSocket. Only overrides the "account has not explicitly enabled WS" downgrade reason; global force-HTTP and per-account force-HTTP switches still apply. Disabled by default.',
         openaiUpstream5xxRetry: 'Auto-retry OpenAI upstream 502/503',
         openaiUpstream5xxRetryHint:
-          'Applies to HTTP/SSE Responses requests forced to upstream WS on OpenAI OAuth/SetupToken accounts. Only the designated processing-failure (502) and server-overload (503) messages trigger retries, using the configured same-account limit, total limit and delay before switching accounts. CPA network notifications remain immediate; retries stop once answer, reasoning or tool output begins. Connection setup and other errors retain existing behavior. Disabled by default.',
+          'Applies to HTTP/SSE Responses requests forced to upstream WS on OpenAI OAuth/SetupToken accounts. Enabled rules match upstream errors, with processing failure (502) and server overload (503) selected by default. Retries follow the per-account limit, total limit and delay before switching accounts. CPA notifications remain immediate; answer, reasoning or tool output stops retries. Connection recovery uses existing WS reconnects. Disabling this feature preserves the original handling.',
         openaiUpstream5xxRetryFields: {
           sameAccount: { label: 'Retries per account', hint: '0–10, default 2; 0 disables retrying' },
           total: { label: 'Per-request total cap', hint: '1–20, default 5; same-account retries plus account switches' },

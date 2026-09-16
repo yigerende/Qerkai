@@ -52,7 +52,7 @@ func (s *OpenAIGatewayService) openAIWSBusinessRetryState(c *gin.Context, accoun
 		return nil
 	}
 	config := OpenAIUpstream5xxRetrySettings()
-	if !config.Enabled || config.Total <= 0 {
+	if !config.Enabled || config.Total <= 0 || !hasEnabledOpenAIUpstream5xxRetryRule(config.Rules) {
 		return nil
 	}
 	state := &openAIWSBusinessRetryState{config: config, startedAt: start}
@@ -63,33 +63,7 @@ func (s *OpenAIGatewayService) openAIWSBusinessRetryState(c *gin.Context, accoun
 // Only these two provider messages opt in. A numeric 502/503 or a generic
 // server_error is insufficient, including locally mapped transport errors.
 func openAIUpstream5xxBusinessErrorStatus(payload []byte) int {
-	if !gjson.ValidBytes(payload) {
-		return 0
-	}
-	eventType := gjson.GetBytes(payload, "type").String()
-	if eventType != "error" && eventType != "response.failed" {
-		return 0
-	}
-	message := strings.ToLower(strings.Join(strings.Fields(extractOpenAISSEErrorMessage(payload)), " "))
-	if isOpenAIContextWindowError(message, payload) || isOpenAIWSErrorEventRateLimited(payload) {
-		return 0
-	}
-	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
-		return 0
-	}
-	for _, path := range []string{"response.error.status_code", "response.error.status", "error.status_code", "error.status", "status_code", "status"} {
-		status := gjson.GetBytes(payload, path).Int()
-		if status > 0 && status != 502 && status != 503 {
-			return 0
-		}
-	}
-	if strings.Contains(message, "an error occurred while processing your request") && strings.Contains(message, "you can retry your request") {
-		return http.StatusBadGateway
-	}
-	if strings.Contains(message, "our servers are currently overloaded") && strings.Contains(message, "please try again later") {
-		return http.StatusServiceUnavailable
-	}
-	return 0
+	return MatchOpenAIUpstream5xxRetryRules(payload, nil).StatusCode
 }
 
 func openAIWSRetryMetadata(payload []byte) bool {
@@ -151,10 +125,11 @@ func (s *OpenAIGatewayService) newOpenAIWSBusinessRetryError(c *gin.Context, sta
 	if state == nil {
 		return nil
 	}
-	status := openAIUpstream5xxBusinessErrorStatus(payload)
-	if status == 0 {
+	match := MatchOpenAIUpstream5xxRetryRules(payload, state.config.Rules)
+	if !match.Matched {
 		return nil
 	}
+	status := match.StatusCode
 	message := extractOpenAISSEErrorMessage(payload)
 	failure := s.newOpenAIStreamFailoverErrorWithModel(c, account, true, requestID, payload, message, model, headers)
 	failure.StatusCode = status
@@ -164,6 +139,8 @@ func (s *OpenAIGatewayService) newOpenAIWSBusinessRetryError(c *gin.Context, sta
 	failure.Stage = GatewayFailureStageInference
 	failure.Scope = GatewayFailureScopeProvider
 	failure.OpenAIUpstream5xxRetry = &state.config
+	failure.OpenAIUpstream5xxRuleID = match.RuleID
+	failure.OpenAIUpstream5xxRuleName = match.RuleName
 	failure.RetryableOnSameAccount = state.config.SameAccount > 0
 	failure.RequestScopedTransient = true
 	failure.SameAccountRetryMax = state.config.SameAccount
@@ -281,6 +258,16 @@ func WriteOpenAIWSBusinessRetryFailure(c *gin.Context, status int, errType, code
 	}
 	if state.terminalEvent == "response.completed" || state.terminalEvent == "response.done" {
 		return true
+	}
+	if tracker := existingOpenAIUpstream5xxRetryTracker(c); tracker != nil {
+		tracker.mu.Lock()
+		if tracker.stopReason == "" {
+			tracker.stopReason = "upstream_error"
+		}
+		if tracker.finalMessage == "" {
+			tracker.finalMessage = sanitizeUpstreamErrorMessage(message)
+		}
+		tracker.mu.Unlock()
 	}
 	if countTowardsSLA {
 		MarkOpsStreamFailure(c, errType, code, message, status)

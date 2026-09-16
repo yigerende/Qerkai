@@ -60,6 +60,7 @@ type wsBusinessFixture struct {
 	peak              atomic.Int64
 	handshakes        atomic.Int64
 	handshakeFailures int64
+	handshakeStatus   func(int64) int
 	sameAccount       int
 	failureSent       chan struct{}
 }
@@ -122,7 +123,14 @@ func newWSBusinessFixture(t *testing.T, retry service.OpenAIUpstream5xxRetryConf
 }
 
 func (f *wsBusinessFixture) serveWS(w http.ResponseWriter, req *http.Request) {
-	if f.handshakes.Add(1) <= f.handshakeFailures {
+	dial := f.handshakes.Add(1)
+	if f.handshakeStatus != nil {
+		if status := f.handshakeStatus(dial); status != 0 {
+			http.Error(w, "simulated reconnect handshake failure", status)
+			return
+		}
+	}
+	if dial <= f.handshakeFailures {
 		http.Error(w, "bad gateway", 502)
 		return
 	}
@@ -148,6 +156,10 @@ func (f *wsBusinessFixture) serveWS(w http.ResponseWriter, req *http.Request) {
 		f.attempts[key] = append(f.attempts[key], wsBusinessAttempt{account: req.Header.Get("Authorization"), body: string(raw), turnState: req.Header.Get("X-Codex-Turn-State")})
 		attempt := len(f.attempts[key])
 		f.mu.Unlock()
+		mode := strings.Split(key, "/")[0]
+		if mode == "reconnectbefore" && attempt == 2 {
+			return
+		}
 		id := fmt.Sprintf("resp_%s_%d", strings.ReplaceAll(key, "/", "_"), attempt)
 		if !write(`{"type":"codex.rate_limits","rate_limits":{"allowed":true,"limit_reached":false}}`) {
 			return
@@ -171,12 +183,14 @@ func (f *wsBusinessFixture) serveWS(w http.ResponseWriter, req *http.Request) {
 		if !write(fmt.Sprintf(`{"type":"response.in_progress","sequence_number":1,"response":{"id":%q,"status":"in_progress","output":[],"error":null}}`, id)) {
 			return
 		}
-		mode := strings.Split(key, "/")[0]
+		if mode == "reconnectafter" && attempt == 2 {
+			return
+		}
 		failures := 4 // configured three same-account retries, then switch
 		switch mode {
 		case "success", "handshake", "late", "tool", "reasoning", "unknown", "unrelated":
 			failures = 0
-		case "one", "one503", "firstframe", "cancel", "slow", "lateafter":
+		case "one", "one503", "firstframe", "cancel", "slow", "lateafter", "reconnectbefore", "reconnectafter", "reconnectlate", "custom":
 			failures = 1
 		case "exhaust":
 			failures = 100
@@ -197,6 +211,9 @@ func (f *wsBusinessFixture) serveWS(w http.ResponseWriter, req *http.Request) {
 			if boundary != "" && !write(boundary) {
 				return
 			}
+			if mode == "reconnectlate" {
+				return
+			}
 			if mode == "slow" {
 				close(f.outputStarted)
 				select {
@@ -213,6 +230,9 @@ func (f *wsBusinessFixture) serveWS(w http.ResponseWriter, req *http.Request) {
 			}
 			if mode == "unrelated" {
 				status, message = 503, "different upstream server failure"
+			}
+			if mode == "custom" {
+				message = "Temporary custom processing failure"
 			}
 			// Exercise both WS envelopes without relying on an HTTP error status.
 			failure := fmt.Sprintf(`{"type":"error","sequence_number":3,"error":{"type":"server_error","code":"server_error","status_code":%d,"message":%q}}`, status, message)
@@ -260,13 +280,17 @@ func readWSBusinessSSE(resp *http.Response) ([]gjson.Result, error) {
 	return events, scanner.Err()
 }
 
-func (f *wsBusinessFixture) verify(t *testing.T, key string, events []gjson.Result, retries int, success bool) {
+func (f *wsBusinessFixture) verify(t *testing.T, key string, events []gjson.Result, retries int, success bool, transportAttempts ...int) {
 	t.Helper()
 	f.mu.Lock()
 	attempts := append([]wsBusinessAttempt(nil), f.attempts[key]...)
 	obs := f.observations[key]
 	f.mu.Unlock()
-	require.Len(t, attempts, retries+1, key)
+	extra := 0
+	if len(transportAttempts) > 0 {
+		extra = transportAttempts[0]
+	}
+	require.Len(t, attempts, retries+1+extra, key)
 	require.Equal(t, retries, obs.count, key)
 	require.NotEmpty(t, events, key)
 	created, delta, terminal := 0, 0, 0
@@ -312,7 +336,10 @@ func (f *wsBusinessFixture) verify(t *testing.T, key string, events []gjson.Resu
 		if i > 0 && i <= f.sameAccount {
 			require.Equal(t, attempts[0].account, attempt.account, key)
 		}
-		if i == f.sameAccount+1 {
+		if extra > 0 {
+			require.Equal(t, attempts[0].account, attempt.account, key)
+		}
+		if extra == 0 && i == f.sameAccount+1 {
 			require.NotEqual(t, attempts[0].account, attempt.account, key)
 			require.Empty(t, attempt.turnState, "switching accounts must not forward the prior account's turn-state")
 		}

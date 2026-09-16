@@ -261,21 +261,22 @@ type UpdateSettingsRequest struct {
 	OpenAIWSOptimizedSessionIdleSeconds    *int     `json:"openai_ws_optimized_session_idle_timeout_seconds"`
 	OpenAIWSOptimizedDialIntervalMS        *int     `json:"openai_ws_optimized_dial_interval_ms"`
 	// 二次开发：上游 502/503 过载重试。详见 service/openai_upstream_5xx_retry.go。
-	OpenAIUpstream5xxRetryEnabled     *bool `json:"openai_upstream_5xx_retry_enabled"`
-	OpenAIUpstream5xxRetrySameAccount *int  `json:"openai_upstream_5xx_retry_same_account"`
-	OpenAIUpstream5xxRetryTotal       *int  `json:"openai_upstream_5xx_retry_total"`
-	OpenAIUpstream5xxRetryDelayMS     *int  `json:"openai_upstream_5xx_retry_delay_ms"`
-	EnableCCHSigning                       *bool    `json:"enable_cch_signing"`
-	EnableClaudeOAuthSystemPromptInjection *bool    `json:"enable_claude_oauth_system_prompt_injection"`
-	ClaudeOAuthSystemPrompt                *string  `json:"claude_oauth_system_prompt"`
-	ClaudeOAuthSystemPromptBlocks          *string  `json:"claude_oauth_system_prompt_blocks"`
-	EnableAnthropicCacheTTL1hInjection     *bool    `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl             *bool    `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization      *bool    `json:"enable_client_dateline_normalization"`
-	AntigravityUserAgentVersion            *string  `json:"antigravity_user_agent_version"`
-	OpenAICodexUserAgent                   *string  `json:"openai_codex_user_agent"`
-	OpenAICodexClientVersion               *string  `json:"openai_codex_client_version"`
-	OpenAICodexVersionAutoSyncEnabled      *bool    `json:"openai_codex_version_auto_sync_enabled"`
+	OpenAIUpstream5xxRetryEnabled          *bool                                 `json:"openai_upstream_5xx_retry_enabled"`
+	OpenAIUpstream5xxRetrySameAccount      *int                                  `json:"openai_upstream_5xx_retry_same_account"`
+	OpenAIUpstream5xxRetryTotal            *int                                  `json:"openai_upstream_5xx_retry_total"`
+	OpenAIUpstream5xxRetryDelayMS          *int                                  `json:"openai_upstream_5xx_retry_delay_ms"`
+	OpenAIUpstream5xxRetryRules            *[]service.OpenAIUpstream5xxRetryRule `json:"openai_upstream_5xx_retry_rules"`
+	EnableCCHSigning                       *bool                                 `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection *bool                                 `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                *string                               `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks          *string                               `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection     *bool                                 `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl             *bool                                 `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization      *bool                                 `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion            *string                               `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                   *string                               `json:"openai_codex_user_agent"`
+	OpenAICodexClientVersion               *string                               `json:"openai_codex_client_version"`
+	OpenAICodexVersionAutoSyncEnabled      *bool                                 `json:"openai_codex_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -1744,6 +1745,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIUpstream5xxRetrySameAccount: intValueOrDefault(req.OpenAIUpstream5xxRetrySameAccount, previousSettings.OpenAIUpstream5xxRetrySameAccount),
 		OpenAIUpstream5xxRetryTotal:       intValueOrDefault(req.OpenAIUpstream5xxRetryTotal, previousSettings.OpenAIUpstream5xxRetryTotal),
 		OpenAIUpstream5xxRetryDelayMS:     intValueOrDefault(req.OpenAIUpstream5xxRetryDelayMS, previousSettings.OpenAIUpstream5xxRetryDelayMS),
+		OpenAIUpstream5xxRetryRules: func() []service.OpenAIUpstream5xxRetryRule {
+			if req.OpenAIUpstream5xxRetryRules != nil {
+				return *req.OpenAIUpstream5xxRetryRules
+			}
+			return previousSettings.OpenAIUpstream5xxRetryRules
+		}(),
 		EnableCCHSigning: func() bool {
 			if req.EnableCCHSigning != nil {
 				return *req.EnableCCHSigning

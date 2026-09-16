@@ -48,6 +48,8 @@ export default {
       skipped: '命中 502/503 但本次未重试（原因见备注列）'
     },
     columns: {
+      wsRetry: 'WS 内部重试',
+      rule: '命中规则',
       time: '时间',
       event: '事件',
       upstreamStatus: '上游',
@@ -69,11 +71,23 @@ export default {
     attemptValue: '第 {attempt} 次 / 同账号 {same}/{max}',
     attemptSwitch: '第 {attempt} 次 / 换账号',
     stopReasons: {
+      ws_retry_count_exhausted: 'WS 内部重连次数用尽',
+      ws_retry_time_exhausted: 'WS 内部重连时间预算用尽',
+      ws_not_retryable: 'WS 错误不可内部重试',
+      ws_error: 'WS 连接恢复停止',
+      upstream_error: '其他上游错误',
       retry_count_exhausted: '累计重试次数用尽',
       retry_time_exhausted: '重试时间预算用尽',
       no_available_account: '无可用账号',
       client_disconnected: '客户端已断开',
       output_started: '已开始输出，停止重试'
+    },
+    wsRetry: { none: '未发生', retrying: '{n} 次，重连中', recovered: '{n} 次，已恢复', failed: '{n} 次，未恢复' },
+    rules: {
+      title: '业务重试匹配规则', restore: '恢复默认规则', add: '新增规则', remove: '删除规则', up: '上移', down: '下移',
+      empty: '未启用任何匹配规则', name: '规则名称', status: '归类状态码', mode: '内容匹配', all: '全部关键词', any: '任意关键词',
+      keywords: '内容关键词（每行一项）', payload: '上游错误事件 JSON', preview: '测试匹配', newName: '自定义错误规则', failed: '匹配测试失败',
+      reasons: { invalid_json: 'JSON 格式无效', unsupported_event: '不属于 error / response.failed 事件', excluded_error: '该错误由原有逻辑处理', excluded_status: '明确状态码不属于 502/503', no_match: '未命中已启用规则' }
     },
     attemptTerminal: '共重试 {n} 次',
     empty: '暂无重试观测记录',

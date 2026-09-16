@@ -26,6 +26,12 @@ type openAIUpstream5xxRetryTracker struct {
 	lastAccountName     string
 	lastModel           string
 	lastMessage         string
+	lastRuleID          string
+	lastRuleName        string
+	wsRetryCount        int
+	wsRetryStatus       string
+	wsRetryReason       string
+	finalMessage        string
 	stopReason          string
 	flushed             bool
 }
@@ -42,6 +48,7 @@ func NoteOpenAIUpstream5xxRetryIntercept(c *gin.Context, account *Account, failo
 		Model: model, Transport: openAIUpstream5xxRetryTransport(c), Path: openAIUpstream5xxRetryPath(c),
 		SameAccountAttempt: sameAccountAttempt, SameAccountMax: failoverErr.OpenAIUpstream5xxRetry.SameAccount,
 		RetryDelayMS: retryDelay.Milliseconds(), UpstreamMessage: extractOpenAISSEErrorMessage(failoverErr.ResponseBody),
+		RuleID: failoverErr.OpenAIUpstream5xxRuleID, RuleName: failoverErr.OpenAIUpstream5xxRuleName,
 	}
 	tracker := openAIUpstream5xxRetryTrackerFrom(c)
 	tracker.mu.Lock()
@@ -96,7 +103,8 @@ func FlushOpenAIUpstream5xxRetryTracker(c *gin.Context, clientStatus int) {
 	if tracker == nil {
 		return
 	}
-	if streamErr, ok := GetOpsStreamError(c); ok && streamErr.IntendedStatus > 0 {
+	streamErr, hasStreamErr := GetOpsStreamError(c)
+	if hasStreamErr && streamErr.IntendedStatus > 0 {
 		clientStatus = streamErr.IntendedStatus
 	}
 	if c.Request != nil && c.Request.Context().Err() != nil {
@@ -112,11 +120,24 @@ func FlushOpenAIUpstream5xxRetryTracker(c *gin.Context, clientStatus int) {
 		return
 	}
 	tracker.flushed = true
+	if clientStatus >= 400 {
+		if clientStatus == 499 {
+			tracker.stopReason = "client_disconnected"
+		}
+		if tracker.stopReason == "" {
+			tracker.stopReason = "upstream_error"
+		}
+		if tracker.finalMessage == "" && hasStreamErr {
+			tracker.finalMessage = streamErr.Message
+		}
+	}
 	entry := OpenAIUpstream5xxRetryLogEntry{
 		AtUnixMS: time.Now().UnixMilli(), StatusCode: clientStatus, UpstreamStatus: tracker.lastStatus,
 		AccountID: tracker.lastAccountID, AccountName: tracker.lastAccountName, Model: tracker.lastModel,
 		Attempt: tracker.intercepts, RetryCount: tracker.intercepts, UpstreamMessage: tracker.lastMessage,
-		StopReason: tracker.stopReason,
+		StopReason:   tracker.stopReason,
+		FinalMessage: tracker.finalMessage, RuleID: tracker.lastRuleID, RuleName: tracker.lastRuleName,
+		WSRetryCount: tracker.wsRetryCount, WSRetryStatus: tracker.wsRetryStatus, WSRetryReason: tracker.wsRetryReason,
 	}
 	endAt := tracker.completedAt
 	if endAt.IsZero() {

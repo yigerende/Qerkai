@@ -1313,6 +1313,12 @@ async function updateMetricThresholds(thresholds: OpsMetricThresholds): Promise<
 export type OpenAIUpstream5xxRetryEvent = 'intercepted' | 'succeeded' | 'exhausted' | 'skipped'
 
 export interface OpenAIUpstream5xxRetryLogEntry {
+  ws_retry_count?: number
+  ws_retry_status?: 'retrying' | 'recovered' | 'failed'
+  ws_retry_reason?: string
+  final_message?: string
+  rule_id?: string
+  rule_name?: string
   seq: number
   at_unix_ms: number
   event: OpenAIUpstream5xxRetryEvent

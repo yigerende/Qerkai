@@ -886,6 +886,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIUpstream5xxRetrySameAccount = parseIntSettingDefault(settings, SettingKeyOpenAIUpstream5xxRetrySameAccount, DefaultOpenAIUpstream5xxRetrySameAccount)
 	result.OpenAIUpstream5xxRetryTotal = parseIntSettingDefault(settings, SettingKeyOpenAIUpstream5xxRetryTotal, DefaultOpenAIUpstream5xxRetryTotal)
 	result.OpenAIUpstream5xxRetryDelayMS = parseIntSettingDefault(settings, SettingKeyOpenAIUpstream5xxRetryDelayMS, DefaultOpenAIUpstream5xxRetryDelayMS)
+	result.OpenAIUpstream5xxRetryRules = parseOpenAIUpstream5xxRetryRules(settings[SettingKeyOpenAIUpstream5xxRetryRules])
 	result.EnableCCHSigning = settings[SettingKeyEnableCCHSigning] == "true"
 	if v, ok := settings[SettingKeyEnableClaudeOAuthSystemPromptInjection]; ok && v != "" {
 		result.EnableClaudeOAuthSystemPromptInjection = v == "true"

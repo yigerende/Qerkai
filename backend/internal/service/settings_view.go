@@ -256,21 +256,22 @@ type SystemSettings struct {
 	OpenAIWSOptimizedDialIntervalMS        int
 	// OpenAIUpstream5xxRetry* 上游 502/503 过载时的网关内部重试（默认关闭）。
 	// 二次开发功能，详见 service/openai_upstream_5xx_retry.go。
-	OpenAIUpstream5xxRetryEnabled     bool
-	OpenAIUpstream5xxRetrySameAccount int
-	OpenAIUpstream5xxRetryTotal       int
-	OpenAIUpstream5xxRetryDelayMS     int
-	AntigravityUserAgentVersion            string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
-	OpenAICodexUserAgent                   string // OpenAI Codex 上游完整 User-Agent；空值由 Codex 客户端版本号拼出标准 TUI UA
-	OpenAICodexClientVersion               string // 出站声明的 Codex 客户端版本号（管理员覆写）；空值跟随自动同步值
-	OpenAICodexClientVersionSynced         string // 自动同步到的官方最新稳定版版本号（只读展示）
-	OpenAICodexVersionAutoSyncEnabled      bool   // 是否启用 Codex 客户端版本号自动同步（默认 true）
-	MinCodexVersion                        string // codex_cli_only 最低 Codex 引擎版本；空=不检查
-	MaxCodexVersion                        string // codex_cli_only 最高 Codex 引擎版本；空=不检查
-	CodexCLIOnlyBlacklist                  string // codex_cli_only 全局黑名单 JSON（[]AllowedClientEntry，OR deny）
-	CodexCLIOnlyWhitelist                  string // codex_cli_only 全局白名单 JSON（[]AllowedClientEntry，AND allow）
-	CodexCLIOnlyAllowAppServerClients      bool   // codex_cli_only App Server 开关：对未列名客户端开闸（默认 false）
-	CodexCLIOnlyEngineFingerprintSignals   string // codex_cli_only 引擎指纹门信号列表 JSON（[]EngineFingerprintSignal）
+	OpenAIUpstream5xxRetryEnabled        bool
+	OpenAIUpstream5xxRetrySameAccount    int
+	OpenAIUpstream5xxRetryTotal          int
+	OpenAIUpstream5xxRetryDelayMS        int
+	OpenAIUpstream5xxRetryRules          []OpenAIUpstream5xxRetryRule
+	AntigravityUserAgentVersion          string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
+	OpenAICodexUserAgent                 string // OpenAI Codex 上游完整 User-Agent；空值由 Codex 客户端版本号拼出标准 TUI UA
+	OpenAICodexClientVersion             string // 出站声明的 Codex 客户端版本号（管理员覆写）；空值跟随自动同步值
+	OpenAICodexClientVersionSynced       string // 自动同步到的官方最新稳定版版本号（只读展示）
+	OpenAICodexVersionAutoSyncEnabled    bool   // 是否启用 Codex 客户端版本号自动同步（默认 true）
+	MinCodexVersion                      string // codex_cli_only 最低 Codex 引擎版本；空=不检查
+	MaxCodexVersion                      string // codex_cli_only 最高 Codex 引擎版本；空=不检查
+	CodexCLIOnlyBlacklist                string // codex_cli_only 全局黑名单 JSON（[]AllowedClientEntry，OR deny）
+	CodexCLIOnlyWhitelist                string // codex_cli_only 全局白名单 JSON（[]AllowedClientEntry，AND allow）
+	CodexCLIOnlyAllowAppServerClients    bool   // codex_cli_only App Server 开关：对未列名客户端开闸（默认 false）
+	CodexCLIOnlyEngineFingerprintSignals string // codex_cli_only 引擎指纹门信号列表 JSON（[]EngineFingerprintSignal）
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟

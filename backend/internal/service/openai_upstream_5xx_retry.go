@@ -13,7 +13,7 @@ import (
 )
 
 // Settings and ownership helpers for the opt-in HTTP/SSE -> forced WS retry.
-// The WS reader matches the two provider messages and checks output safety.
+// The WS reader matches enabled provider-message rules and checks output safety.
 // A 502/503 status alone says nothing about whether a model processed a request.
 
 const (
@@ -44,6 +44,7 @@ const (
 
 // OpenAIUpstream5xxRetryConfig 是本功能的运行时配置快照。
 type OpenAIUpstream5xxRetryConfig struct {
+	Rules       []OpenAIUpstream5xxRetryRule
 	Enabled     bool
 	SameAccount int
 	Total       int
@@ -84,6 +85,7 @@ func refreshOpenAIUpstream5xxRetryCache(settings *SystemSettings) {
 	openAIUpstream5xxRetrySF.Forget(openAIUpstream5xxRetrySFKey)
 	openAIUpstream5xxRetryCache.Store(&cachedOpenAIUpstream5xxRetryConfig{
 		config: OpenAIUpstream5xxRetryConfig{
+			Rules:       settings.OpenAIUpstream5xxRetryRules,
 			Enabled:     settings.OpenAIUpstream5xxRetryEnabled,
 			SameAccount: clampOpenAIUpstream5xxRetrySameAccount(settings.OpenAIUpstream5xxRetrySameAccount),
 			Total:       clampOpenAIUpstream5xxRetryTotal(settings.OpenAIUpstream5xxRetryTotal),
@@ -159,6 +161,11 @@ func OpenAIUpstream5xxRetrySettings() OpenAIUpstream5xxRetryConfig {
 		}
 		config.Delay = time.Duration(clampOpenAIUpstream5xxRetryDelayMS(openAIUpstream5xxRetryIntSetting(
 			dbCtx, svc, SettingKeyOpenAIUpstream5xxRetryDelayMS, DefaultOpenAIUpstream5xxRetryDelayMS))) * time.Millisecond
+		rawRules, rulesErr := svc.settingRepo.GetValue(dbCtx, SettingKeyOpenAIUpstream5xxRetryRules)
+		config.Rules = parseOpenAIUpstream5xxRetryRules(rawRules)
+		if rulesErr != nil && !errors.Is(rulesErr, ErrSettingNotFound) {
+			config.Rules = []OpenAIUpstream5xxRetryRule{}
+		}
 
 		ttl := openAIUpstream5xxRetryCacheTTL
 		if enabledErr != nil {

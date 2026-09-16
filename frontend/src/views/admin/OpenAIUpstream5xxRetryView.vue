@@ -80,7 +80,7 @@
       <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-700">
-            <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 dark:bg-dark-700/60 dark:text-gray-400">
+            <thead class="whitespace-nowrap bg-gray-50 text-left text-xs font-medium text-gray-500 dark:bg-dark-700/60 dark:text-gray-400">
               <tr>
                 <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.time') }}</th>
                 <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.event') }}</th>
@@ -90,6 +90,8 @@
                 <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.model') }}</th>
                 <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.transport') }}</th>
                 <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.attempt') }}</th>
+                <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.wsRetry') }}</th>
+                <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.rule') }}</th>
                 <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.delay') }}</th>
                 <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.extraLatency') }}</th>
                 <th class="px-3 py-3">{{ t('admin.openaiUpstream5xxRetry.columns.requestId') }}</th>
@@ -100,7 +102,7 @@
               <tr v-for="entry in page.entries" :key="entry.seq" class="hover:bg-gray-50 dark:hover:bg-dark-700/40">
                 <td class="whitespace-nowrap px-3 py-3 tabular-nums text-gray-500 dark:text-gray-400">{{ formatTime(entry.at_unix_ms) }}</td>
                 <td class="px-3 py-3">
-                  <span class="rounded px-2 py-1 text-xs" :class="eventClass(entry.event)" :title="t(`admin.openaiUpstream5xxRetry.eventHints.${entry.event}`)">
+                  <span class="whitespace-nowrap rounded px-2 py-1 text-xs" :class="eventClass(entry.event)" :title="t(`admin.openaiUpstream5xxRetry.eventHints.${entry.event}`)">
                     {{ t(`admin.openaiUpstream5xxRetry.events.${entry.event}`) }}
                   </span>
                 </td>
@@ -115,6 +117,8 @@
                 <td class="px-3 py-3"><div class="max-w-[12rem] truncate" :title="entry.model">{{ entry.model || '-' }}</div></td>
                 <td class="whitespace-nowrap px-3 py-3 text-xs text-gray-500 dark:text-gray-400">{{ transportText(entry.transport) }}</td>
                 <td class="whitespace-nowrap px-3 py-3 text-xs tabular-nums">{{ attemptText(entry) }}</td>
+                <td class="whitespace-nowrap px-3 py-3 text-xs tabular-nums" :title="entry.ws_retry_reason">{{ wsRetryText(entry) }}</td>
+                <td class="px-3 py-3"><div class="max-w-[12rem] truncate text-xs" :title="entry.rule_name">{{ entry.rule_name || '-' }}</div></td>
                 <td class="whitespace-nowrap px-3 py-3 tabular-nums text-gray-500 dark:text-gray-400">{{ entry.retry_delay_ms ? `${entry.retry_delay_ms} ms` : '-' }}</td>
                 <td class="whitespace-nowrap px-3 py-3 tabular-nums" :class="entry.extra_latency_ms ? 'text-amber-600 dark:text-amber-300' : 'text-gray-400'">
                   {{ entry.extra_latency_ms ? `${entry.extra_latency_ms} ms` : '-' }}
@@ -127,7 +131,7 @@
                 <td class="px-3 py-3"><div class="max-w-[18rem] truncate text-xs text-gray-500 dark:text-gray-400" :title="messageText(entry)">{{ messageText(entry) }}</div></td>
               </tr>
               <tr v-if="!loading && !page.entries.length">
-                <td colspan="12" class="px-4 py-12 text-center text-gray-400">
+                <td colspan="14" class="px-4 py-12 text-center text-gray-400">
                   {{ hasFilters ? t('admin.openaiUpstream5xxRetry.emptyFiltered') : t('admin.openaiUpstream5xxRetry.empty') }}
                 </td>
               </tr>
@@ -312,13 +316,19 @@ const attemptText = (entry: OpenAIUpstream5xxRetryLogEntry) => {
 }
 
 const messageText = (entry: OpenAIUpstream5xxRetryLogEntry) => {
-  if (!entry.stop_reason) return entry.upstream_message || '-'
+  const messages = [entry.final_message, entry.upstream_message].filter((value, index, values) => value && values.indexOf(value) === index).join('; ')
+  if (!entry.stop_reason) return messages || '-'
   const [reason, ...details] = entry.stop_reason.split(':')
   const key = `admin.openaiUpstream5xxRetry.stopReasons.${reason}`
   const label = te(key) ? t(key) : reason
   const stop = [label, ...details].join(': ')
-  return entry.upstream_message && entry.upstream_message !== entry.stop_reason
-    ? `${stop}; ${entry.upstream_message}` : stop
+  return messages ? `${stop}; ${messages}` : stop
+}
+
+const wsRetryText = (entry: OpenAIUpstream5xxRetryLogEntry) => {
+  if (!entry.ws_retry_count) return t('admin.openaiUpstream5xxRetry.wsRetry.none')
+  const status = entry.ws_retry_status || 'retrying'
+  return t(`admin.openaiUpstream5xxRetry.wsRetry.${status}`, { n: entry.ws_retry_count })
 }
 
 const eventClass = (event: string) => {

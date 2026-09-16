@@ -62,7 +62,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	)
 
 	payload := s.buildOpenAIWSCreatePayload(reqBody, account)
-	payloadStrategy, removedKeys := applyOpenAIWSRetryPayloadStrategy(payload, attempt)
+	payloadStrategy, removedKeys := "full", []string(nil)
+	if businessRetry == nil || !businessRetry.managed {
+		payloadStrategy, removedKeys = applyOpenAIWSRetryPayloadStrategy(payload, attempt)
+	}
 	turnState := ""
 	turnMetadata := ""
 	if c != nil && c.Request != nil {
@@ -597,7 +600,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 				truncateOpenAIWSLogValue(firstEventType, openAIWSLogValueMaxLen),
 				truncateOpenAIWSLogValue(lastEventType, openAIWSLogValueMaxLen),
 			)
-			if !wroteDownstream {
+			if !wroteDownstream || (!clientDisconnected && openAIWSBusinessRetryCanReconnect(c)) {
 				// 二次开发：复用的池连接一个事件都没收到就断，是它在池中空闲期间
 				// 被上游 keepalive 打死，不是本次请求的上游故障。单独标记，让重连
 				// 不计入重试预算。详见 openai_ws_stale_conn.go。
@@ -620,6 +623,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		eventType, eventResponseID, responseField := parseOpenAIWSEventEnvelope(message)
 		if eventType == "" {
 			continue
+		}
+		if businessRetry != nil {
+			markOpenAIWSBusinessReconnectRecovered(c)
 		}
 		responseModelObserver.ObserveOpenAI(message, eventType)
 		outputCollector.Observe(eventType, message)

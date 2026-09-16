@@ -480,7 +480,7 @@ export default {
           '开启后，无论客户端使用 HTTP 还是 WebSocket，与 OpenAI 上游之间一律使用 WebSocket。仅覆盖「账号未显式启用 WS」这一种降级原因；全局强制 HTTP、账号级强制 HTTP 等开关仍然生效。默认关闭。',
         openaiUpstream5xxRetry: 'OpenAI 上游 502/503 自动重试',
         openaiUpstream5xxRetryHint:
-          '仅用于 HTTP/SSE Responses 请求强制上游 WS 的 OpenAI OAuth/SetupToken 账号。只重试指定的请求处理失败（502）和服务器过载（503）错误文案，按同账号次数、累计次数和间隔执行，再按需换账号。CPA 网络首帧通知保持即时转发；回答、推理或工具输出开始后不再重试。建连及其他错误沿用原逻辑，关闭后不启用本功能。',
+          '仅用于 HTTP/SSE Responses 请求强制上游 WS 的 OpenAI OAuth/SetupToken 账号。按已启用规则匹配上游错误，默认选中请求处理失败（502）和服务器过载（503），按同账号次数、累计次数和间隔执行，再按需换账号。CPA 网络首帧通知保持即时转发；回答、推理或工具输出开始后不再重试。连接恢复沿用原有内部重连，关闭后保持原处理路径。',
         openaiUpstream5xxRetryFields: {
           sameAccount: { label: '同账号重试次数', hint: '0–10，默认 2；设为 0 等同关闭' },
           total: { label: '整请求累计上限', hint: '1–20，默认 5；含同账号重试与换号次数之和' },

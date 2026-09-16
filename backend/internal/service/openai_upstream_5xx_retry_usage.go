@@ -44,6 +44,8 @@ func BeginOpenAIUpstream5xxUsageAttempt(c *gin.Context) {
 	}
 	tracker.lastStatus, tracker.lastAccountID = entry.UpstreamStatus, entry.AccountID
 	tracker.lastAccountName, tracker.lastModel, tracker.lastMessage = entry.AccountName, entry.Model, entry.UpstreamMessage
+	tracker.lastRuleID, tracker.lastRuleName = entry.RuleID, entry.RuleName
+	entry.WSRetryCount, entry.WSRetryStatus, entry.WSRetryReason = tracker.wsRetryCount, tracker.wsRetryStatus, tracker.wsRetryReason
 	entry.AtUnixMS = time.Now().UnixMilli()
 	entry.Attempt, entry.RetryCount = tracker.intercepts, tracker.intercepts
 	tracker.mu.Unlock()

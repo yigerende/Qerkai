@@ -863,8 +863,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		retryStartedAt := time.Now()
 		// 二次开发：池内陈旧连接的免费重试只放行一次，见下方使用处。
 		wsStaleConnRetried := false
+		wsReconnectPending := false
+		wsReconnectStopReason := ""
 	wsRetryLoop:
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			if wsReconnectPending && ctx.Err() == nil {
+				beginOpenAIWSBusinessReconnect(c, wsLastFailureReason)
+				wsReconnectPending = false
+			}
 			wsAttempts = attempt
 			wsResult, wsErr = s.forwardOpenAIWSV2(
 				ctx,
@@ -890,7 +896,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if errors.As(wsErr, &businessRetryErr) && businessRetryErr.OpenAIUpstream5xxRetry != nil {
 				break
 			}
-			if c != nil && c.Writer != nil && c.Writer.Written() {
+			if c != nil && c.Writer != nil && c.Writer.Written() &&
+				!(openAIWSBusinessRetryCanReconnect(c) && openAIWSBusinessTransportFailure(wsErr)) {
 				break
 			}
 			var taskRecoveredErr *agentIdentityTaskRecoveredError
@@ -906,6 +913,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if isOpenAIWSStaleConnError(wsErr) && !wsStaleConnRetried {
 				wsStaleConnRetried = true
 				wsLastFailureReason = openAIWSStaleConnReason
+				wsReconnectPending = true
 				logOpenAIWSModeInfo(
 					"reconnect_stale_pooled_conn account_id=%d attempt=%d action=free_retry cause=%s",
 					account.ID,
@@ -931,6 +939,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if retryable && attempt < maxAttempts {
 				backoff := s.openAIWSRetryBackoff(attempt)
 				if retryBudget > 0 && time.Since(retryStartedAt)+backoff > retryBudget {
+					wsReconnectStopReason = "ws_retry_time_exhausted"
 					s.recordOpenAIWSRetryExhausted()
 					logOpenAIWSModeInfo(
 						"reconnect_budget_exhausted account_id=%d attempts=%d max_retries=%d reason=%s elapsed_ms=%d budget_ms=%d",
@@ -964,9 +973,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					case <-timer.C:
 					}
 				}
+				wsReconnectPending = true
 				continue
 			}
 			if retryable {
+				wsReconnectStopReason = "ws_retry_count_exhausted"
 				s.recordOpenAIWSRetryExhausted()
 				logOpenAIWSModeInfo(
 					"reconnect_exhausted account_id=%d attempts=%d max_retries=%d reason=%s",
@@ -976,6 +987,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					normalizeOpenAIWSLogValue(reason),
 				)
 			} else if reason != "" {
+				wsReconnectStopReason = "ws_not_retryable:" + reason
 				s.recordOpenAIWSNonRetryableFastFallback()
 				logOpenAIWSModeInfo(
 					"reconnect_stop account_id=%d attempt=%d reason=%s",
@@ -1025,6 +1037,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			// 让 HTTP 链路按原始 body 重新解码，避免沿用被 WS 语义改写过的载荷。
 			reqBody = nil
 		} else {
+			finishOpenAIWSBusinessReconnect(c, wsErr, wsReconnectStopReason)
 			if !s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr) {
 				// 二次开发：上游写出器只覆盖六个 reason，其余在拿不到 dialErr
 				// 状态码时返回 false——既不写响应也不记 ops，错误裸传回 handler

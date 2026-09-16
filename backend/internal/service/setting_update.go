@@ -518,6 +518,13 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAIUpstream5xxRetrySameAccount] = strconv.Itoa(settings.OpenAIUpstream5xxRetrySameAccount)
 	updates[SettingKeyOpenAIUpstream5xxRetryTotal] = strconv.Itoa(settings.OpenAIUpstream5xxRetryTotal)
 	updates[SettingKeyOpenAIUpstream5xxRetryDelayMS] = strconv.Itoa(settings.OpenAIUpstream5xxRetryDelayMS)
+	retryRules, retryRulesErr := NormalizeOpenAIUpstream5xxRetryRules(settings.OpenAIUpstream5xxRetryRules)
+	if retryRulesErr != nil {
+		return nil, retryRulesErr
+	}
+	settings.OpenAIUpstream5xxRetryRules = retryRules
+	retryRulesJSON, _ := json.Marshal(retryRules)
+	updates[SettingKeyOpenAIUpstream5xxRetryRules] = string(retryRulesJSON)
 	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
 	updates[SettingKeyEnableClaudeOAuthSystemPromptInjection] = strconv.FormatBool(settings.EnableClaudeOAuthSystemPromptInjection)
 	updates[SettingKeyClaudeOAuthSystemPrompt] = settings.ClaudeOAuthSystemPrompt

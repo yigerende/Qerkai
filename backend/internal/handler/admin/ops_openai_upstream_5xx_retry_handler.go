@@ -78,3 +78,21 @@ func (h *OpsHandler) ClearOpenAIUpstream5xxRetryLog(c *gin.Context) {
 	service.ClearOpenAIUpstream5xxRetryLog()
 	response.Success(c, gin.H{"cleared": true})
 }
+
+func (h *OpsHandler) PreviewOpenAIUpstream5xxRetryRule(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024*1024)
+	var req struct {
+		Rules   []service.OpenAIUpstream5xxRetryRule `json:"rules"`
+		Payload string                               `json:"payload"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid preview request")
+		return
+	}
+	rules, err := service.NormalizeOpenAIUpstream5xxRetryRules(req.Rules)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, service.MatchOpenAIUpstream5xxRetryRules([]byte(req.Payload), rules))
+}

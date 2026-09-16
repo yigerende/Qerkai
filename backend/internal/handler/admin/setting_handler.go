@@ -309,6 +309,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIUpstream5xxRetrySameAccount:                      settings.OpenAIUpstream5xxRetrySameAccount,
 		OpenAIUpstream5xxRetryTotal:                            settings.OpenAIUpstream5xxRetryTotal,
 		OpenAIUpstream5xxRetryDelayMS:                          settings.OpenAIUpstream5xxRetryDelayMS,
+		OpenAIUpstream5xxRetryRules:                            settings.OpenAIUpstream5xxRetryRules,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 settings.EnableClaudeOAuthSystemPromptInjection,
 		ClaudeOAuthSystemPrompt:                                settings.ClaudeOAuthSystemPrompt,

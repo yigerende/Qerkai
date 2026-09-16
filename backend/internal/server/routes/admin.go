@@ -235,6 +235,7 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 二次开发：OpenAI 上游 502/503 重试观测（进程内环形缓冲，非落库）。
 		// 详见 service/openai_upstream_5xx_retry_log.go。
 		ops.GET("/openai-upstream-5xx-retry", h.Admin.Ops.GetOpenAIUpstream5xxRetryLog)
+		ops.POST("/openai-upstream-5xx-retry/preview", h.Admin.Ops.PreviewOpenAIUpstream5xxRetryRule)
 		ops.DELETE("/openai-upstream-5xx-retry", h.Admin.Ops.ClearOpenAIUpstream5xxRetryLog)
 
 		// WebSocket realtime (QPS/TPS)

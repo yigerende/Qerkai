@@ -48,6 +48,8 @@ export default {
       skipped: 'Matched 502/503 but was not retried (see notes column)'
     },
     columns: {
+      wsRetry: 'WS internal retries',
+      rule: 'Matched rule',
       time: 'Time',
       event: 'Event',
       upstreamStatus: 'Upstream',
@@ -69,11 +71,23 @@ export default {
     attemptValue: 'attempt {attempt} / same-account {same}/{max}',
     attemptSwitch: 'attempt {attempt} / switch account',
     stopReasons: {
+      ws_retry_count_exhausted: 'WS reconnect limit reached',
+      ws_retry_time_exhausted: 'WS reconnect time budget exhausted',
+      ws_not_retryable: 'WS error is not reconnectable',
+      ws_error: 'WS recovery stopped',
+      upstream_error: 'Other upstream error',
       retry_count_exhausted: 'Total retry limit reached',
       retry_time_exhausted: 'Retry time budget exhausted',
       no_available_account: 'No available account',
       client_disconnected: 'Client disconnected',
       output_started: 'Output started; retries stopped'
+    },
+    wsRetry: { none: 'None', retrying: '{n} retries, reconnecting', recovered: '{n} retries, recovered', failed: '{n} retries, not recovered' },
+    rules: {
+      title: 'Business retry matching rules', restore: 'Restore default rules', add: 'Add rule', remove: 'Delete rule', up: 'Move up', down: 'Move down',
+      empty: 'No matching rules enabled', name: 'Rule name', status: 'Classified status', mode: 'Content matching', all: 'All keywords', any: 'Any keyword',
+      keywords: 'Content keywords (one per line)', payload: 'Upstream error event JSON', preview: 'Test match', newName: 'Custom error rule', failed: 'Match preview failed',
+      reasons: { invalid_json: 'Invalid JSON', unsupported_event: 'Not an error / response.failed event', excluded_error: 'Handled by existing error policy', excluded_status: 'Explicit status is not 502/503', no_match: 'No enabled rule matched' }
     },
     attemptTerminal: '{n} retries total',
     empty: 'No retry records yet',
