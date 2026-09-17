@@ -111,6 +111,14 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+		quality := admin.Group("/account-quality")
+		quality.GET("/capabilities", h.Admin.AccountQuality.Capabilities)
+		quality.GET("/settings", h.Admin.AccountQuality.Settings)
+		quality.PUT("/settings", h.Admin.AccountQuality.Save)
+		quality.POST("/results", h.Admin.AccountQuality.Results)
+		quality.GET("/accounts/:id", h.Admin.AccountQuality.Results)
+		quality.GET("/accounts/:id/history", h.Admin.AccountQuality.History)
+		quality.POST("/run", h.Admin.AccountQuality.Run)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)

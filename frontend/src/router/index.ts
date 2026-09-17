@@ -537,6 +537,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/account-quality',
+    name: 'AdminAccountQuality',
+    component: () => import('@/views/admin/AccountQualityView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: '降智检测设置' }
+  },
+  {
     path: '/admin/announcements',
     name: 'AdminAnnouncements',
     component: () => import('@/views/admin/AnnouncementsView.vue'),

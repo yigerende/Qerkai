@@ -306,6 +306,10 @@
           <template #cell-groups="{ row }">
             <AccountGroupsCell :groups="accountGroupsForRow(row)" :max-display="4" />
           </template>
+          <template #cell-quality="{ row }">
+            <AccountQualityCell v-if="row.platform === 'openai'" :account-id="row.id" :result="qualityResults[row.id]" :error="qualityError" />
+            <span v-else class="text-gray-400">-</span>
+          </template>
           <template #cell-recent_requests="{ row }">
             <AccountRecentRequestsCell :requests="recentRequestsByAccountID[String(row.id)]" :loading="recentRequestsLoading" :error="recentRequestsError" />
           </template>
@@ -524,6 +528,8 @@ import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountRecentRequestsCell from '@/components/account/AccountRecentRequestsCell.vue'
+import AccountQualityCell from '@/components/account/AccountQualityCell.vue'
+import { useAccountQuality } from '@/composables/useAccountQuality'
 import { useAccountRecentRequests } from '@/composables/useAccountRecentRequests'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
@@ -1052,6 +1058,7 @@ const toggleColumn = (key: string) => {
     hiddenColumns.add(key)
   }
   saveColumnsToStorage()
+  if (key === 'quality' && wasHidden) void refreshQuality()
   if ((key === 'recent_requests' || key === 'recent_error') && wasHidden) {
     void refreshRecentRequests()
   }
@@ -1115,7 +1122,11 @@ const {
 )
 
 // Reuse every existing list/manual/automatic refresh path, including HTTP 304.
-const refreshTodayStatsBatch = () => Promise.all([refreshTodayStatsOnly(), refreshRecentRequests()])
+const { results: qualityResults, error: qualityError, refresh: refreshQuality } = useAccountQuality(
+  computed(() => accounts.value.filter(account => account.platform === 'openai').map(account => account.id)),
+  computed(() => !hiddenColumns.has('quality'))
+)
+const refreshTodayStatsBatch = () => Promise.all([refreshTodayStatsOnly(), refreshRecentRequests(), refreshQuality()])
 
 const {
   selectedSet,
@@ -1814,6 +1825,7 @@ const allColumns = computed(() => {
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'quality', label: '智商情况', sortable: false },
     { key: 'recent_requests', label: t('admin.accounts.columns.recentRequests'), sortable: false },
     { key: 'recent_error', label: t('admin.accounts.columns.recentError'), sortable: false }
   ]

@@ -5,6 +5,8 @@ import { defineComponent } from 'vue'
 import AccountsView from '../AccountsView.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 
+vi.mock('@/api/admin/accountQuality', () => ({ qualityAPI: { results: vi.fn().mockResolvedValue({ accounts: [] }), history: vi.fn().mockResolvedValue({ items: [] }) }, qualityStatusLabel: () => '未检测' }))
+
 const {
   listAccounts,
   listWithEtag,
