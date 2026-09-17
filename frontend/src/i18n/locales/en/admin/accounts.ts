@@ -215,6 +215,8 @@ export default {
         status: 'Status',
         schedulable: 'Schedulable',
         todayStats: 'Today Stats',
+        recentRequests: 'Recent Requests',
+        recentError: 'Recent Error',
         groups: 'Groups',
         usageWindows: 'Usage Windows',
         proxy: 'Proxy',
@@ -222,6 +224,14 @@ export default {
         createdAt: 'Created',
         expiresAt: 'Expires At',
         actions: 'Actions'
+      },
+      recentRequests: {
+        success: 'Success',
+        failed: 'Failed',
+        empty: 'No records',
+        error: 'Error',
+        unavailable: 'Unavailable',
+        recovered: 'Succeeded after retry'
       },
       schedulerScore: {
         baseShort: 'Base',

@@ -699,6 +699,7 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		usage.GET("/model-audit-capabilities", h.Admin.Usage.ModelAuditCapabilities)
 		usage.POST("/model-audit", h.Admin.Usage.ModelAudit)
+		usage.POST("/account-recent-requests", h.Admin.Usage.AccountRecentRequests)
 		usage.GET("", h.Admin.Usage.List)
 		usage.GET("/stats", h.Admin.Usage.Stats)
 		usage.GET("/search-users", h.Admin.Usage.SearchUsers)

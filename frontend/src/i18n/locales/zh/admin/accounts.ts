@@ -111,6 +111,8 @@ export default {
         status: '状态',
         schedulable: '调度',
         todayStats: '今日统计',
+        recentRequests: '最近请求',
+        recentError: '最近错误',
         groups: '分组',
         usageWindows: '用量窗口',
         proxy: '代理',
@@ -118,6 +120,14 @@ export default {
         createdAt: '创建时间',
         expiresAt: '过期时间',
         actions: '操作'
+      },
+      recentRequests: {
+        success: '成功',
+        failed: '失败',
+        empty: '无记录',
+        error: '错误',
+        unavailable: '读取失败',
+        recovered: '重试后成功'
       },
       schedulerScore: {
         baseShort: '普通',

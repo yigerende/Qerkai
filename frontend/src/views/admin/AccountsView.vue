@@ -306,6 +306,12 @@
           <template #cell-groups="{ row }">
             <AccountGroupsCell :groups="accountGroupsForRow(row)" :max-display="4" />
           </template>
+          <template #cell-recent_requests="{ row }">
+            <AccountRecentRequestsCell :requests="recentRequestsByAccountID[String(row.id)]" :loading="recentRequestsLoading" :error="recentRequestsError" />
+          </template>
+          <template #cell-recent_error="{ row }">
+            <AccountRecentRequestsCell :requests="recentRequestsByAccountID[String(row.id)]" :loading="recentRequestsLoading" :error="recentRequestsError" error-only />
+          </template>
           <template #header-usage="{ column }">
             <div class="flex items-center">
               <span>{{ column.label }}</span>
@@ -517,6 +523,8 @@ import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
+import AccountRecentRequestsCell from '@/components/account/AccountRecentRequestsCell.vue'
+import { useAccountRecentRequests } from '@/composables/useAccountRecentRequests'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
@@ -863,7 +871,7 @@ const queueBatchedUsage = (account: Account, options?: { force?: boolean }) => {
   }, 0)
 }
 
-const refreshTodayStatsBatch = async () => {
+const refreshTodayStatsOnly = async () => {
   // Why this checks both columns:
   // - today_stats column shows dedicated today's metrics.
   // - usage column also embeds today's stats for Key/Bedrock rows.
@@ -1044,6 +1052,9 @@ const toggleColumn = (key: string) => {
     hiddenColumns.add(key)
   }
   saveColumnsToStorage()
+  if ((key === 'recent_requests' || key === 'recent_error') && wasHidden) {
+    void refreshRecentRequests()
+  }
   if ((key === 'today_stats' || key === 'usage') && wasHidden) {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
@@ -1091,6 +1102,20 @@ const {
     sort_order: sortState.sort_order
   }
 })
+
+const {
+  requests: recentRequestsByAccountID,
+  loading: recentRequestsLoading,
+  error: recentRequestsError,
+  refresh: refreshRecentRequests
+} = useAccountRecentRequests(
+  computed(() => accounts.value.map(account => account.id)),
+  computed(() => !hiddenColumns.has('recent_requests') || !hiddenColumns.has('recent_error')),
+  (ids, signal) => adminAPI.accounts.getRecentRequests(ids, signal)
+)
+
+// Reuse every existing list/manual/automatic refresh path, including HTTP 304.
+const refreshTodayStatsBatch = () => Promise.all([refreshTodayStatsOnly(), refreshRecentRequests()])
 
 const {
   selectedSet,
@@ -1788,7 +1813,9 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'recent_requests', label: t('admin.accounts.columns.recentRequests'), sortable: false },
+    { key: 'recent_error', label: t('admin.accounts.columns.recentError'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })

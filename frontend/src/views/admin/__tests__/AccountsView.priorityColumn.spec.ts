@@ -3,15 +3,18 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
 
-const { listAccounts } = vi.hoisted(() => ({
-  listAccounts: vi.fn()
+const { listAccounts, recentRequests, listWithEtag } = vi.hoisted(() => ({
+  listAccounts: vi.fn(),
+  recentRequests: vi.fn(),
+  listWithEtag: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       list: listAccounts,
-      listWithEtag: vi.fn(),
+      listWithEtag,
+      getRecentRequests: recentRequests,
       getBatchTodayStats: vi.fn().mockResolvedValue({ stats: {} }),
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
       delete: vi.fn(),
@@ -62,7 +65,7 @@ function mountView() {
           template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
         },
         DataTable: DataTableStub,
-        AccountTableActions: { template: '<div><slot name="after" /></div>' },
+        AccountTableActions: { name: 'AccountTableActions', template: '<div><slot name="after" /></div>' },
         AccountTableFilters: true,
         AccountBulkActionsBar: true,
         Pagination: true,
@@ -97,6 +100,8 @@ function mountView() {
 describe('admin AccountsView priority column preferences', () => {
   beforeEach(() => {
     localStorage.clear()
+    recentRequests.mockReset().mockResolvedValue({ accounts: [] })
+    listWithEtag.mockReset().mockResolvedValue({ notModified: true, etag: 'same' })
     listAccounts.mockReset().mockResolvedValue({
       items: [],
       total: 0,
@@ -121,6 +126,52 @@ describe('admin AccountsView priority column preferences', () => {
       expect.objectContaining({ sort_by: 'priority', sort_order: 'desc' }),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
+  })
+
+  it('refreshes recent requests manually and preserves optional column visibility', async () => {
+    listAccounts.mockResolvedValue({ items: [{ id: 7, name: 'account', platform: 'openai', type: 'oauth' }], total: 1, pages: 1 })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-column="recent_requests"]').exists()).toBe(true)
+    expect(wrapper.find('[data-column="recent_error"]').exists()).toBe(true)
+    expect(recentRequests).toHaveBeenCalledWith([7], expect.any(AbortSignal))
+    recentRequests.mockClear()
+    wrapper.findComponent({ name: 'AccountTableActions' }).vm.$emit('refresh')
+    await flushPromises()
+    expect(recentRequests).toHaveBeenCalledTimes(1)
+    await wrapper.get('[title="admin.accounts.moreActions"]').trigger('click')
+    const columnButton = (label: string) => wrapper.findAll('button').find(button => button.text() === label)!
+    await columnButton('admin.accounts.columns.recentRequests').trigger('click')
+    await columnButton('admin.accounts.columns.recentError').trigger('click')
+    expect(wrapper.find('[data-column="recent_requests"]').exists()).toBe(false)
+    expect(wrapper.find('[data-column="recent_error"]').exists()).toBe(false)
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual(expect.arrayContaining(['recent_requests', 'recent_error']))
+    recentRequests.mockClear()
+    wrapper.findComponent({ name: 'AccountTableActions' }).vm.$emit('refresh')
+    await flushPromises()
+    expect(recentRequests).not.toHaveBeenCalled()
+    await columnButton('admin.accounts.columns.recentError').trigger('click')
+    await flushPromises()
+    expect(recentRequests).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('refreshes request history on the existing auto-refresh even when accounts return 304', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    listAccounts.mockResolvedValue({ items: [{ id: 7, name: 'account', platform: 'openai', type: 'oauth' }], total: 1, pages: 1 })
+    const wrapper = mountView()
+    try {
+      await flushPromises()
+      recentRequests.mockClear()
+      await vi.advanceTimersByTimeAsync(31000)
+      await flushPromises()
+      expect(listWithEtag).toHaveBeenCalled()
+      expect(recentRequests).toHaveBeenCalledWith([7], expect.any(AbortSignal))
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
   })
 
   it('preserves an existing preference that explicitly hides priority', async () => {
