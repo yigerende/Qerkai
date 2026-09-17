@@ -48,7 +48,7 @@ func (s *OpenAIGatewayService) openAIWSBusinessRetryState(c *gin.Context, accoun
 	}
 	if c == nil || c.Request == nil || !stream || openAIWSChatBridgeFromContext(c) != nil ||
 		!strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/responses") ||
-		!isOpenAIUpstream5xxRetryAccount(account) || !ForceUpstreamWSEnabled() {
+		!isOpenAIUpstream5xxRetryAccount(account) || !ForceUpstreamWSEnabledForGroup(getOpenAIGroupIDFromContext(c)) {
 		return nil
 	}
 	config := OpenAIUpstream5xxRetrySettings()

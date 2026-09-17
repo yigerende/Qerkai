@@ -114,7 +114,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}()
 	}
 
-	wsDecision := s.getOpenAIWSProtocolResolver().Resolve(account)
+	wsDecision := resolveOpenAIWSProtocolForGroup(s.getOpenAIWSProtocolResolver(), account, getOpenAIGroupIDFromContext(c))
 	recordOpenAIUpstreamTransport(c, wsDecision)
 	forceHTTPBridge := account.Platform == PlatformGrok ||
 		(s.pluginManager != nil && s.pluginManager.ShouldRouteOpenAIOAuth(account))

@@ -188,7 +188,7 @@ func setForceUpstreamWSForTest(enabled bool) func() {
 // 注意：本函数只解除「客户端协议」这一道限制。decision 本身仍由
 // OpenAIWSProtocolResolver.Resolve 依据全局配置、账号类型、账号 force_http 等条件决定，
 // 那些开关继续有效 —— 强制 WS 不是无条件走 WS。
-func forceUpstreamWSKeepDecision(decision OpenAIWSProtocolDecision) bool {
+func forceUpstreamWSKeepDecision(decision OpenAIWSProtocolDecision, groupIDs ...int64) bool {
 	if !isForceUpstreamWSTransport(decision.Transport) {
 		// decision 未指向 WS 时无需保留：让上游原逻辑把 reason 记为 client_protocol_http，
 		// 保持日志语义清晰（此时降级并非由客户端协议造成）。
@@ -203,7 +203,7 @@ func forceUpstreamWSKeepDecision(decision OpenAIWSProtocolDecision) bool {
 		}
 		return false
 	}
-	kept := ForceUpstreamWSEnabled()
+	kept := ForceUpstreamWSEnabledForGroup(firstForceWSGroupID(groupIDs))
 	if forceUpstreamWSDiagnosticsEnabled() {
 		slog.Info("force_upstream_ws.gate",
 			"kept", kept,

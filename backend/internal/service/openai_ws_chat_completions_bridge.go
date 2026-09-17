@@ -352,7 +352,7 @@ func (s *OpenAIGatewayService) shouldRouteChatCompletionsViaWS(c *gin.Context, a
 	if resolver == nil {
 		return false
 	}
-	return resolver.Resolve(account).Transport == OpenAIUpstreamTransportResponsesWebsocketV2
+	return resolveOpenAIWSProtocolForGroup(resolver, account, getOpenAIGroupIDFromContext(c)).Transport == OpenAIUpstreamTransportResponsesWebsocketV2
 }
 
 // forwardChatCompletionsViaWS 让 CC 入站请求复用 Responses 的 WS 转发链路。

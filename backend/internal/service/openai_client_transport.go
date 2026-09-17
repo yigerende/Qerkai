@@ -63,11 +63,12 @@ func normalizeOpenAIClientTransport(transport OpenAIClientTransport) OpenAIClien
 func resolveOpenAIWSDecisionByClientTransport(
 	decision OpenAIWSProtocolDecision,
 	clientTransport OpenAIClientTransport,
+	groupIDs ...int64,
 ) OpenAIWSProtocolDecision {
 	if clientTransport == OpenAIClientTransportHTTP {
 		// 二次开发：强制上游 WS 开启时解除该限制，允许 HTTP 入站请求使用 WS 上游。
 		// 详见 openai_force_upstream_ws.go。
-		if forceUpstreamWSKeepDecision(decision) {
+		if forceUpstreamWSKeepDecision(decision, groupIDs...) {
 			return decision
 		}
 		return openAIWSHTTPDecision("client_protocol_http")

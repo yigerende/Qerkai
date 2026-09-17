@@ -472,6 +472,13 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyForceOpenAIUpstreamWS] = strconv.FormatBool(settings.ForceOpenAIUpstreamWS)
+	forceWSGroups, groupErr := normalizeForceUpstreamWSGroupIDs(settings.ForceOpenAIUpstreamWSGroupIDs)
+	if groupErr != nil {
+		return nil, groupErr
+	}
+	settings.ForceOpenAIUpstreamWSGroupIDs = forceWSGroups
+	forceWSGroupsJSON, _ := json.Marshal(forceWSGroups)
+	updates[SettingKeyForceOpenAIUpstreamWSGroupIDs] = string(forceWSGroupsJSON)
 	updates[SettingKeyOpenAIWSChannelProbeHTTP] = strconv.FormatBool(settings.OpenAIWSChannelProbeHTTP)
 	if settings.OpenAIWSPrewarmIdlePerAccount < 0 || settings.OpenAIWSStandbyIdlePerAccount < 0 || settings.OpenAIWSStandbyMaxPerAccount < settings.OpenAIWSStandbyIdlePerAccount {
 		return nil, fmt.Errorf("%w: inventory values are invalid", ErrInvalidOpenAIWSPoolSettings)
@@ -759,6 +766,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
 	})
 	refreshForceUpstreamWSCache(settings.ForceOpenAIUpstreamWS)
+	refreshForceUpstreamWSGroupsCache(settings.ForceOpenAIUpstreamWSGroupIDs)
 	refreshOpenAIWSChannelProbeHTTPCache(settings.OpenAIWSChannelProbeHTTP)
 	// 二次开发：让 502/503 重试开关与参数立即生效，无需等一个 TTL 周期。
 	refreshOpenAIUpstream5xxRetryCache(settings)

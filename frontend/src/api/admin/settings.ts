@@ -631,6 +631,7 @@ export interface SystemSettings {
   openai_upstream_5xx_retry_delay_ms: number;
   openai_upstream_5xx_retry_rules: OpenAIUpstream5xxRetryRule[];
   force_openai_upstream_ws: boolean;
+  force_openai_upstream_ws_group_ids: number[] | null;
   openai_ws_channel_probe_http: boolean;
   openai_ws_pool_optimization_enabled: boolean;
   openai_ws_prewarm_idle_per_account: number;
@@ -967,6 +968,7 @@ export interface UpdateSettingsRequest {
   openai_upstream_5xx_retry_delay_ms?: number;
   openai_upstream_5xx_retry_rules?: OpenAIUpstream5xxRetryRule[];
   force_openai_upstream_ws?: boolean;
+  force_openai_upstream_ws_group_ids?: number[] | null;
   openai_ws_channel_probe_http?: boolean;
   openai_ws_pool_optimization_enabled?: boolean;
   openai_ws_prewarm_idle_per_account?: number;

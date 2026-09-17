@@ -7,6 +7,7 @@ import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
+import ForceOpenAIWSGroups from "../settings/ForceOpenAIWSGroups.vue";
 
 const {
   getSettings,
@@ -718,6 +719,23 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("saves forced WS group selections, including none and all", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: true, force_openai_upstream_ws_group_ids: [11] });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const scope = wrapper.getComponent(ForceOpenAIWSGroups);
+    expect(scope.props('modelValue')).toEqual([11]);
+    for (const ids of [[22], [], null]) {
+      scope.vm.$emit('update:modelValue', ids);
+      await flushPromises();
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushPromises();
+      expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ force_openai_upstream_ws: true, force_openai_upstream_ws_group_ids: ids }));
+    }
+    wrapper.unmount();
   });
 
   it("submits the compact home page toggle", async () => {

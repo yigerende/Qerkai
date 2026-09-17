@@ -476,8 +476,12 @@ export default {
         metadataPassthrough: 'Metadata 透传',
         metadataPassthroughHint: '透传客户端原始 metadata.user_id，不进行重写。可能提高上游缓存命中率。',
         forceOpenAIUpstreamWS: '强制 OpenAI 上游 WebSocket',
+        forceWSGroups: '生效分组',
+        forceWSAllGroups: '全部分组',
+        forceWSSelectedGroups: '指定分组',
+        forceWSGroupsLoadFailed: '分组加载失败',
         forceOpenAIUpstreamWSHint:
-          '开启后，无论客户端使用 HTTP 还是 WebSocket，与 OpenAI 上游之间一律使用 WebSocket。仅覆盖「账号未显式启用 WS」这一种降级原因；全局强制 HTTP、账号级强制 HTTP 等开关仍然生效。默认关闭。',
+          '开启后，仅对生效分组强制使用 OpenAI 上游 WebSocket，未选分组保持原有协议处理。全局强制 HTTP、账号级强制 HTTP 等限制仍然生效。默认关闭。',
         openaiUpstream5xxRetry: 'OpenAI 上游 502/503 自动重试',
         openaiUpstream5xxRetryHint:
           '仅用于 HTTP/SSE Responses 请求强制上游 WS 的 OpenAI OAuth/SetupToken 账号。按已启用规则匹配上游错误，默认选中请求处理失败（502）和服务器过载（503），按同账号次数、累计次数和间隔执行，再按需换账号。CPA 网络首帧通知保持即时转发；回答、推理或工具输出开始后不再重试。连接恢复沿用原有内部重连，关闭后保持原处理路径。',

@@ -243,23 +243,24 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	OpenAITTFTMode                         *string  `json:"openai_ttft_mode"`
-	EnableFingerprintUnification           *bool    `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough              *bool    `json:"enable_metadata_passthrough"`
-	ForceOpenAIUpstreamWS                  *bool    `json:"force_openai_upstream_ws"`
-	OpenAIWSChannelProbeHTTP               *bool    `json:"openai_ws_channel_probe_http"`
-	OpenAIWSPoolOptimizationEnabled        *bool    `json:"openai_ws_pool_optimization_enabled"`
-	OpenAIWSPrewarmIdlePerAccount          *int     `json:"openai_ws_prewarm_idle_per_account"`
-	OpenAIWSStandbyIdlePerAccount          *int     `json:"openai_ws_standby_idle_per_account"`
-	OpenAIWSStandbyMaxPerAccount           *int     `json:"openai_ws_standby_max_per_account"`
-	OpenAIWSOptimizedQueuePerConn          *int     `json:"openai_ws_optimized_queue_per_conn"`
-	OpenAIWSOptimizedTargetUtilization     *float64 `json:"openai_ws_optimized_target_utilization"`
-	OpenAIWSOptimizedIdleRecycleSeconds    *int     `json:"openai_ws_optimized_idle_recycle_seconds"`
-	OpenAIWSOptimizedMaxAgeSeconds         *int     `json:"openai_ws_optimized_max_age_seconds"`
-	OpenAIWSOptimizedHealthIntervalSeconds *int     `json:"openai_ws_optimized_health_interval_seconds"`
-	OpenAIWSOptimizedSessionTTLSeconds     *int     `json:"openai_ws_optimized_session_ttl_seconds"`
-	OpenAIWSOptimizedSessionIdleSeconds    *int     `json:"openai_ws_optimized_session_idle_timeout_seconds"`
-	OpenAIWSOptimizedDialIntervalMS        *int     `json:"openai_ws_optimized_dial_interval_ms"`
+	OpenAITTFTMode                         *string         `json:"openai_ttft_mode"`
+	EnableFingerprintUnification           *bool           `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough              *bool           `json:"enable_metadata_passthrough"`
+	ForceOpenAIUpstreamWS                  *bool           `json:"force_openai_upstream_ws"`
+	ForceOpenAIUpstreamWSGroupIDs          json.RawMessage `json:"force_openai_upstream_ws_group_ids"`
+	OpenAIWSChannelProbeHTTP               *bool           `json:"openai_ws_channel_probe_http"`
+	OpenAIWSPoolOptimizationEnabled        *bool           `json:"openai_ws_pool_optimization_enabled"`
+	OpenAIWSPrewarmIdlePerAccount          *int            `json:"openai_ws_prewarm_idle_per_account"`
+	OpenAIWSStandbyIdlePerAccount          *int            `json:"openai_ws_standby_idle_per_account"`
+	OpenAIWSStandbyMaxPerAccount           *int            `json:"openai_ws_standby_max_per_account"`
+	OpenAIWSOptimizedQueuePerConn          *int            `json:"openai_ws_optimized_queue_per_conn"`
+	OpenAIWSOptimizedTargetUtilization     *float64        `json:"openai_ws_optimized_target_utilization"`
+	OpenAIWSOptimizedIdleRecycleSeconds    *int            `json:"openai_ws_optimized_idle_recycle_seconds"`
+	OpenAIWSOptimizedMaxAgeSeconds         *int            `json:"openai_ws_optimized_max_age_seconds"`
+	OpenAIWSOptimizedHealthIntervalSeconds *int            `json:"openai_ws_optimized_health_interval_seconds"`
+	OpenAIWSOptimizedSessionTTLSeconds     *int            `json:"openai_ws_optimized_session_ttl_seconds"`
+	OpenAIWSOptimizedSessionIdleSeconds    *int            `json:"openai_ws_optimized_session_idle_timeout_seconds"`
+	OpenAIWSOptimizedDialIntervalMS        *int            `json:"openai_ws_optimized_dial_interval_ms"`
 	// 二次开发：上游 502/503 过载重试。详见 service/openai_upstream_5xx_retry.go。
 	OpenAIUpstream5xxRetryEnabled          *bool                                 `json:"openai_upstream_5xx_retry_enabled"`
 	OpenAIUpstream5xxRetrySameAccount      *int                                  `json:"openai_upstream_5xx_retry_same_account"`
@@ -522,6 +523,19 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	forceWSGroupIDs := previousSettings.ForceOpenAIUpstreamWSGroupIDs
+	if len(req.ForceOpenAIUpstreamWSGroupIDs) > 0 {
+		if err := json.Unmarshal(req.ForceOpenAIUpstreamWSGroupIDs, &forceWSGroupIDs); err != nil {
+			response.BadRequest(c, "force_openai_upstream_ws_group_ids must be null or an array of group IDs")
+			return
+		}
+		for _, id := range forceWSGroupIDs {
+			if id <= 0 {
+				response.BadRequest(c, "force_openai_upstream_ws_group_ids must contain positive group IDs")
+				return
+			}
+		}
 	}
 
 	// 两个安全开关的请求字段为指针：省略字段=保持现值，避免旧客户端/脚本
@@ -1722,6 +1736,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ForceOpenAIUpstreamWS
 		}(),
+		ForceOpenAIUpstreamWSGroupIDs: forceWSGroupIDs,
 		OpenAIWSChannelProbeHTTP: func() bool {
 			if req.OpenAIWSChannelProbeHTTP != nil {
 				return *req.OpenAIWSChannelProbeHTTP
@@ -2338,6 +2353,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MinClaudeCodeVersion:                                   updatedSettings.MinClaudeCodeVersion,
 		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
+		ForceOpenAIUpstreamWS:                                  updatedSettings.ForceOpenAIUpstreamWS,
+		ForceOpenAIUpstreamWSGroupIDs:                          updatedSettings.ForceOpenAIUpstreamWSGroupIDs,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,

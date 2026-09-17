@@ -5377,6 +5377,7 @@
               </div>
 
               <div v-if="form.force_openai_upstream_ws" class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800">
+                <ForceOpenAIWSGroups v-model="form.force_openai_upstream_ws_group_ids" />
                 <div class="flex items-center justify-between gap-4">
                   <div>
                     <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.gatewayForwarding.wsPoolOptimization') }}</label>
@@ -8891,6 +8892,7 @@ import type { ProviderInstance } from "@/types/payment";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
 import Select from "@/components/common/Select.vue";
+import ForceOpenAIWSGroups from "./settings/ForceOpenAIWSGroups.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import PaymentProviderList from "@/components/payment/PaymentProviderList.vue";
 import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vue";
@@ -9856,6 +9858,7 @@ const form = reactive<SettingsForm>({
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   force_openai_upstream_ws: false,
+  force_openai_upstream_ws_group_ids: null as number[] | null,
   openai_upstream_5xx_retry_enabled: false,
   openai_upstream_5xx_retry_same_account: 2,
   openai_upstream_5xx_retry_total: 5,
@@ -10915,6 +10918,7 @@ async function loadSettings() {
   loadFailed.value = false;
   try {
     const settings = await adminAPI.settings.getSettings();
+    form.force_openai_upstream_ws_group_ids = settings.force_openai_upstream_ws_group_ids ?? null;
     settings.payment_load_balance_strategy =
       settings.payment_load_balance_strategy || "round-robin";
     // Only assign non-null values from backend (null means unconfigured, keep defaults)
@@ -11491,6 +11495,7 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       force_openai_upstream_ws: form.force_openai_upstream_ws,
+      force_openai_upstream_ws_group_ids: form.force_openai_upstream_ws_group_ids,
       openai_upstream_5xx_retry_enabled: form.openai_upstream_5xx_retry_enabled,
       openai_upstream_5xx_retry_same_account: form.openai_upstream_5xx_retry_same_account,
       openai_upstream_5xx_retry_total: form.openai_upstream_5xx_retry_total,

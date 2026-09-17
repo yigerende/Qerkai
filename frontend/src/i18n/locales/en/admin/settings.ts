@@ -483,8 +483,12 @@ export default {
         metadataPassthrough: 'Metadata Passthrough',
         metadataPassthroughHint: 'Pass through client\'s original metadata.user_id without rewriting. May improve upstream cache hit rates.',
         forceOpenAIUpstreamWS: 'Force OpenAI Upstream WebSocket',
+        forceWSGroups: 'Enabled groups',
+        forceWSAllGroups: 'All groups',
+        forceWSSelectedGroups: 'Selected groups',
+        forceWSGroupsLoadFailed: 'Failed to load groups',
         forceOpenAIUpstreamWSHint:
-          'When enabled, always use WebSocket to the OpenAI upstream regardless of whether the client uses HTTP or WebSocket. Only overrides the "account has not explicitly enabled WS" downgrade reason; global force-HTTP and per-account force-HTTP switches still apply. Disabled by default.',
+          'Force OpenAI upstream WebSocket for enabled groups only. Other groups retain their existing transport handling. Global and per-account force-HTTP restrictions still apply. Disabled by default.',
         openaiUpstream5xxRetry: 'Auto-retry OpenAI upstream 502/503',
         openaiUpstream5xxRetryHint:
           'Applies to HTTP/SSE Responses requests forced to upstream WS on OpenAI OAuth/SetupToken accounts. Enabled rules match upstream errors, with processing failure (502) and server overload (503) selected by default. Retries follow the per-account limit, total limit and delay before switching accounts. CPA notifications remain immediate; answer, reasoning or tool output stops retries. Connection recovery uses existing WS reconnects. Disabling this feature preserves the original handling.',

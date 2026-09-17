@@ -150,7 +150,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	storeDisabledConnMode := s.openAIWSStoreDisabledConnMode()
 	forceNewConnByPolicy := shouldForceNewConnOnStoreDisabled(storeDisabledConnMode, lastFailureReason)
 	forceNewConn := forceNewConnByPolicy && storeDisabled && previousResponseID == "" && sessionHash != "" && preferredConnID == ""
-	poolOptimized := OpenAIWSPoolOptimizationActive() && account != nil && account.Type == AccountTypeOAuth && sessionHash != ""
+	poolOptimized := ForceUpstreamWSEnabledForGroup(groupID) && OpenAIWSPoolOptimizationActive() && account != nil && account.Type == AccountTypeOAuth && sessionHash != ""
 	if poolOptimized {
 		forceNewConn = false
 	}
