@@ -543,6 +543,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresAdmin: true, title: '降智检测设置' }
   },
   {
+    path: '/admin/openai-state-keeper',
+    name: 'AdminOpenAIStateKeeper',
+    component: () => import('@/views/admin/OpenAIStateKeeperView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: '上游状态管理' }
+  },
+  {
     path: '/admin/announcements',
     name: 'AdminAnnouncements',
     component: () => import('@/views/admin/AnnouncementsView.vue'),

@@ -46,6 +46,12 @@ func RegisterAdminRoutes(
 		// 账号管理
 		registerAccountRoutes(admin, h, stepUpAuth)
 
+		// 上游状态管理
+		stateKeeper := admin.Group("/openai-state-keeper")
+		stateKeeper.GET("", h.Admin.OpenAIStateKeeper.Get)
+		stateKeeper.PUT("", h.Admin.OpenAIStateKeeper.Save)
+		stateKeeper.POST("/collect", h.Admin.OpenAIStateKeeper.Collect)
+
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
 

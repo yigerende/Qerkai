@@ -11,6 +11,7 @@ import (
 
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
+	stateKeeperHandler *admin.OpenAIStateKeeperHandler,
 	accountQualityHandler *admin.AccountQualityHandler,
 	dashboardHandler *admin.DashboardHandler,
 	userHandler *admin.UserHandler,
@@ -54,6 +55,7 @@ func ProvideAdminHandlers(
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	return &AdminHandlers{
+		OpenAIStateKeeper:      stateKeeperHandler,
 		AccountQuality:         accountQualityHandler,
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,
@@ -278,6 +280,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewAdminAPIKeyHandler,
 	admin.NewScheduledTestHandler,
 	admin.NewAccountQualityHandler,
+	admin.NewOpenAIStateKeeperHandler,
 	admin.NewChannelHandler,
 	admin.NewChannelMonitorHandler,
 	admin.NewChannelMonitorRequestTemplateHandler,

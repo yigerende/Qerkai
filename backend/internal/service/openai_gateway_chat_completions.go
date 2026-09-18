@@ -59,7 +59,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
-	return s.forwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel, false)
+	return s.forwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel, false, nil)
 }
 
 func (s *OpenAIGatewayService) forwardAsChatCompletions(
@@ -70,6 +70,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
+	stateProbe *openAIStateProbeResult,
 ) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
@@ -328,7 +329,9 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	// 与 Forward 的入参一致，直接复用 Responses 的 WS 链路（连接池、会话粘性、
 	// 重连恢复全部生效）；回程由 context 上的桥接器转成 CC chunk。
 	// 详见 openai_ws_chat_completions_bridge.go。
-	if s.shouldRouteChatCompletionsViaWS(c, account) && !isResponsesShape {
+	// A keeper probe needs the original HTTP status and headers. Only this
+	// internal caller opts out of WS; ordinary Chat Completions stay unchanged.
+	if stateProbe == nil && s.shouldRouteChatCompletionsViaWS(c, account) && !isResponsesShape {
 		return s.forwardChatCompletionsViaWS(ctx, c, account, responsesBody, originalModel, clientStream)
 	}
 	token, _, err := s.GetAccessToken(ctx, account)
@@ -338,6 +341,10 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 
 	// 6. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	if stateProbe != nil {
+		// Unlike a client stream, a background probe must stop on cancellation.
+		upstreamCtx = ctx
+	}
 	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, true, promptCacheKey, false)
 	releaseUpstreamCtx()
 	if err != nil {
@@ -360,9 +367,18 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
+		if stateProbe != nil {
+			return nil, err
+		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if stateProbe != nil {
+		// Inspect before conversion/failover can replace the upstream status or
+		// drop its headers. The keeper owns reporting and retry scheduling.
+		*stateProbe = parseOpenAIStateProbeResponse(resp)
+		return nil, nil
+	}
 
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
@@ -372,7 +388,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 			if err := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); err != nil {
 				return nil, fmt.Errorf("agent identity task recovery failed: %w", err)
 			}
-			return s.forwardAsChatCompletions(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel, compatPromptCacheTenantIsolated)
+			return s.forwardAsChatCompletions(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel, compatPromptCacheTenantIsolated, nil)
 		}
 		if account.Type == AccountTypeAPIKey &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&

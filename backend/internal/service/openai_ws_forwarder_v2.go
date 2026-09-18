@@ -372,6 +372,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	// 二次开发：写超时按 payload 大小收紧（只收紧不放宽）。统一的 120s 上限
 	// 会让一次大 payload 写占满两分钟，把 5s 的重连预算彻底吃光，导致最需要
 	// 重连的请求反而没有重连保护。详见 openai_ws_write_budget.go。
+	s.injectCollectedStateWS(c, account, payload)
 	if err := lease.WriteJSONWithContextTimeout(
 		ctx, payload, openAIWSWriteBudgetCap(resolvePayloadBytes(), s.openAIWSWriteTimeout()),
 	); err != nil {

@@ -786,6 +786,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/openai-upstream-5xx-retry', label: t('nav.openaiUpstream5xxRetry'), icon: SyncIcon },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/account-quality', label: '降智检测设置', icon: ShieldIcon },
+    { path: '/admin/openai-state-keeper', label: t('nav.openaiStateKeeper'), icon: SyncIcon },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
     {

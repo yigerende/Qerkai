@@ -7,6 +7,7 @@ import (
 
 // AdminHandlers contains all admin-related HTTP handlers
 type AdminHandlers struct {
+	OpenAIStateKeeper      *admin.OpenAIStateKeeperHandler
 	AccountQuality         *admin.AccountQualityHandler
 	Dashboard              *admin.DashboardHandler
 	User                   *admin.UserHandler

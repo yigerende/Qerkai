@@ -158,6 +158,7 @@ export default {
   // Navigation
   nav: {
     dashboard: 'Dashboard',
+    openaiStateKeeper: 'Upstream State',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',

@@ -158,6 +158,7 @@ export default {
   // Navigation
   nav: {
     dashboard: '仪表盘',
+    openaiStateKeeper: '上游状态管理',
     announcements: '公告',
     apiKeys: 'API 密钥',
     batchImage: '批量生图',
