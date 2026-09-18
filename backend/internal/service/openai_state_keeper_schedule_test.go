@@ -10,9 +10,59 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestStateKeeperSchedulePausedTargetsOnlyIdlePausedModels(t *testing.T) {
+	s, _, _ := keeperTestService(t)
+	q := s.config.Load().OpenAIStateKeeperSettings
+	q.AccountIDs, q.Models = []int64{1, 2}, []string{"model-a", "model-b", "model-c"}
+	q.Revision = "paused-models"
+	s.install(q)
+	s.entryLocked(1, "model-b").row.Paused = true
+	s.entryLocked(1, "model-b").value = "old-saved-state"
+	s.entryLocked(2, "model-a").row.Paused = true
+	s.entryLocked(1, "model-c").row.Paused = true
+	s.entryLocked(1, "model-c").row.Queued = true
+	s.entryLocked(2, "model-b").row.Paused = true
+	s.entryLocked(2, "model-b").row.Collecting = true
+	s.entryLocked(2, "model-c").row.Paused = true
+	s.activeCancels[openAIStateKey{2, "model-c"}] = func() {}
+	count, err := s.SchedulePaused()
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+	require.Len(t, s.queue, 2)
+	count, err = s.SchedulePaused()
+	require.NoError(t, err)
+	require.Zero(t, count, "a second click cannot enqueue the same models twice")
+	require.False(t, s.entryLocked(1, "model-a").row.Queued)
+	require.Equal(t, "old-saved-state", s.entryLocked(1, "model-b").value)
+	s.probe = func(context.Context, OpenAIStateKeeperSettings, int64) openAIStateProbeResult {
+		return openAIStateProbeResult{status: 200, result: "collected", value: "new-state"}
+	}
+	for _, expected := range []openAIStateKey{{1, "model-b"}, {2, "model-a"}} {
+		job := <-s.queue
+		require.Equal(t, expected, openAIStateKey{job.accountID, job.model})
+		require.Equal(t, "manual", job.source)
+		s.run(job)
+		require.False(t, s.rows[expected].row.Paused)
+		require.Equal(t, "new-state", s.rows[expected].value)
+	}
+}
+
+func TestStateKeeperSchedulePausedRespectsDisabledConfiguration(t *testing.T) {
+	s, _, _ := keeperTestService(t)
+	q := s.config.Load().OpenAIStateKeeperSettings
+	q.Enabled = false
+	q.Revision = "paused-disabled"
+	s.install(q)
+	s.entryLocked(1).row.Paused = true
+	count, err := s.SchedulePaused()
+	require.Error(t, err)
+	require.Zero(t, count)
+	require.Empty(t, s.queue)
+}
+
 func TestStateKeeperFixedIntervalControlsSuccessAndFailure(t *testing.T) {
 	for _, result := range []openAIStateProbeResult{
-		{status: 292, result: "collected", value: "new-state"},
+		{status: 200, result: "collected", value: "new-state"},
 		{status: 200, result: "not_observed"},
 		{status: 503, result: "upstream_error"},
 	} {
@@ -23,9 +73,18 @@ func TestStateKeeperFixedIntervalControlsSuccessAndFailure(t *testing.T) {
 			q.AutoCollectIntervalSeconds = 90
 			require.NoError(t, s.Save(context.Background(), q))
 			s.probe = func(context.Context, OpenAIStateKeeperSettings, int64) openAIStateProbeResult { return result }
-			s.run(openAIStateKeeperJob{1, s.config.Load().Revision})
+			s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision, source: "manual"})
 			row := s.Snapshot().Rows[0]
-			require.Equal(t, s.rows[1].lastFinishedAt.Add(90*time.Second), *row.NextAttemptAt)
+			if result.result != "collected" {
+				require.True(t, row.Paused)
+				require.Nil(t, row.NextAttemptAt)
+				s.scheduleDue(time.Now().Add(time.Hour))
+				require.Empty(t, s.queue, "exhaustion must not restart on the timer")
+				require.NoError(t, s.Schedule([]int64{1}))
+				require.Len(t, s.queue, 1, "manual retry resumes the account")
+				return
+			}
+			require.Equal(t, s.entryLocked(1).lastFinishedAt.Add(90*time.Second), *row.NextAttemptAt)
 			s.scheduleDue(row.NextAttemptAt.Add(-time.Nanosecond))
 			require.Empty(t, s.queue)
 			s.scheduleDue(*row.NextAttemptAt)
@@ -46,27 +105,63 @@ func TestStateKeeperIntervalSaveReloadAndRestore(t *testing.T) {
 	s, _, _ := keeperTestService(t)
 	s.files = keeperTestFileStore(t)
 	q := s.config.Load().OpenAIStateKeeperSettings
+	q.AutoRefresh = true
 	q.AutoCollectIntervalSeconds = 120
 	require.NoError(t, s.Save(context.Background(), q))
 	previous := s.Snapshot().Rows[0]
-	require.Equal(t, s.rows[1].lastFinishedAt.Add(120*time.Second), *previous.NextAttemptAt)
-	s.run(openAIStateKeeperJob{1, s.config.Load().Revision})
+	require.Equal(t, s.entryLocked(1).lastFinishedAt.Add(120*time.Second), *previous.NextAttemptAt)
+	s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision, source: "manual"})
 
 	restarted := newOpenAIStateKeeper(s.settings, s.accounts, s.proxies, s.gateway)
 	t.Cleanup(restarted.Stop)
 	restarted.files = s.files
 	restarted.reload(context.Background())
 	restarted.restoreStateFiles(context.Background())
+	keeperMarkDegraded(restarted, 1)
 	row := restarted.Snapshot().Rows[0]
 	require.Equal(t, 120, restarted.Snapshot().Settings.AutoCollectIntervalSeconds)
 	require.Equal(t, "ready", row.Status)
-	require.Equal(t, row.CollectedAt.Add(120*time.Second), *row.NextAttemptAt)
+	require.Equal(t, restarted.entryLocked(1).lastFinishedAt.Add(120*time.Second), *row.NextAttemptAt)
 
 	for _, invalid := range []int{-1, 86401} {
 		q.AutoCollectIntervalSeconds = invalid
 		require.Error(t, s.Save(context.Background(), q))
 	}
 	require.Equal(t, 120, s.Snapshot().Settings.AutoCollectIntervalSeconds)
+}
+
+func TestStateKeeperNoTimerWithoutExplicitInterval(t *testing.T) {
+	s, _, _ := keeperTestService(t)
+	q := s.config.Load().OpenAIStateKeeperSettings
+	q.AutoRefresh = true
+	q.AutoCollectIntervalSeconds = 0
+	require.NoError(t, s.Save(context.Background(), q))
+	require.Nil(t, s.Snapshot().Rows[0].NextAttemptAt)
+	s.scheduleDue(time.Now().Add(365 * 24 * time.Hour))
+	require.Empty(t, s.queue)
+	require.NoError(t, s.Schedule([]int64{1}))
+	require.Len(t, s.queue, 1)
+}
+
+func TestStateKeeperEveryCollectionSourceResetsTheOrdinaryTimer(t *testing.T) {
+	for _, source := range []string{"manual", "timer", "degradation_scan", "response"} {
+		t.Run(source, func(t *testing.T) {
+			s, _, _ := keeperTestService(t)
+			q := s.config.Load().OpenAIStateKeeperSettings
+			q.AutoRefresh, q.AutoCollectIntervalSeconds = true, 90
+			require.NoError(t, s.Save(context.Background(), q))
+			s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision, source: source})
+			row := s.Snapshot().Rows[0]
+			require.NotNil(t, row.LastCollectionAt)
+			require.NotNil(t, row.NextAttemptAt)
+			require.Equal(t, row.LastCollectionAt.Add(90*time.Second), *row.NextAttemptAt)
+			s.scheduleDue(row.LastCollectionAt.Add(89 * time.Second))
+			require.Empty(t, s.queue)
+			s.scheduleDue(row.LastCollectionAt.Add(90 * time.Second))
+			require.Len(t, s.queue, 1)
+			require.Equal(t, "timer", (<-s.queue).source)
+		})
+	}
 }
 
 func TestStateKeeperParallelCollectionBoundedAndAccountIsolated(t *testing.T) {
@@ -88,7 +183,7 @@ func TestStateKeeperParallelCollectionBoundedAndAccountIsolated(t *testing.T) {
 		case <-release:
 		case <-ctx.Done():
 		}
-		return openAIStateProbeResult{status: 292, result: "collected", value: fmt.Sprintf("state-%d", id), credentialStamp: stateKeeperCredentialStamp(keeperTestAccount(id))}
+		return openAIStateProbeResult{status: 200, result: "collected", value: fmt.Sprintf("state-%d", id), credentialStamp: stateKeeperCredentialStamp(keeperTestAccount(id))}
 	}
 	s.startWorkers()
 	require.NoError(t, s.Schedule(nil))
@@ -127,9 +222,9 @@ func TestStateKeeperParallelCollectionBoundedAndAccountIsolated(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 	s.Stop()
 	for id, entry := range s.rows {
-		require.Equal(t, fmt.Sprintf("state-%d", id), entry.value)
+		require.Equal(t, fmt.Sprintf("state-%d", id.accountID), entry.value)
 		wantAttempts := int64(1)
-		if id == 1 {
+		if id.accountID == 1 {
 			wantAttempts++ // The shared fixture already collected account 1 once.
 		}
 		require.Equal(t, wantAttempts, entry.row.Attempts)
@@ -152,7 +247,7 @@ func TestStateKeeperConfigChangeCancelsAllAndPreventsOverlappingAccount(t *testi
 		<-ctx.Done()
 		cancelled <- id
 		<-release
-		return openAIStateProbeResult{status: 292, result: "collected", value: "stale-state"}
+		return openAIStateProbeResult{status: 200, result: "collected", value: "stale-state"}
 	}
 	s.startWorkers()
 	require.NoError(t, s.Schedule(nil))

@@ -183,6 +183,7 @@
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
+          @quality-detect="qualityRunDialog?.open([...selIds])"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
@@ -191,6 +192,9 @@
           @select-all-results="handleSelectAllResults"
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
+        <button v-if="qualityRunProgress.total" class="mb-3 self-start text-sm text-primary-600 hover:underline" @click="qualityRunDialog?.reopen()">
+          降智检测 {{ qualityRunProgress.done }} / {{ qualityRunProgress.total }} · {{ qualityRunProgress.active ? '检测中' : '本批已结束' }} · 查看进度
+        </button>
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
           ref="dataTableRef"
@@ -312,6 +316,10 @@
           </template>
           <template #cell-recent_requests="{ row }">
             <AccountRecentRequestsCell :requests="recentRequestsByAccountID[String(row.id)]" :loading="recentRequestsLoading" :error="recentRequestsError" />
+          </template>
+          <template #cell-state_keeper="{ row }">
+            <AccountStateKeeperCell v-if="row.platform === 'openai'" :account-id="row.id" :recent="stateKeeperRecent[row.id]" :loading="stateKeeperLoading" :error="stateKeeperError" />
+            <span v-else class="text-xs text-gray-400">-</span>
           </template>
           <template #cell-recent_error="{ row }">
             <AccountRecentRequestsCell :requests="recentRequestsByAccountID[String(row.id)]" :loading="recentRequestsLoading" :error="recentRequestsError" error-only />
@@ -460,6 +468,7 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
+    <AccountQualityRunDialog ref="qualityRunDialog" @visibility="showQualityRun = $event" @progress="qualityRunProgress = $event" @results="mergeSelectedQualityResults" />
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
@@ -517,6 +526,8 @@ import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrs
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
+import AccountQualityRunDialog from '@/components/account/AccountQualityRunDialog.vue'
+import type { QualityResult } from '@/api/admin/accountQuality'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
@@ -528,6 +539,8 @@ import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountRecentRequestsCell from '@/components/account/AccountRecentRequestsCell.vue'
+import AccountStateKeeperCell from '@/components/account/AccountStateKeeperCell.vue'
+import { useAccountStateKeeper } from '@/composables/useAccountStateKeeper'
 import AccountQualityCell from '@/components/account/AccountQualityCell.vue'
 import { useAccountQuality } from '@/composables/useAccountQuality'
 import { useAccountRecentRequests } from '@/composables/useAccountRecentRequests'
@@ -1059,6 +1072,7 @@ const toggleColumn = (key: string) => {
   }
   saveColumnsToStorage()
   if (key === 'quality' && wasHidden) void refreshQuality()
+  if (key === 'state_keeper' && wasHidden) void refreshStateKeeper()
   if ((key === 'recent_requests' || key === 'recent_error') && wasHidden) {
     void refreshRecentRequests()
   }
@@ -1126,7 +1140,18 @@ const { results: qualityResults, error: qualityError, refresh: refreshQuality } 
   computed(() => accounts.value.filter(account => account.platform === 'openai').map(account => account.id)),
   computed(() => !hiddenColumns.has('quality'))
 )
-const refreshTodayStatsBatch = () => Promise.all([refreshTodayStatsOnly(), refreshRecentRequests(), refreshQuality()])
+const { results: stateKeeperRecent, loading: stateKeeperLoading, error: stateKeeperError, refresh: refreshStateKeeper } = useAccountStateKeeper(
+  computed(() => accounts.value.filter(account => account.platform === 'openai').map(account => account.id)),
+  computed(() => !hiddenColumns.has('state_keeper'))
+)
+const refreshTodayStatsBatch = () => Promise.all([refreshTodayStatsOnly(), refreshRecentRequests(), refreshQuality(), refreshStateKeeper()])
+const qualityRunDialog = ref<InstanceType<typeof AccountQualityRunDialog> | null>(null)
+const showQualityRun = ref(false)
+const qualityRunProgress = ref({ total: 0, done: 0, active: false })
+function mergeSelectedQualityResults(results: QualityResult[]) {
+  const visible = new Set(accounts.value.map(account => account.id))
+  for (const result of results) if (visible.has(result.account_id)) qualityResults.value[result.account_id] = result
+}
 
 const {
   selectedSet,
@@ -1392,6 +1417,7 @@ watch(accounts, (rows) => {
 
 const isAnyModalOpen = computed(() => {
   return (
+    showQualityRun.value ||
     showCreate.value ||
     showEdit.value ||
     showSync.value ||
@@ -1827,6 +1853,7 @@ const allColumns = computed(() => {
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
     { key: 'quality', label: '智商情况', sortable: false },
     { key: 'recent_requests', label: t('admin.accounts.columns.recentRequests'), sortable: false },
+    { key: 'state_keeper', label: '最近采集 / 注入', sortable: false },
     { key: 'recent_error', label: t('admin.accounts.columns.recentError'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {

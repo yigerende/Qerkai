@@ -29,6 +29,7 @@ func (w *openAIStateProbeWriter) Write(b []byte) (int, error) { return len(b), n
 func (w *openAIStateProbeWriter) Flush()                      {}
 
 func (s *OpenAIStateKeeperService) collect(ctx context.Context, q OpenAIStateKeeperSettings, id int64) openAIStateProbeResult {
+	ctx = WithHTTPUpstreamProfile(ctx, HTTPUpstreamProfileOpenAIStateCollection)
 	failure := func(message string) openAIStateProbeResult {
 		return openAIStateProbeResult{result: "failed", message: message}
 	}
@@ -56,7 +57,7 @@ func (s *OpenAIStateKeeperService) collect(ctx context.Context, q OpenAIStateKee
 	probeAccount := *account
 	probeAccount.ProxyID = &proxy.ID
 	probeAccount.Proxy = proxy
-	probeAccount.Concurrency = 1
+	probeAccount.Concurrency = max(1, min(q.AccountConcurrency, q.Concurrency, q.MaxAttempts))
 	var out openAIStateProbeResult
 	_, err = s.gateway.forwardAsChatCompletions(ctx, c, &probeAccount, body, "", "", false, &out)
 	if err != nil {
@@ -73,17 +74,18 @@ func (s *OpenAIStateKeeperService) collect(ctx context.Context, q OpenAIStateKee
 }
 
 func parseOpenAIStateProbeResponse(response *http.Response) openAIStateProbeResult {
-	out := openAIStateProbeResult{status: response.StatusCode, result: "not_observed", hasCodexTurnState: response.Header.Get(openAICodexTurnStateHeader) != ""}
-	value := strings.TrimSpace(response.Header.Get(openAICollectedStateHeader))
-	if response.StatusCode == 292 && validCollectedState(value) {
+	value := response.Header.Get(openAICodexTurnStateHeader)
+	out := openAIStateProbeResult{status: response.StatusCode, result: "not_observed", hasCodexTurnState: value != "", turnStateLength: len(value)}
+	// Header acquisition completes independently of the model's response body.
+	if response.StatusCode == http.StatusOK && validCollectedState(value) {
 		out.result = "collected"
 		out.value = value
-		out.message = "已取得 HTTP 292 与 current_turn_state；缓存时长按配置计算"
+		out.message = "已取得 HTTP 200 与 x-codex-turn-state 响应头"
 		return out
 	}
 	if response.StatusCode >= 400 {
 		out.result = "upstream_error"
-		out.message = fmt.Sprintf("采集上游返回 HTTP %d，未取得可注入状态", response.StatusCode)
+		out.message = fmt.Sprintf("采集上游返回 HTTP %d，未保存状态", response.StatusCode)
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 		code := gjson.GetBytes(body, "error.code").String()
 		if code == "" {
@@ -92,13 +94,13 @@ func parseOpenAIStateProbeResponse(response *http.Response) openAIStateProbeResu
 		// Only classify known errors. Upstream error text can contain credentials.
 		switch code {
 		case "billing_not_active":
-			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：billing_not_active（API 计费未启用），未取得 292 State", response.StatusCode)
+			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：billing_not_active（API 计费未启用），未保存状态", response.StatusCode)
 		case "insufficient_quota":
-			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：insufficient_quota（API 额度不足），未取得 292 State", response.StatusCode)
+			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：insufficient_quota（API 额度不足），未保存状态", response.StatusCode)
 		case "invalid_api_key":
-			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：invalid_api_key（当前凭据不被采集接口接受），未取得 292 State", response.StatusCode)
+			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：invalid_api_key（当前凭据不被采集接口接受），未保存状态", response.StatusCode)
 		case "model_not_found":
-			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：model_not_found（当前凭据无法使用所选模型），未取得 292 State", response.StatusCode)
+			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：model_not_found（当前凭据无法使用所选模型），未保存状态", response.StatusCode)
 		}
 		return out
 	}
@@ -130,14 +132,14 @@ func parseOpenAIStateProbeResponse(response *http.Response) openAIStateProbeResu
 	}
 	switch {
 	case out.result == "upstream_error":
-		out.message = "上游在响应流中返回错误，未取得可注入状态"
+		out.message = "上游在响应流中返回错误，未取得有效 Turn-State 响应头"
 	case scanner.Err() != nil:
 		out.result = "failed"
-		out.message = "采集响应读取中断或超出限制，未取得可注入状态"
+		out.message = "采集响应读取中断或超出限制，未取得有效 Turn-State 响应头"
 	case out.hasCodexTurnState:
-		out.message = "仅发现普通 Codex 回合状态，未取得文章所述的 292 状态，未用于自动注入"
+		out.message = "未同时取得 HTTP 200 与有效 x-codex-turn-state 响应头，未保存状态"
 	default:
-		out.message = fmt.Sprintf("返回 HTTP %d，未同时取得 292 与 current_turn_state 响应头", response.StatusCode)
+		out.message = fmt.Sprintf("返回 HTTP %d，未取得有效 x-codex-turn-state 响应头", response.StatusCode)
 	}
 	return out
 }

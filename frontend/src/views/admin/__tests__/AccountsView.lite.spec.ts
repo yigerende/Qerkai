@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+vi.mock('@/api/admin/openaiStateKeeper', () => ({ stateKeeperAPI: { recent: vi.fn().mockResolvedValue({ accounts: [] }) } }))
 import { defineComponent } from 'vue'
 
 import AccountsView from '../AccountsView.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
+import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
+import { qualityAPI } from '@/api/admin/accountQuality'
 
-vi.mock('@/api/admin/accountQuality', () => ({ qualityAPI: { results: vi.fn().mockResolvedValue({ accounts: [] }), history: vi.fn().mockResolvedValue({ items: [] }) }, qualityStatusLabel: () => '未检测' }))
+vi.mock('@/api/admin/accountQuality', () => ({ qualityAPI: { runSelected: vi.fn(), results: vi.fn().mockResolvedValue({ accounts: [] }), history: vi.fn().mockResolvedValue({ items: [] }) }, qualityStatusLabel: () => '未检测', qualityExecutionLabel: () => '未检测' }))
 
 const {
   listAccounts,
@@ -63,6 +66,7 @@ const DataTableStub = defineComponent({
   template: `
     <div>
       <div v-for="row in data" :key="row.id">
+        <slot name="cell-select" :row="row" />
         <slot name="cell-groups" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
@@ -154,6 +158,7 @@ const fullAccount = {
 
 describe('admin AccountsView lite account list', () => {
   beforeEach(() => {
+    vi.mocked(qualityAPI.runSelected).mockReset()
     localStorage.clear()
     listAccounts.mockReset().mockResolvedValue({ items: [listRow], total: 1, page: 1, page_size: 20, pages: 1 })
     listWithEtag.mockReset().mockResolvedValue({ notModified: true, etag: 'compact-etag', data: null })
@@ -180,6 +185,24 @@ describe('admin AccountsView lite account list', () => {
       expect.objectContaining({ lite: '1' }),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
+    wrapper.unmount()
+  })
+
+  it('connects the bulk action to only the confirmed selection and exposes progress', async () => {
+    listAccounts.mockResolvedValue({ items: [listRow, { ...listRow, id: 99 }], total: 2, page: 1, page_size: 20, pages: 1 })
+    vi.mocked(qualityAPI.runSelected).mockResolvedValue({ revision: 'r1', question_enabled: true, model_audit_enabled: false, accounts: [{ account_id: 42, name: 'compact row', skip_reason: 'fixture skip' }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('input[type="checkbox"]')[0].setValue(true)
+    wrapper.findComponent(AccountBulkActionsBar).vm.$emit('quality-detect')
+    await flushPromises()
+    expect(wrapper.text()).toContain('所选 1 个账号')
+    expect(qualityAPI.runSelected).not.toHaveBeenCalled()
+    await wrapper.findAll('button').find(button => button.text() === '开始检测')!.trigger('click')
+    await flushPromises()
+    expect(qualityAPI.runSelected).toHaveBeenCalledWith([42], undefined, expect.any(AbortSignal))
+    expect(wrapper.text()).toContain('1 / 1')
+    expect(wrapper.text()).toContain('查看进度')
     wrapper.unmount()
   })
 

@@ -14,10 +14,18 @@ func TestAccountQualityHandlerBoundaries(t *testing.T) {
 	h := NewAccountQualityHandler(nil)
 	router := gin.New()
 	router.POST("/results", h.Results)
+	router.POST("/run-selected", h.RunSelected)
 	router.GET("/capabilities", h.Capabilities)
 	for _, body := range []string{`{}`, `{"account_ids":[0]}`, `{"account_ids":[1,1]}`, strings.Repeat("x", 17000)} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/results", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, r)
+		require.Equal(t, 400, w.Code)
+	}
+	for _, body := range []string{`{}`, `{"account_ids":[]}`, `{"account_ids":[0]}`, `{"account_ids":[1,1]}`, `{"account_ids":"all"}`} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/run-selected", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, r)
 		require.Equal(t, 400, w.Code)

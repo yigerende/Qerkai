@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,8 +16,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-// One encrypted file per account. Only the collector/configuration worker does
-// disk I/O; forwarding continues to read the in-memory copy.
+// One encrypted file per account and model. Status polling returns summaries; explicit
+// administrator file inspection decrypts the saved record on demand.
 type openAIStateFileStore struct {
 	dir    string
 	cipher SecretEncryptor
@@ -26,12 +27,42 @@ type openAIStateFileRecord struct {
 	AccountID       int64     `json:"account_id"`
 	Model           string    `json:"model"`
 	ProxyID         int64     `json:"proxy_id"`
-	TTLSeconds      int       `json:"ttl_seconds"`
 	Endpoint        string    `json:"endpoint"`
+	HeaderName      string    `json:"header_name"`
 	CredentialStamp string    `json:"credential_stamp"`
-	Value           string    `json:"current_turn_state"`
+	Value           string    `json:"turn_state"`
 	CollectedAt     time.Time `json:"collected_at"`
-	ExpiresAt       time.Time `json:"expires_at"`
+	Version         string    `json:"version,omitempty"`
+}
+
+type OpenAIStateKeeperFileDetail struct {
+	FileName string                `json:"file_name"`
+	Content  openAIStateFileRecord `json:"content"`
+}
+
+func (s *OpenAIStateKeeperService) FileDetail(accountID int64, models ...string) (*OpenAIStateKeeperFileDetail, error) {
+	// Keep the file and configuration consistent while reading; status polling
+	// remains available because disk I/O does not hold the row mutex.
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.RLock()
+	cfg := s.config.Load()
+	key := s.key(accountID, models...)
+	entry := s.rows[key]
+	saved := entry != nil && entry.row.StateFileSaved
+	s.mu.RUnlock()
+	if !saved || cfg == nil || s.files == nil {
+		return nil, nil
+	}
+	record, err := s.files.load(accountID, cfg.forModel(key.model))
+	if err != nil || record == nil {
+		return nil, err
+	}
+	path := s.files.path(accountID, key.model)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		path = s.files.path(accountID)
+	}
+	return &OpenAIStateKeeperFileDetail{FileName: filepath.Base(path), Content: *record}, nil
 }
 
 func newOpenAIStateFileStore(cfg *config.Config) *openAIStateFileStore {
@@ -47,12 +78,20 @@ func newOpenAIStateFileStore(cfg *config.Config) *openAIStateFileStore {
 	return s
 }
 
-func (s *openAIStateFileStore) path(id int64) string {
-	return filepath.Join(s.dir, fmt.Sprintf("account-%d.state", id))
+func stateKeeperFileStem(id int64, models ...string) string {
+	if len(models) == 0 || models[0] == "" {
+		return fmt.Sprintf("account-%d", id)
+	}
+	sum := sha256.Sum256([]byte(models[0]))
+	return fmt.Sprintf("account-%d-%x", id, sum[:])
+}
+
+func (s *openAIStateFileStore) path(id int64, models ...string) string {
+	return filepath.Join(s.dir, stateKeeperFileStem(id, models...)+".state")
 }
 
 func (s *openAIStateFileStore) save(record openAIStateFileRecord) error {
-	if s.cipher == nil || record.AccountID <= 0 || !validCollectedState(record.Value) {
+	if s.cipher == nil || record.AccountID <= 0 || record.HeaderName != openAICodexTurnStateHeader || !validCollectedState(record.Value) {
 		return errors.New("invalid state file configuration or record")
 	}
 	plain, err := json.Marshal(record)
@@ -80,14 +119,17 @@ func (s *openAIStateFileStore) save(record openAIStateFileRecord) error {
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), s.path(record.AccountID))
+	return os.Rename(tmp.Name(), s.path(record.AccountID, record.Model))
 }
 
 func (s *openAIStateFileStore) load(id int64, q OpenAIStateKeeperSettings) (*openAIStateFileRecord, error) {
 	if !q.Enabled || s.cipher == nil || id <= 0 {
 		return nil, nil
 	}
-	f, err := os.Open(s.path(id))
+	f, err := os.Open(s.path(id, q.Model))
+	if errors.Is(err, os.ErrNotExist) {
+		f, err = os.Open(s.path(id))
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -108,7 +150,7 @@ func (s *openAIStateFileStore) load(id int64, q OpenAIStateKeeperSettings) (*ope
 		return nil, errors.New("invalid state file")
 	}
 	now := time.Now()
-	if record.AccountID != id || record.Model != q.Model || record.ProxyID != q.ProxyID || record.TTLSeconds != q.TTLSeconds || record.Endpoint != openAIStateKeeperCollectionURL || !record.ExpiresAt.After(now) || record.CollectedAt.After(now) || record.ExpiresAt.Sub(record.CollectedAt) != time.Duration(q.TTLSeconds)*time.Second || !validCollectedState(record.Value) {
+	if record.AccountID != id || record.Model != q.Model || !q.allowsProxy(record.ProxyID) || record.Endpoint != openAIStateKeeperCollectionURL || record.HeaderName != openAICodexTurnStateHeader || record.CollectedAt.After(now) || !validCollectedState(record.Value) || !q.allowsStateLength(len(record.Value)) {
 		return nil, nil
 	}
 	return &record, nil
@@ -123,41 +165,60 @@ func (s *OpenAIStateKeeperService) restoreStateFiles(ctx context.Context) {
 		return
 	}
 	for _, id := range cfg.AccountIDs {
-		if ctx.Err() != nil || s.config.Load() != cfg {
-			return
-		}
-		record, err := s.files.load(id, cfg.OpenAIStateKeeperSettings)
-		if err != nil {
+		for _, model := range cfg.modelNames() {
+			if ctx.Err() != nil || s.config.Load() != cfg {
+				return
+			}
+			record, err := s.files.load(id, cfg.forModel(model))
+			if err != nil {
+				s.mu.Lock()
+				if entry := s.entryLocked(id, model); s.config.Load() == cfg && entry != nil && entry.value == "" {
+					entry.row.Message = "State 文件无法读取，需重新采集"
+				}
+				s.mu.Unlock()
+				continue
+			}
+			if record == nil {
+				continue
+			}
+			account, err := s.accounts.GetByID(ctx, id)
+			if err != nil || !stateKeeperAccountEligible(account) || stateKeeperCredentialStamp(account) != record.CredentialStamp {
+				continue
+			}
 			s.mu.Lock()
-			if entry := s.rows[id]; s.config.Load() == cfg && entry != nil && entry.value == "" {
-				entry.row.Message = "State 文件无法读取，需重新采集"
+			entry := s.entryLocked(id, model)
+			if s.config.Load() == cfg && entry != nil && entry.value == "" && !entry.row.Collecting && !entry.row.Queued {
+				entry.value = record.Value
+				entry.proxyID = record.ProxyID
+				entry.version = record.Version
+				if entry.version == "" {
+					entry.version = record.CollectedAt.UTC().Format(time.RFC3339Nano)
+				}
+				entry.credentialStamp = record.CredentialStamp
+				entry.row.Status = "ready"
+				entry.row.HTTPStatus = http.StatusOK
+				entry.row.TurnStateLength = len(record.Value)
+				entry.row.HasCodexTurnState = true
+				entry.row.HasDetails = true
+				entry.row.StateFileSaved = true
+				entry.row.CollectedAt = &record.CollectedAt
+				entry.detail = &OpenAIStateKeeperDetail{
+					AccountID: id, Model: record.Model, HTTPStatus: http.StatusOK,
+					HeaderName: record.HeaderName, HeaderValue: record.Value,
+					TurnStateLength: len(record.Value), CollectedAt: record.CollectedAt,
+					SaveAllowed: true, StateFileSaved: true,
+				}
+				if entry.lastFinishedAt.IsZero() {
+					entry.lastFinishedAt = record.CollectedAt
+				}
+				finished := entry.lastFinishedAt
+				entry.row.LastCollectionAt = &finished
+				entry.row.NextAttemptAt = stateKeeperNextAttempt(cfg.OpenAIStateKeeperSettings, entry)
+				sum := sha256.Sum256([]byte(record.Value))
+				entry.row.Fingerprint = fmt.Sprintf("%x", sum[:])
+				entry.row.Message = "已从账号独立 State 文件恢复有效状态"
 			}
 			s.mu.Unlock()
-			continue
 		}
-		if record == nil {
-			continue
-		}
-		account, err := s.accounts.GetByID(ctx, id)
-		if err != nil || !stateKeeperAccountEligible(account) || stateKeeperCredentialStamp(account) != record.CredentialStamp {
-			continue
-		}
-		s.mu.Lock()
-		entry := s.rows[id]
-		if s.config.Load() == cfg && entry != nil && entry.value == "" && !entry.row.Collecting && !entry.row.Queued {
-			entry.value = record.Value
-			entry.credentialStamp = record.CredentialStamp
-			entry.row.Status = "ready"
-			entry.row.HTTPStatus = 292
-			entry.row.StateFileSaved = true
-			entry.row.CollectedAt = &record.CollectedAt
-			entry.row.ExpiresAt = &record.ExpiresAt
-			entry.lastFinishedAt = record.CollectedAt
-			entry.row.NextAttemptAt = stateKeeperNextAttempt(cfg.OpenAIStateKeeperSettings, entry)
-			sum := sha256.Sum256([]byte(record.Value))
-			entry.row.Fingerprint = fmt.Sprintf("%x", sum[:6])
-			entry.row.Message = "已从账号独立 State 文件恢复有效状态"
-		}
-		s.mu.Unlock()
 	}
 }

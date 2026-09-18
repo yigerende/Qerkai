@@ -142,7 +142,8 @@ func TestAccountQualityReadOnlyResultsRevisionAndBounds(t *testing.T) {
 	s := &AccountQualityService{db: db, settings: settings}
 	state := AccountQualityResult{AccountID: 7, Revision: q.Revision, Version: "v1"}
 	raw, _ := json.Marshal(state)
-	mock.ExpectQuery(`SELECT wanted.id,s.payload`).WithArgs(int64(7), int64(8)).WillReturnRows(sqlmock.NewRows([]string{"id", "payload"}).AddRow(7, raw).AddRow(8, nil))
+	mock.ExpectQuery(`SELECT kind,payload FROM account_quality_batches`).WillReturnRows(sqlmock.NewRows([]string{"kind", "payload"}))
+	mock.ExpectQuery(`SELECT wanted.id,s.payload`).WithArgs(int64(7), int64(8), q.Revision).WillReturnRows(sqlmock.NewRows([]string{"id", "payload", "question_due", "model_due", "eligible_id", "in_scope", "manual_question", "manual_model"}).AddRow(7, raw, nil, nil, 7, true, false, false).AddRow(8, nil, nil, nil, nil, true, false, false))
 	out, err := s.Results(context.Background(), []int64{7, 8})
 	require.NoError(t, err)
 	require.Len(t, out.Accounts, 2)
@@ -153,10 +154,12 @@ func TestAccountQualityReadOnlyResultsRevisionAndBounds(t *testing.T) {
 	require.NotContains(t, string(body), "questions")
 	state.Revision = "obsolete"
 	raw, _ = json.Marshal(state)
-	mock.ExpectQuery(`SELECT wanted.id,s.payload`).WithArgs(int64(7)).WillReturnRows(sqlmock.NewRows([]string{"id", "payload"}).AddRow(7, raw))
+	mock.ExpectQuery(`SELECT kind,payload FROM account_quality_batches`).WillReturnRows(sqlmock.NewRows([]string{"kind", "payload"}))
+	mock.ExpectQuery(`SELECT wanted.id,s.payload`).WithArgs(int64(7), q.Revision).WillReturnRows(sqlmock.NewRows([]string{"id", "payload", "question_due", "model_due", "eligible_id", "in_scope", "manual_question", "manual_model"}).AddRow(7, raw, time.Now().Add(time.Hour), time.Now().Add(time.Hour), 7, true, false, false))
 	out, err = s.Results(context.Background(), []int64{7})
 	require.NoError(t, err)
 	require.Empty(t, out.Accounts[0].Version)
+	require.Equal(t, "queued", out.Accounts[0].QuestionExecution)
 	for _, ids := range [][]int64{nil, {0}, {1, 1}, make([]int64, 101)} {
 		_, err = s.Results(context.Background(), ids)
 		require.Error(t, err)

@@ -20,6 +20,14 @@ func TestWithHTTPUpstreamProfile_OpenAI(t *testing.T) {
 	}
 }
 
+func TestWithHTTPUpstreamProfile_CollectionKeepsDedicatedPool(t *testing.T) {
+	ctx := WithHTTPUpstreamProfile(context.Background(), HTTPUpstreamProfileOpenAIStateCollection)
+	ctx = WithHTTPUpstreamProfile(ctx, HTTPUpstreamProfileOpenAI)
+	if HTTPUpstreamProfileFromContext(ctx) != HTTPUpstreamProfileOpenAIStateCollection {
+		t.Fatal("request conversion lost the collection pool")
+	}
+}
+
 func TestWithHTTPUpstreamRedirectsDisabled(t *testing.T) {
 	//nolint:staticcheck // Exercises the defensive nil-context fallback.
 	ctx := WithHTTPUpstreamRedirectsDisabled(nil)

@@ -170,6 +170,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	if buildHdrErr != nil {
 		return nil, fmt.Errorf("build ws headers: %w", buildHdrErr)
 	}
+	stateTicket := s.prepareCollectedStateWS(c, account, openAIWSPayloadString(payload, "model"), wsHeaders)
 	logOpenAIWSModeDebug(
 		"acquire_start account_id=%d account_type=%s transport=%s preferred_conn_id=%s has_previous_response_id=%v session_hash=%s has_turn_state=%v turn_state_len=%d has_turn_metadata=%v turn_metadata_len=%d store_disabled=%v store_disabled_conn_mode=%s retry_last_reason=%s force_new_conn=%v header_user_agent=%s header_openai_beta=%s header_originator=%s header_accept_language=%s header_session_id=%s header_conversation_id=%s session_id_source=%s conversation_id_source=%s has_prompt_cache_key=%v has_chatgpt_account_id=%v has_authorization=%v has_session_id=%v has_conversation_id=%v proxy_enabled=%v",
 		account.ID,
@@ -212,10 +213,12 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		HeadersFactory: func(factoryCtx context.Context, headers http.Header) (http.Header, error) {
 			return s.refreshOpenAIAgentIdentityHeaders(factoryCtx, account, headers)
 		},
-		PreferredConnID: preferredConnID,
-		ForceNewConn:    forceNewConn,
-		PoolOptimized:   poolOptimized,
-		SessionHash:     sessionHash,
+		PreferredConnID:    preferredConnID,
+		ForceNewConn:       forceNewConn,
+		PoolOptimized:      poolOptimized,
+		SessionHash:        sessionHash,
+		StateKeeperVersion: stateTicket.poolVersion(),
+		StateKeeperCurrent: stateTicket.poolCurrentCheck(),
 		ProxyURL: func() string {
 			if account.ProxyID != nil && account.Proxy != nil {
 				return account.Proxy.URL()
@@ -336,6 +339,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	}
 
 	handshakeTurnState := strings.TrimSpace(lease.HandshakeHeader(openAIWSTurnStateHeader))
+	if stateTicket != nil && lease.conn.stateKeeperHandshakeObserved.CompareAndSwap(false, true) {
+		stateTicket.observe(handshakeTurnState, http.StatusSwitchingProtocols)
+	}
 	logOpenAIWSModeDebug(
 		"handshake account_id=%d conn_id=%s has_turn_state=%v turn_state_len=%d",
 		account.ID,
@@ -372,7 +378,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	// 二次开发：写超时按 payload 大小收紧（只收紧不放宽）。统一的 120s 上限
 	// 会让一次大 payload 写占满两分钟，把 5s 的重连预算彻底吃光，导致最需要
 	// 重连的请求反而没有重连保护。详见 openai_ws_write_budget.go。
-	s.injectCollectedStateWS(c, account, payload)
 	if err := lease.WriteJSONWithContextTimeout(
 		ctx, payload, openAIWSWriteBudgetCap(resolvePayloadBytes(), s.openAIWSWriteTimeout()),
 	); err != nil {
@@ -386,6 +391,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		)
 		return nil, wrapOpenAIWSFallback("write_request", err)
 	}
+	stateTicket.noteSent()
 	if debugEnabled {
 		logOpenAIWSModeDebug(
 			"write_request_sent account_id=%d conn_id=%s stream=%v payload_bytes=%d previous_response_id=%s",
@@ -622,6 +628,14 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 
 		eventType, eventResponseID, responseField := parseOpenAIWSEventEnvelope(message)
+		if stateTicket != nil && eventType == "codex.response.metadata" {
+			gjson.GetBytes(message, "headers").ForEach(func(key, value gjson.Result) bool {
+				if strings.EqualFold(key.String(), openAICodexTurnStateHeader) {
+					stateTicket.observe(value.String(), 0)
+				}
+				return true
+			})
+		}
 		if eventType == "" {
 			continue
 		}

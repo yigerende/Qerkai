@@ -727,7 +727,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http_passthrough", req.Header, body, "not_applicable")
-	s.injectCollectedStateHTTP(c, account, body, req.Header)
+	req = s.prepareCollectedStateHTTP(c, account, body, req)
 
 	return req, nil
 }

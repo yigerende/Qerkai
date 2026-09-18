@@ -1,5 +1,5 @@
 <template>
-  <div class="mb-4 flex items-center justify-between rounded-lg bg-primary-50 p-3 dark:bg-primary-900/20">
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-primary-50 p-3 dark:bg-primary-900/20">
     <div class="flex flex-wrap items-center gap-2">
       <span v-if="allResultsSelected" class="text-sm font-medium text-primary-900 dark:text-primary-100">
         {{ t('admin.accounts.bulkActions.selectedAll', { count: selectedIds.length }) }}
@@ -42,7 +42,10 @@
         </button>
       </template>
     </div>
-    <div class="flex gap-2">
+    <div class="flex flex-wrap gap-2">
+      <button :disabled="selectedIds.length === 0" @click="$emit('quality-detect')" class="btn btn-secondary btn-sm disabled:opacity-50">
+        <Icon name="beaker" size="sm" class="mr-1" />降智检测
+      </button>
       <template v-if="selectedIds.length > 0">
         <button @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
         <button @click="$emit('reset-status')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.resetStatus') }}</button>
@@ -61,6 +64,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import Icon from '@/components/icons/Icon.vue'
 
 defineProps<{
   selectedIds: number[]
@@ -70,6 +74,7 @@ defineProps<{
 }>()
 
 defineEmits([
+  'quality-detect',
   'delete',
   'edit-selected',
   'edit-filtered',

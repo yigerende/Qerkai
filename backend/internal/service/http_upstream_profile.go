@@ -7,10 +7,15 @@ import "context"
 type HTTPUpstreamProfile string
 
 const (
-	HTTPUpstreamProfileDefault HTTPUpstreamProfile = ""
-	HTTPUpstreamProfileOpenAI  HTTPUpstreamProfile = "openai"
-	HTTPUpstreamProfileGrok    HTTPUpstreamProfile = "grok"
+	HTTPUpstreamProfileDefault               HTTPUpstreamProfile = ""
+	HTTPUpstreamProfileOpenAI                HTTPUpstreamProfile = "openai"
+	HTTPUpstreamProfileOpenAIStateCollection HTTPUpstreamProfile = "openai-state-collection"
+	HTTPUpstreamProfileGrok                  HTTPUpstreamProfile = "grok"
 )
+
+func (p HTTPUpstreamProfile) IsOpenAI() bool {
+	return p == HTTPUpstreamProfileOpenAI || p == HTTPUpstreamProfileOpenAIStateCollection
+}
 
 type httpUpstreamProfileContextKey struct{}
 type httpUpstreamDisableRedirectsContextKey struct{}
@@ -20,6 +25,9 @@ type httpUpstreamPublicHostsOnlyContextKey struct{}
 func WithHTTPUpstreamProfile(ctx context.Context, profile HTTPUpstreamProfile) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if ctx.Value(httpUpstreamProfileContextKey{}) == HTTPUpstreamProfileOpenAIStateCollection {
+		return ctx
 	}
 	if profile == HTTPUpstreamProfileDefault {
 		return ctx
@@ -37,7 +45,7 @@ func HTTPUpstreamProfileFromContext(ctx context.Context) HTTPUpstreamProfile {
 		return HTTPUpstreamProfileDefault
 	}
 	switch profile {
-	case HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileGrok:
+	case HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileOpenAIStateCollection, HTTPUpstreamProfileGrok:
 		return profile
 	default:
 		return HTTPUpstreamProfileDefault

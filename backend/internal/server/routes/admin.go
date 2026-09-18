@@ -49,8 +49,11 @@ func RegisterAdminRoutes(
 		// 上游状态管理
 		stateKeeper := admin.Group("/openai-state-keeper")
 		stateKeeper.GET("", h.Admin.OpenAIStateKeeper.Get)
+		stateKeeper.GET("/accounts/:id/state", h.Admin.OpenAIStateKeeper.Detail)
+		stateKeeper.GET("/accounts/:id/file", h.Admin.OpenAIStateKeeper.FileDetail)
 		stateKeeper.PUT("", h.Admin.OpenAIStateKeeper.Save)
 		stateKeeper.POST("/collect", h.Admin.OpenAIStateKeeper.Collect)
+		stateKeeper.POST("/recent", h.Admin.OpenAIStateKeeper.Recent)
 
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
@@ -118,6 +121,7 @@ func RegisterAdminRoutes(
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
 		quality := admin.Group("/account-quality")
+		quality.GET("/progress", h.Admin.AccountQuality.Progress)
 		quality.GET("/capabilities", h.Admin.AccountQuality.Capabilities)
 		quality.GET("/settings", h.Admin.AccountQuality.Settings)
 		quality.PUT("/settings", h.Admin.AccountQuality.Save)
@@ -125,6 +129,7 @@ func RegisterAdminRoutes(
 		quality.GET("/accounts/:id", h.Admin.AccountQuality.Results)
 		quality.GET("/accounts/:id/history", h.Admin.AccountQuality.History)
 		quality.POST("/run", h.Admin.AccountQuality.Run)
+		quality.POST("/run-selected", h.Admin.AccountQuality.RunSelected)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)

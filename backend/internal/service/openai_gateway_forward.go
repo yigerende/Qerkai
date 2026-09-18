@@ -1543,7 +1543,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http", req.Header, body, "not_applicable")
 
-	s.injectCollectedStateHTTP(c, account, body, req.Header)
+	req = s.prepareCollectedStateHTTP(c, account, body, req)
 	return req, nil
 }
 

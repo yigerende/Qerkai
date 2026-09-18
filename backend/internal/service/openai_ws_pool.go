@@ -78,8 +78,10 @@ type openAIWSAcquireRequest struct {
 	// ForcePreferredConn: 强制本次只使用 PreferredConnID，禁止漂移到其它连接。
 	ForcePreferredConn bool
 	// PoolOptimized 仅由“强制上游 WS + 连接池优化”双开关启用。
-	PoolOptimized bool
-	SessionHash   string
+	PoolOptimized      bool
+	SessionHash        string
+	StateKeeperVersion string
+	StateKeeperCurrent func() bool
 }
 
 const (
@@ -98,6 +100,7 @@ type openAIWSHandshakeCompatibilityKey struct {
 	threadID            string
 	clientRequestID     string
 	codexWindowID       string
+	stateKeeperVersion  string
 }
 
 type openAIWSConnLease struct {
@@ -264,9 +267,10 @@ type openAIWSConn struct {
 	id string
 	ws openAIWSClientConn
 
-	handshakeHeaders       http.Header
-	handshakeCompatibility openAIWSHandshakeCompatibilityKey
-	routingAffinity        string
+	handshakeHeaders             http.Header
+	handshakeCompatibility       openAIWSHandshakeCompatibilityKey
+	stateKeeperHandshakeObserved atomic.Bool
+	routingAffinity              string
 
 	leaseCh   chan struct{}
 	closedCh  chan struct{}
@@ -914,6 +918,7 @@ retryAcquire:
 	if req.PoolOptimized {
 		compatibility = normalizeOpenAIWSOptimizedHandshakeCompatibility(req.Account, req.Headers)
 	}
+	compatibility.stateKeeperVersion = req.StateKeeperVersion
 	routingAffinity := normalizeOpenAIWSRoutingAffinity(req.Headers)
 	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account)
 	if req.PoolOptimized {
@@ -945,13 +950,18 @@ retryAcquire:
 	allowReuse := !req.ForceNewConn
 	preferredConnID := stringsTrim(req.PreferredConnID)
 	forcePreferredConn := allowReuse && req.ForcePreferredConn
+	if preferred := ap.conns[preferredConnID]; preferred != nil && preferred.handshakeCompatibility.stateKeeperVersion != req.StateKeeperVersion {
+		// A different injected State requires a different handshake. Active
+		// leases remain untouched; normal selection finds a compatible socket.
+		forcePreferredConn = false
+	}
 
 	if req.PoolOptimized && stringsTrim(req.SessionHash) != "" {
 		sessionHash := stringsTrim(req.SessionHash)
 		now := time.Now()
 		p.releaseExpiredOwnersLocked(ap, now)
-		hasOwned := p.hasSessionConnLocked(ap, sessionHash)
-		hasPrimary := p.hasSessionPrimaryLocked(ap, sessionHash)
+		hasOwned := p.hasSessionConnLocked(ap, sessionHash, req.StateKeeperVersion)
+		hasPrimary := p.hasSessionPrimaryLocked(ap, sessionHash, req.StateKeeperVersion)
 		var selected *openAIWSConn
 		if preferredConnID != "" {
 			if conn := ap.conns[preferredConnID]; p.optimizedConnOwnedBy(conn, sessionHash, compatibility) && conn.tryAcquire() {
@@ -1267,7 +1277,7 @@ retryAcquire:
 		ap.conns[conn.id] = conn
 		if req.PoolOptimized && stringsTrim(req.SessionHash) != "" {
 			sessionHash := stringsTrim(req.SessionHash)
-			p.claimOptimizedConnLocked(ap, conn, sessionHash, p.hasSessionPrimaryLocked(ap, sessionHash), time.Now())
+			p.claimOptimizedConnLocked(ap, conn, sessionHash, p.hasSessionPrimaryLocked(ap, sessionHash, req.StateKeeperVersion), time.Now())
 		}
 		ap.prewarmFails = 0
 		ap.prewarmFailAt = time.Time{}
@@ -1351,6 +1361,9 @@ func (p *openAIWSConnPool) recordConnPickDuration(duration time.Duration) {
 
 func (p *openAIWSConnPool) recordLastSuccessfulAcquire(accountID int64, generation uint64, req openAIWSAcquireRequest) {
 	if p == nil || accountID <= 0 {
+		return
+	}
+	if req.StateKeeperCurrent != nil && !req.StateKeeperCurrent() {
 		return
 	}
 	ap, ok := p.getAccountPool(accountID)
@@ -1440,24 +1453,24 @@ func (p *openAIWSConnPool) releaseExpiredOwnersLocked(ap *openAIWSAccountPool, n
 	}
 }
 
-func (p *openAIWSConnPool) hasSessionConnLocked(ap *openAIWSAccountPool, sessionHash string) bool {
+func (p *openAIWSConnPool) hasSessionConnLocked(ap *openAIWSAccountPool, sessionHash, stateVersion string) bool {
 	if ap == nil || sessionHash == "" {
 		return false
 	}
 	for _, conn := range ap.conns {
-		if conn != nil && conn.ownerSession == sessionHash {
+		if conn != nil && conn.ownerSession == sessionHash && conn.handshakeCompatibility.stateKeeperVersion == stateVersion {
 			return true
 		}
 	}
 	return false
 }
 
-func (p *openAIWSConnPool) hasSessionPrimaryLocked(ap *openAIWSAccountPool, sessionHash string) bool {
+func (p *openAIWSConnPool) hasSessionPrimaryLocked(ap *openAIWSAccountPool, sessionHash, stateVersion string) bool {
 	if ap == nil || sessionHash == "" {
 		return false
 	}
 	for _, conn := range ap.conns {
-		if conn != nil && conn.ownerSession == sessionHash && conn.poolRole == openAIWSConnRoleSessionPrimary {
+		if conn != nil && conn.ownerSession == sessionHash && conn.poolRole == openAIWSConnRoleSessionPrimary && conn.handshakeCompatibility.stateKeeperVersion == stateVersion {
 			return true
 		}
 	}
@@ -1814,6 +1827,9 @@ func (p *openAIWSConnPool) ensureTargetIdleAsync(accountID int64) {
 	if ap.lastAcquire == nil {
 		return
 	}
+	if ap.lastAcquire.StateKeeperCurrent != nil && !ap.lastAcquire.StateKeeperCurrent() {
+		return
+	}
 	if ap.prewarmActive {
 		return
 	}
@@ -1838,7 +1854,7 @@ func (p *openAIWSConnPool) ensureTargetIdleAsync(accountID int64) {
 		publicPrewarm, publicStandby := 0, 0
 		p.releaseExpiredOwnersLocked(ap, now)
 		for _, conn := range ap.conns {
-			if conn == nil || conn.ownerSession != "" || conn.isLeased() {
+			if conn == nil || conn.ownerSession != "" || conn.isLeased() || conn.handshakeCompatibility.stateKeeperVersion != ap.lastAcquire.StateKeeperVersion {
 				continue
 			}
 			switch conn.poolRole {
@@ -1932,6 +1948,16 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 	}()
 
 	for i := 0; i < total; i++ {
+		if req.StateKeeperCurrent != nil && !req.StateKeeperCurrent() {
+			if ap, ok := p.getAccountPool(accountID); ok && ap != nil {
+				ap.mu.Lock()
+				ap.creating = max(0, ap.creating-(total-i))
+				ap.signalChangedLocked()
+				ap.mu.Unlock()
+			}
+			staleTarget = true
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), p.dialTimeout()+openAIWSConnPrewarmExtraDelay)
 		dialReq := req
 		if req.PoolOptimized {
@@ -1975,7 +2001,7 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 			conn.close()
 			continue
 		}
-		if !sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire) {
+		if !sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire) || (req.StateKeeperCurrent != nil && !req.StateKeeperCurrent()) {
 			staleTarget = true
 			ap.signalChangedLocked()
 			ap.mu.Unlock()
@@ -1993,7 +2019,7 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 			prewarmCount := 0
 			standbyCount := 0
 			for _, existing := range ap.conns {
-				if existing == nil || existing.ownerSession != "" {
+				if existing == nil || existing.ownerSession != "" || existing.handshakeCompatibility.stateKeeperVersion != req.StateKeeperVersion {
 					continue
 				}
 				if existing.poolRole == openAIWSConnRolePrewarm {
@@ -2197,6 +2223,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	if req.PoolOptimized {
 		pooledConn.handshakeCompatibility = normalizeOpenAIWSOptimizedHandshakeCompatibility(req.Account, req.Headers)
 	}
+	pooledConn.handshakeCompatibility.stateKeeperVersion = req.StateKeeperVersion
 	pooledConn.routingAffinity = normalizeOpenAIWSRoutingAffinity(req.Headers)
 	return pooledConn, nil
 }
@@ -2406,6 +2433,7 @@ func cloneOpenAIWSAcquireRequestPtr(req *openAIWSAcquireRequest) *openAIWSAcquir
 
 func sameOpenAIWSPrewarmTarget(a, b openAIWSAcquireRequest) bool {
 	return stringsTrim(a.WSURL) == stringsTrim(b.WSURL) &&
+		a.StateKeeperVersion == b.StateKeeperVersion &&
 		stringsTrim(a.ProxyURL) == stringsTrim(b.ProxyURL) &&
 		normalizeOpenAIWSHandshakeCompatibility(a.Account, a.Headers) == normalizeOpenAIWSHandshakeCompatibility(b.Account, b.Headers)
 }

@@ -30,7 +30,12 @@ func (h *AccountQualityHandler) Settings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"settings": q, "summary": summary})
+	progress, err := h.svc.Progress(c.Request.Context(), q)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"settings": q, "summary": summary, "progress": progress})
 }
 func (h *AccountQualityHandler) Save(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
@@ -49,6 +54,24 @@ func (h *AccountQualityHandler) Save(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"settings": q})
+}
+func (h *AccountQualityHandler) Progress(c *gin.Context) {
+	q, err := h.svc.Settings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	progress, err := h.svc.Progress(c.Request.Context(), q)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	summary, err := h.svc.Summary(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"progress": progress, "summary": summary})
 }
 func (h *AccountQualityHandler) Results(c *gin.Context) {
 	select {
@@ -109,6 +132,23 @@ func (h *AccountQualityHandler) Run(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"scheduled": true})
+}
+func (h *AccountQualityHandler) RunSelected(c *gin.Context) {
+	var body struct {
+		AccountIDs []int64 `json:"account_ids"`
+		Revision   string  `json:"revision"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	out, err := h.svc.ScheduleSelected(c.Request.Context(), body.AccountIDs, body.Revision)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, out)
 }
 func (h *AccountQualityHandler) History(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

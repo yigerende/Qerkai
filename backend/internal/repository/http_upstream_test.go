@@ -881,6 +881,21 @@ func (s *HTTPUpstreamSuite) TestAccountConcurrencyOverridesPoolSettings() {
 	require.Equal(s.T(), 12, transport.MaxIdleConnsPerHost, "MaxIdleConnsPerHost mismatch")
 }
 
+func (s *HTTPUpstreamSuite) TestStateCollectionDoesNotReconfigureBusinessPool() {
+	s.cfg.Gateway = config.GatewayConfig{ConnectionPoolIsolation: config.ConnectionPoolIsolationAccount}
+	svc := s.newService()
+	business, err := svc.getClientEntry("http://business.test:8080", 71, 50, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	collection, err := svc.getClientEntry("http://collection.test:8080", 71, 4, service.HTTPUpstreamProfileOpenAIStateCollection, false, false)
+	require.NoError(s.T(), err)
+	require.NotSame(s.T(), business, collection)
+	again, err := svc.getClientEntry("http://business.test:8080", 71, 50, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	require.Same(s.T(), business, again, "background collection must not replace the account's business client")
+	require.Equal(s.T(), 4, collection.client.Transport.(*http.Transport).MaxConnsPerHost)
+	require.Equal(s.T(), 50, business.client.Transport.(*http.Transport).MaxConnsPerHost)
+}
+
 // TestAccountConcurrencyFallbackToDefault 测试账户并发数为 0 时回退到默认配置
 // 验证未指定并发数时使用全局配置值
 func (s *HTTPUpstreamSuite) TestAccountConcurrencyFallbackToDefault() {

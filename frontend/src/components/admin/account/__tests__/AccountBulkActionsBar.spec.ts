@@ -10,6 +10,15 @@ vi.mock('vue-i18n', () => ({
 }))
 
 describe('AccountBulkActionsBar', () => {
+  it('requires selection for quality detection and emits its own action', async () => {
+    const wrapper = mount(AccountBulkActionsBar, { props: { selectedIds: [], totalResults: 45, selectingAll: false, allResultsSelected: false } })
+    const button = wrapper.findAll('button').find(item => item.text().includes('降智检测'))!
+    expect(button.attributes('disabled')).toBeDefined()
+    await button.trigger('click'); expect(wrapper.emitted('quality-detect')).toBeUndefined()
+    await wrapper.setProps({ selectedIds: [8, 11] })
+    await button.trigger('click'); expect(wrapper.emitted('quality-detect')).toHaveLength(1)
+    wrapper.unmount()
+  })
   it('allows selecting all results before any row is selected', async () => {
     const wrapper = mount(AccountBulkActionsBar, {
       props: {

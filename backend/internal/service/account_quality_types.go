@@ -20,10 +20,14 @@ type QualityQuestion struct {
 }
 type AccountQualitySettings struct {
 	Enabled                   bool              `json:"enabled"`
+	AllGroups                 bool              `json:"all_groups"`
+	GroupIDs                  []int64           `json:"group_ids"`
 	Revision                  string            `json:"revision"`
 	UpdatedAt                 time.Time         `json:"updated_at"`
 	QuestionEnabled           bool              `json:"question_enabled"`
 	ModelAuditEnabled         bool              `json:"model_audit_enabled"`
+	DegradationMode           string            `json:"degradation_mode"`
+	DegradationConditions     []string          `json:"degradation_conditions"`
 	Questions                 []QualityQuestion `json:"questions"`
 	Model                     string            `json:"model"`
 	ModelAuditModel           string            `json:"model_audit_model"`
@@ -40,7 +44,7 @@ type AccountQualitySettings struct {
 }
 
 func DefaultAccountQualitySettings() AccountQualitySettings {
-	return AccountQualitySettings{QuestionEnabled: true, Model: "gpt-6-astra", ModelAuditModel: "gpt-6-astra", ReasoningEffort: "xhigh", Mode: "content_time", IntervalSeconds: 300, ModelAuditIntervalSeconds: 60, RetrySeconds: 60, FailureLimit: 2, RecoveryLimit: 2, Concurrency: 4, TimeoutSeconds: 180, HistoryLimit: 200, Questions: []QualityQuestion{
+	return AccountQualitySettings{AllGroups: true, GroupIDs: []int64{}, QuestionEnabled: true, Model: "gpt-6-astra", ModelAuditModel: "gpt-6-astra", ReasoningEffort: "xhigh", Mode: "content_time", IntervalSeconds: 300, ModelAuditIntervalSeconds: 60, RetrySeconds: 60, FailureLimit: 2, RecoveryLimit: 2, Concurrency: 4, TimeoutSeconds: 180, HistoryLimit: 200, Questions: []QualityQuestion{
 		{ID: "candy", Name: "糖果配对", Enabled: true, Prompt: "直接回答问题，不允许联网搜索、调用命令或代码。糖果数量为：圆形苹果7、桃子9、西瓜8；五角星苹果7、桃子6、西瓜4。形状可用手感分辨，口味未知。可以事先决定分别摸几个圆形和几个五角星，不放回取出。至少总共取多少颗，才能保证有圆苹果与星桃子，或圆桃子与星苹果的一组？只回复数字。", Answer: "21", MatchMode: "answer", MaxDurationMS: 20000},
 		{ID: "clock", Name: "时钟夹角", Enabled: true, Prompt: "连续走动的指针式时钟在3点15分时，时针与分针较小夹角是多少度？只回复数字，不带单位。", Answer: "7.5", MatchMode: "answer", MaxDurationMS: 20000},
 		{ID: "percent", Name: "百分比变化", Enabled: true, Prompt: "一个数先增加20%，再在增加后的数值基础上减少20%，最终是原数的百分之多少？只回复数字，不带百分号。", Answer: "96", MatchMode: "answer", MaxDurationMS: 20000},
@@ -56,6 +60,22 @@ func (q AccountQualitySettings) ActiveQuestions() []QualityQuestion {
 	return out
 }
 func (q AccountQualitySettings) Validate() error {
+	if err := validateQualityOverallPolicy(q); err != nil {
+		return err
+	}
+	if !q.AllGroups && len(q.GroupIDs) == 0 {
+		return errors.New("请选择至少一个定时检测分组，或选择全部分组")
+	}
+	if len(q.GroupIDs) > 1000 {
+		return errors.New("定时检测分组最多选择1000个")
+	}
+	groups := map[int64]bool{}
+	for _, id := range q.GroupIDs {
+		if id < 1 || groups[id] {
+			return errors.New("定时检测分组ID必须为不重复的正整数")
+		}
+		groups[id] = true
+	}
 	if q.Enabled && !q.QuestionEnabled && !q.ModelAuditEnabled {
 		return errors.New("请至少启用一种检测")
 	}
@@ -133,11 +153,16 @@ type QualityModelResult struct {
 	NoNewSamples  bool   `json:"no_new_samples"`
 }
 type AccountQualityResult struct {
-	AccountID int64                 `json:"account_id"`
-	Revision  string                `json:"revision"`
-	Version   string                `json:"version"`
-	Question  QualityQuestionResult `json:"question"`
-	Model     QualityModelResult    `json:"model"`
+	DetectionKind     string                `json:"detection_kind,omitempty"`
+	RecordedAt        *time.Time            `json:"recorded_at,omitempty"`
+	QuestionExecution string                `json:"question_execution,omitempty"`
+	ModelExecution    string                `json:"model_execution,omitempty"`
+	AccountID         int64                 `json:"account_id"`
+	Revision          string                `json:"revision"`
+	Version           string                `json:"version"`
+	Question          QualityQuestionResult `json:"question"`
+	Model             QualityModelResult    `json:"model"`
+	Overall           QualityOverallVerdict `json:"overall"`
 }
 
 var qualityFinalAnswerPattern = regexp.MustCompile(`(?m)^\s*FINAL_ANSWER\s*=\s*([^\r\n]+)\s*$`)

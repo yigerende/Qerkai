@@ -197,7 +197,7 @@ func TestOpenAIWSOptimizedPoolPromotesReplacementPrimary(t *testing.T) {
 	ap.conns[existingStandby.id] = existingStandby
 	ap.conns[publicStandby.id] = publicStandby
 
-	require.False(t, pool.hasSessionPrimaryLocked(ap, "session-a"))
+	require.False(t, pool.hasSessionPrimaryLocked(ap, "session-a", ""))
 	pool.claimOptimizedConnLocked(ap, publicStandby, "session-a", false, time.Now())
 	require.Equal(t, openAIWSConnRoleSessionPrimary, publicStandby.poolRole)
 }
