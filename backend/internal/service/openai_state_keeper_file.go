@@ -156,7 +156,7 @@ func (s *openAIStateFileStore) load(id int64, q OpenAIStateKeeperSettings) (*ope
 	return &record, nil
 }
 
-func (s *OpenAIStateKeeperService) restoreStateFiles(ctx context.Context) {
+func (s *OpenAIStateKeeperService) restoreStateFiles(ctx context.Context, selectedIDs ...int64) {
 	if s.files == nil {
 		return
 	}
@@ -164,7 +164,10 @@ func (s *OpenAIStateKeeperService) restoreStateFiles(ctx context.Context) {
 	if !cfg.Enabled {
 		return
 	}
-	for _, id := range cfg.AccountIDs {
+	if selectedIDs == nil {
+		selectedIDs = s.collectionAccountIDs()
+	}
+	for _, id := range selectedIDs {
 		for _, model := range cfg.modelNames() {
 			if ctx.Err() != nil || s.config.Load() != cfg {
 				return

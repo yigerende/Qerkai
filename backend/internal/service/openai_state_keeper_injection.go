@@ -46,7 +46,7 @@ func (s *OpenAIStateKeeperService) ticketFor(c *gin.Context, a *Account, model, 
 	if cfg == nil || !cfg.Enabled || !cfg.InjectionEnabled {
 		return nil
 	}
-	if !stateKeeperAccountEligible(a) || !cfg.accounts[a.ID] || !cfg.models[model] || c == nil || c.Request == nil || c.GetBool(openAIStateProbeContextKey) {
+	if !stateKeeperAccountEligible(a) || !cfg.includesCollectionAccount(a) || !cfg.models[model] || c == nil || c.Request == nil || c.GetBool(openAIStateProbeContextKey) {
 		return nil
 	}
 	path := strings.TrimRight(c.Request.URL.Path, "/")
@@ -56,10 +56,14 @@ func (s *OpenAIStateKeeperService) ticketFor(c *gin.Context, a *Account, model, 
 	if !cfg.AllGroups && !cfg.groups[getOpenAIGroupIDFromContext(c)] {
 		return nil
 	}
+	return s.accountTicket(cfg, a, model, transport)
+}
+
+func (s *OpenAIStateKeeperService) accountTicket(cfg *openAIStateKeeperConfig, a *Account, model, transport string) *openAIStateTicket {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	e := s.entryLocked(a.ID, model)
-	if s.config.Load() != cfg || e == nil {
+	if s.config.Load() != cfg || e == nil || e.scopeLoading || e.row.AccountUnavailable {
 		return nil
 	}
 	value := e.value
@@ -67,6 +71,29 @@ func (s *OpenAIStateKeeperService) ticketFor(c *gin.Context, a *Account, model, 
 		value = ""
 	}
 	return &openAIStateTicket{keeper: s, config: cfg, accountID: a.ID, model: model, version: e.version, value: value, id: uuid.NewString(), transport: transport}
+}
+
+// Quality probes have no API-key group; use the account's group membership.
+func (s *OpenAIStateKeeperService) prepareQualityState(a *Account, model string, headers http.Header) *openAIStateTicket {
+	if s == nil || headers == nil {
+		return nil
+	}
+	cfg := s.config.Load()
+	if cfg == nil || !cfg.Enabled || !cfg.InjectionEnabled || !stateKeeperAccountEligible(a) || !cfg.includesCollectionAccount(a) || !cfg.models[model] {
+		return nil
+	}
+	allowed := cfg.AllGroups
+	for _, id := range a.GroupIDs {
+		allowed = allowed || cfg.groups[id]
+	}
+	if !allowed {
+		return nil
+	}
+	t := s.accountTicket(cfg, a, model, "quality_http")
+	if t != nil && t.value != "" {
+		headers.Set(openAICodexTurnStateHeader, t.value)
+	}
+	return t
 }
 
 func (s *OpenAIStateKeeperService) valueFor(c *gin.Context, a *Account, model string) string {
@@ -147,7 +174,7 @@ func (t *openAIStateTicket) noteSent() {
 }
 
 func (t *openAIStateTicket) observe(value string, status int) {
-	if t == nil || !validCollectedState(value) {
+	if t == nil || !t.config.ResponseRefreshEnabled || t.keeper.config.Load() != t.config || !validCollectedState(value) {
 		return
 	}
 	t.responseLength.Store(int64(len(value)))
@@ -156,7 +183,7 @@ func (t *openAIStateTicket) observe(value string, status int) {
 }
 
 func (t *openAIStateTicket) enqueue(event openAIStateObservation) {
-	if cfg := t.keeper.config.Load(); cfg != t.config || !cfg.Enabled || !cfg.InjectionEnabled {
+	if cfg := t.keeper.config.Load(); cfg != t.config || !cfg.Enabled || !cfg.InjectionEnabled || (!event.sent && !cfg.ResponseRefreshEnabled) {
 		return
 	}
 	select {
@@ -205,10 +232,13 @@ func (s *OpenAIStateKeeperService) processObservation(o openAIStateObservation) 
 	if o.sent {
 		e.row.Injections++
 		event := OpenAIStateKeeperEvent{ID: t.id, At: o.at, AccountID: t.accountID, Model: t.model, Kind: "injection", Source: t.transport, InjectedLength: len(t.value), TurnStateLength: o.length, HTTPStatus: o.status, Result: "sent", Message: "已携带 State 发送，恢复情况以降智检测为准"}
-		if cfg.isDegradedLength(o.length) {
+		if cfg.ResponseRefreshEnabled && cfg.isDegradedLength(o.length) {
 			event.Result, event.Message = "degraded_signal", "返回长度命中降智配置"
 		}
 		s.appendEventLocked(e, event)
+		return
+	}
+	if !cfg.ResponseRefreshEnabled {
 		return
 	}
 	degraded := cfg.isDegradedLength(o.length)

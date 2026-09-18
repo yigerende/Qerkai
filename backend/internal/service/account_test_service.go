@@ -71,6 +71,7 @@ type AccountTestOptions struct {
 	ImageDataURL    string
 	AudioDataURL    string
 	ReasoningEffort string
+	stateKeeper     *OpenAIStateKeeperService
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -803,6 +804,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	credentialAccount.ApplyHeaderOverrides(req.Header)
+	stateTicket := firstAccountTestOptions(opts).stateKeeper.prepareQualityState(credentialAccount, upstreamTestModelID, req.Header)
 
 	// Get proxy URL
 	proxyURL := ""
@@ -811,6 +813,10 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 
 	resp, err := s.doOpenAIAccountTestUpstream(req, proxyURL, account, true)
+	if resp != nil {
+		stateTicket.noteSent()
+		stateTicket.observe(resp.Header.Get(openAICodexTurnStateHeader), resp.StatusCode)
+	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}

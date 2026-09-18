@@ -143,6 +143,7 @@ func TestStateKeeperConcurrentAccountsShareGlobalRequestLimit(t *testing.T) {
 		q.AccountIDs = append(q.AccountIDs, id)
 	}
 	q.Concurrency, q.AccountConcurrency, q.MaxAttempts, q.Revision = 50, 4, 9, "load"
+	keeperAddTestAccounts(s, q.AccountIDs)
 	s.install(q)
 	var mu sync.Mutex
 	active, peak := 0, 0
@@ -192,6 +193,7 @@ func TestStateKeeperConcurrentAccountsShareGlobalRequestLimit(t *testing.T) {
 func TestStateKeeperResponseRefreshDeduplicatedAndStaleResponseIgnored(t *testing.T) {
 	s, gateway, a := keeperTestService(t)
 	q := s.config.Load().OpenAIStateKeeperSettings
+	q.ResponseRefreshEnabled = true
 	q.DegradedStateLengths = []int{356}
 	require.NoError(t, s.Save(context.Background(), q))
 	headers := http.Header{}
@@ -265,6 +267,7 @@ func TestStateKeeperDisabledHTTPAndWSKeepOriginalRequests(t *testing.T) {
 func TestStateKeeperSaturatedHistoryKeepsDegradationSignal(t *testing.T) {
 	s, gateway, a := keeperTestService(t)
 	q := s.config.Load().OpenAIStateKeeperSettings
+	q.ResponseRefreshEnabled = true
 	q.DegradedStateLengths = []int{356}
 	require.NoError(t, s.Save(context.Background(), q))
 	for range cap(s.observations) {
@@ -340,6 +343,7 @@ func TestStateKeeperThreeTriggerSettingsAreIndependent(t *testing.T) {
 	s.scheduleDue(s.entryLocked(1).lastFinishedAt.Add(119 * time.Second))
 	require.Empty(t, s.queue)
 	q.AutoRefresh, q.DegradationScanEnabled = false, false
+	q.ResponseRefreshEnabled = true
 	require.NoError(t, s.Save(context.Background(), q))
 	ticket := gateway.prepareCollectedStateWS(keeperTestContext(11), a, q.Model, http.Header{})
 	require.NotNil(t, ticket)
@@ -349,6 +353,7 @@ func TestStateKeeperThreeTriggerSettingsAreIndependent(t *testing.T) {
 	require.Len(t, s.queue, 1, "response signals do not require either timer to be enabled")
 	require.Equal(t, "response", (<-s.queue).source)
 	q.InjectionEnabled, q.AutoRefresh, q.DegradationScanEnabled = false, true, true
+	q.ResponseRefreshEnabled = false
 	require.NoError(t, s.Save(context.Background(), q))
 	keeperMarkDegraded(s, a.ID)
 	s.scheduleDegradationScan(now)
@@ -358,27 +363,37 @@ func TestStateKeeperThreeTriggerSettingsAreIndependent(t *testing.T) {
 }
 
 func TestStateKeeperHTTPResponseQueuesRefreshWithoutReadingOrResendingBody(t *testing.T) {
-	s, gateway, a := keeperTestService(t)
-	q := s.config.Load().OpenAIStateKeeperSettings
-	q.DegradedStateLengths = []int{356}
-	require.NoError(t, s.Save(context.Background(), q))
-	body := []byte(fmt.Sprintf(`{"model":%q,"input":"original"}`, q.Model))
-	req := gateway.prepareCollectedStateHTTP(keeperTestContext(11), a, body, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))))
-	calls := 0
-	response := &http.Response{StatusCode: 200, Header: http.Header{"X-Codex-Turn-State": {strings.Repeat("x", 356)}}, Body: keeperHeaderOnlyBody{t: t}}
-	gateway.httpUpstream = &keeperHTTPStub{do: func(r *http.Request, proxy string, _ int64, _ int) (*http.Response, error) {
-		calls++
-		require.Equal(t, "original-proxy", proxy)
-		require.Equal(t, "collected-secret", r.Header.Get(openAICodexTurnStateHeader))
-		return response, nil
-	}}
-	got, err := gateway.doOpenAIUpstream(req, "original-proxy", a)
-	require.NoError(t, err)
-	require.Same(t, response, got)
-	require.Equal(t, 1, calls)
-	keeperDrainObservations(s)
-	require.Len(t, s.queue, 1)
-	require.Equal(t, "response", (<-s.queue).source)
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			s, gateway, a := keeperTestService(t)
+			q := s.config.Load().OpenAIStateKeeperSettings
+			q.ResponseRefreshEnabled = enabled
+			q.DegradedStateLengths = []int{356}
+			require.NoError(t, s.Save(context.Background(), q))
+			body := []byte(fmt.Sprintf(`{"model":%q,"input":"original"}`, q.Model))
+			req := gateway.prepareCollectedStateHTTP(keeperTestContext(11), a, body, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))))
+			calls := 0
+			response := &http.Response{StatusCode: 200, Header: http.Header{"X-Codex-Turn-State": {strings.Repeat("x", 356)}}, Body: keeperHeaderOnlyBody{t: t}}
+			gateway.httpUpstream = &keeperHTTPStub{do: func(r *http.Request, proxy string, _ int64, _ int) (*http.Response, error) {
+				calls++
+				require.Equal(t, "original-proxy", proxy)
+				require.Equal(t, "collected-secret", r.Header.Get(openAICodexTurnStateHeader))
+				return response, nil
+			}}
+			got, err := gateway.doOpenAIUpstream(req, "original-proxy", a)
+			require.NoError(t, err)
+			require.Same(t, response, got)
+			require.Equal(t, 1, calls)
+			keeperDrainObservations(s)
+			if enabled {
+				require.Len(t, s.queue, 1)
+				require.Equal(t, "response", (<-s.queue).source)
+			} else {
+				require.Empty(t, s.queue)
+				require.Empty(t, s.pendingSignals)
+			}
+		})
+	}
 }
 
 func TestStateKeeperInterruptedRoundStaysPausedAfterRestart(t *testing.T) {

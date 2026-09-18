@@ -10,26 +10,28 @@ import (
 )
 
 type openAIStateRuntime struct {
-	AccountID         int64                    `json:"account_id"`
-	Model             string                   `json:"model"`
-	RetryAttempt      int                      `json:"retry_attempt"`
-	RetryLimit        int                      `json:"retry_limit"`
-	CollectionProxyID int64                    `json:"collection_proxy_id"`
-	ProxyAttempt      int                      `json:"proxy_attempt"`
-	ProxyCount        int                      `json:"proxy_count"`
-	Paused            bool                     `json:"paused"`
-	PauseReason       string                   `json:"pause_reason"`
-	InProgress        bool                     `json:"in_progress"`
-	RoundID           string                   `json:"round_id"`
-	RoundAttempts     int                      `json:"round_attempts"`
-	RoundSource       string                   `json:"round_source"`
-	Attempts          int64                    `json:"attempts"`
-	Successes         int64                    `json:"successes"`
-	Injections        int64                    `json:"injections"`
-	LastFinishedAt    time.Time                `json:"last_finished_at"`
-	RefreshVersion    string                   `json:"refresh_version"`
-	Collections       []OpenAIStateKeeperEvent `json:"collections"`
-	InjectionEvents   []OpenAIStateKeeperEvent `json:"injection_events"`
+	AccountID              int64                    `json:"account_id"`
+	AccountStatus          string                   `json:"account_status,omitempty"`
+	BlockedCredentialStamp string                   `json:"blocked_credential_stamp,omitempty"`
+	Model                  string                   `json:"model"`
+	RetryAttempt           int                      `json:"retry_attempt"`
+	RetryLimit             int                      `json:"retry_limit"`
+	CollectionProxyID      int64                    `json:"collection_proxy_id"`
+	ProxyAttempt           int                      `json:"proxy_attempt"`
+	ProxyCount             int                      `json:"proxy_count"`
+	Paused                 bool                     `json:"paused"`
+	PauseReason            string                   `json:"pause_reason"`
+	InProgress             bool                     `json:"in_progress"`
+	RoundID                string                   `json:"round_id"`
+	RoundAttempts          int                      `json:"round_attempts"`
+	RoundSource            string                   `json:"round_source"`
+	Attempts               int64                    `json:"attempts"`
+	Successes              int64                    `json:"successes"`
+	Injections             int64                    `json:"injections"`
+	LastFinishedAt         time.Time                `json:"last_finished_at"`
+	RefreshVersion         string                   `json:"refresh_version"`
+	Collections            []OpenAIStateKeeperEvent `json:"collections"`
+	InjectionEvents        []OpenAIStateKeeperEvent `json:"injection_events"`
 }
 
 func (s *openAIStateFileStore) runtimePath(id int64, models ...string) string {
@@ -54,6 +56,7 @@ func (s *OpenAIStateKeeperService) persistRuntimeLocked(id int64, models ...stri
 		return nil
 	}
 	r := openAIStateRuntime{AccountID: id, Model: key.model, RetryAttempt: e.row.RetryAttempt, RetryLimit: e.row.RetryLimit, Paused: e.row.Paused, PauseReason: e.row.PauseReason, InProgress: e.row.Collecting || e.row.Queued,
+		AccountStatus: e.row.AccountStatus, BlockedCredentialStamp: e.blockedCredentialStamp,
 		CollectionProxyID: e.row.CollectionProxyID, ProxyAttempt: e.row.ProxyAttempt, ProxyCount: e.row.ProxyCount,
 		RoundID: e.row.RoundID, RoundAttempts: e.row.RoundAttempts, RoundSource: e.row.RoundSource, Attempts: e.row.Attempts, Successes: e.row.Successes, Injections: e.row.Injections,
 		LastFinishedAt: e.lastFinishedAt, RefreshVersion: e.refreshVersion, Collections: append([]OpenAIStateKeeperEvent{}, e.collections...), InjectionEvents: append([]OpenAIStateKeeperEvent{}, e.injections...)}
@@ -89,7 +92,7 @@ func (s *OpenAIStateKeeperService) restoreRuntime() {
 		return
 	}
 	cfg := s.config.Load()
-	for _, id := range cfg.AccountIDs {
+	for _, id := range s.collectionAccountIDs() {
 		for _, model := range cfg.modelNames() {
 			s.mu.RLock()
 			loaded := s.entryLocked(id, model).runtimeLoaded
@@ -119,8 +122,16 @@ func (s *OpenAIStateKeeperService) restoreRuntime() {
 			e := s.entryLocked(id, model)
 			e.runtimeLoaded = true
 			if err == nil {
+				if e.blockedCredentialStamp == "" {
+					e.row.AccountStatus, e.blockedCredentialStamp = r.AccountStatus, r.BlockedCredentialStamp
+				}
+				if e.blockedCredentialStamp != "" {
+					e.row.AccountUnavailable, e.row.AccountUnavailableReason = true, "采集收到 401 或账号失效错误，停止采集；请先修复账号凭据"
+				}
 				e.row.Paused, e.row.PauseReason = r.Paused, r.PauseReason
-				if r.InProgress {
+				if e.row.AccountUnavailable {
+					e.row.Paused, e.row.PauseReason = true, e.row.AccountUnavailableReason
+				} else if r.InProgress {
 					e.row.Paused, e.row.PauseReason = true, "上次采集未完成，等待人工重试"
 				}
 				e.row.RoundID, e.row.RoundAttempts, e.row.RoundSource = r.RoundID, r.RoundAttempts, r.RoundSource

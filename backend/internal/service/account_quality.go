@@ -573,7 +573,7 @@ func (s *AccountQualityService) testAnswer(ctx context.Context, id int64, q Acco
 	c, _ := gin.CreateTestContext(writer)
 	c.Request = (&http.Request{}).WithContext(ctx)
 	started := time.Now()
-	err := s.tests.TestAccountConnection(c, id, q.Model, question.Prompt, AccountTestModeDefault, AccountTestOptions{ReasoningEffort: q.ReasoningEffort})
+	err := s.tests.TestAccountConnection(c, id, q.Model, question.Prompt, AccountTestModeDefault, AccountTestOptions{ReasoningEffort: q.ReasoningEffort, stateKeeper: s.stateKeeper.Load()})
 	duration := time.Since(started).Milliseconds()
 	answer, message := parseTestSSEOutput(writer.body.String())
 	if ctx.Err() != nil {

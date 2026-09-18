@@ -3,6 +3,7 @@ import apiClient from '../client'
 export interface StateKeeperSettings {
   enabled: boolean
   injection_enabled: boolean
+  response_refresh_enabled: boolean
   auto_refresh: boolean
   auto_collect_interval_seconds: number
   degradation_scan_enabled: boolean
@@ -15,6 +16,7 @@ export interface StateKeeperSettings {
   allowed_state_lengths: number[]
   degraded_state_lengths: number[]
   account_ids: number[]
+  collection_group_ids: number[]
   group_ids: number[]
   all_groups: boolean
   proxy_id: number
@@ -26,6 +28,11 @@ export interface StateKeeperSettings {
 
 export interface StateKeeperRow {
   account_id: number
+  account_name?: string
+  account_group_ids?: number[]
+  account_status?: string
+  account_unavailable?: boolean
+  account_unavailable_reason?: string
   model: string
   status: string
   queued: boolean

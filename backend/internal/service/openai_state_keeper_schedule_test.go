@@ -15,6 +15,7 @@ func TestStateKeeperSchedulePausedTargetsOnlyIdlePausedModels(t *testing.T) {
 	q := s.config.Load().OpenAIStateKeeperSettings
 	q.AccountIDs, q.Models = []int64{1, 2}, []string{"model-a", "model-b", "model-c"}
 	q.Revision = "paused-models"
+	keeperAddTestAccounts(s, q.AccountIDs)
 	s.install(q)
 	s.entryLocked(1, "model-b").row.Paused = true
 	s.entryLocked(1, "model-b").value = "old-saved-state"
@@ -148,6 +149,7 @@ func TestStateKeeperEveryCollectionSourceResetsTheOrdinaryTimer(t *testing.T) {
 		t.Run(source, func(t *testing.T) {
 			s, _, _ := keeperTestService(t)
 			q := s.config.Load().OpenAIStateKeeperSettings
+			q.ResponseRefreshEnabled = true
 			q.AutoRefresh, q.AutoCollectIntervalSeconds = true, 90
 			require.NoError(t, s.Save(context.Background(), q))
 			s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision, source: source})
@@ -172,6 +174,7 @@ func TestStateKeeperParallelCollectionBoundedAndAccountIsolated(t *testing.T) {
 		q.AccountIDs = append(q.AccountIDs, id)
 	}
 	q.Revision = "parallel"
+	keeperAddTestAccounts(s, q.AccountIDs)
 	s.install(q)
 	started := make(chan int64, 60)
 	release := make(chan struct{})
@@ -236,6 +239,7 @@ func TestStateKeeperConfigChangeCancelsAllAndPreventsOverlappingAccount(t *testi
 	q := s.config.Load().OpenAIStateKeeperSettings
 	q.AccountIDs = []int64{1, 2, 3}
 	q.Revision = "cancellable"
+	keeperAddTestAccounts(s, q.AccountIDs)
 	s.install(q)
 	started := make(chan int64, 3)
 	cancelled := make(chan int64, 3)
@@ -313,6 +317,7 @@ func TestStateKeeperConcurrencyCanIncreaseAndDecreaseWithoutRestart(t *testing.T
 	q.AccountIDs = []int64{1, 2, 3, 4, 5, 6}
 	q.Concurrency = 2
 	q.Revision = "two"
+	keeperAddTestAccounts(s, q.AccountIDs)
 	s.install(q)
 	started := make(chan string, 12)
 	s.probe = func(ctx context.Context, cfg OpenAIStateKeeperSettings, _ int64) openAIStateProbeResult {
@@ -368,6 +373,7 @@ func TestStateKeeperLowerConcurrencyCountsCancellingRequests(t *testing.T) {
 	q.AccountIDs = []int64{1, 2, 3}
 	q.Concurrency = 2
 	q.Revision = "old"
+	keeperAddTestAccounts(s, q.AccountIDs)
 	s.install(q)
 	started := make(chan string, 3)
 	cancelled := make(chan struct{}, 2)

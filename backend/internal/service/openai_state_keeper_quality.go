@@ -80,7 +80,7 @@ func (s *OpenAIStateKeeperService) scheduleDegradationScan(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.config.Load() == cfg {
-		_ = s.enqueueSourceLocked(cfg, cfg.AccountIDs, "degradation_scan")
+		_ = s.enqueueSourceLocked(cfg, s.collectionAccountIDsLocked(), "degradation_scan")
 	}
 }
 
@@ -89,8 +89,9 @@ func (s *OpenAIStateKeeperService) syncQuality(ctx context.Context) {
 		return
 	}
 	cfg := s.config.Load()
-	for start := 0; start < len(cfg.AccountIDs); start += 100 {
-		ids := cfg.AccountIDs[start:min(start+100, len(cfg.AccountIDs))]
+	selected := s.collectionAccountIDs()
+	for start := 0; start < len(selected); start += 100 {
+		ids := selected[start:min(start+100, len(selected))]
 		snapshot, err := s.quality.Results(ctx, ids)
 		if err != nil {
 			s.mu.Lock()

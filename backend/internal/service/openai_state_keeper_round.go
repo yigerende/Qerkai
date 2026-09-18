@@ -21,6 +21,18 @@ type openAIStateAttempt struct {
 // A round reserves its account/model until every sibling exits. Request permits
 // are shared by all rounds, including requests still draining after cancellation.
 func (s *OpenAIStateKeeperService) run(job openAIStateKeeperJob) {
+	accountCtx, accountCancel := context.WithTimeout(s.ctx, 5*time.Second)
+	account, err := s.accounts.GetByID(accountCtx, job.accountID)
+	accountCancel()
+	if err != nil || account == nil {
+		s.mu.Lock()
+		if entry := s.entryLocked(job.accountID, job.model); entry != nil {
+			entry.row.Queued = false
+		}
+		s.mu.Unlock()
+		return
+	}
+	s.syncAccountAvailability([]*Account{account})
 	s.mu.Lock()
 	cfg := s.config.Load()
 	if job.model == "" {
@@ -38,12 +50,12 @@ func (s *OpenAIStateKeeperService) run(job openAIStateKeeperJob) {
 		s.workerSlots.Wait()
 		cfg, entry = s.config.Load(), s.rows[key]
 	}
-	if s.ctx.Err() != nil || !cfg.Enabled || cfg.Revision != job.revision || entry == nil || s.activeCancels[key] != nil {
+	if s.ctx.Err() != nil || !cfg.Enabled || cfg.Revision != job.revision || entry == nil || s.activeCancels[key] != nil || (job.scopeID != "" && job.scopeID != entry.scopeID) {
 		s.mu.Unlock()
 		return
 	}
 	entry.row.Queued = false
-	if (job.source != "manual" && entry.row.Paused) || (job.source == "degradation_scan" && !s.qualityEligibleLocked(entry)) || (job.source == "response" && !cfg.InjectionEnabled) {
+	if entry.scopeLoading || !cfg.includesCollectionAccount(account) || entry.row.AccountUnavailable || (job.source != "manual" && entry.row.Paused) || (job.source == "degradation_scan" && !s.qualityEligibleLocked(entry)) || (job.source == "response" && (!cfg.InjectionEnabled || !cfg.ResponseRefreshEnabled)) {
 		s.mu.Unlock()
 		return
 	}
@@ -143,7 +155,7 @@ func (s *OpenAIStateKeeperService) runStateBatch(parent context.Context, cfg *op
 					s.workerSlots.Wait()
 				}
 				current := s.rows[key]
-				if ctx.Err() != nil || s.config.Load() != cfg || current == nil || current.row.RoundAttempts >= budget {
+				if ctx.Err() != nil || s.config.Load() != cfg || current == nil || current.row.AccountUnavailable || current.row.RoundAttempts >= budget {
 					s.mu.Unlock()
 					return
 				}
@@ -183,6 +195,15 @@ func (s *OpenAIStateKeeperService) runStateBatch(parent context.Context, cfg *op
 	for attempt := range results {
 		if !won && ctx.Err() == nil && s.config.Load() == cfg {
 			won = s.publishAttempt(cfg, job, roundID, attempt)
+			if attempt.result.accountUnavailable || attempt.result.status == http.StatusUnauthorized {
+				for _, model := range cfg.modelNames() {
+					if err := s.persistRuntime(job.accountID, model); err != nil {
+						s.mu.Lock()
+						s.dirtyRuntime[openAIStateKey{job.accountID, model}] = true
+						s.mu.Unlock()
+					}
+				}
+			}
 			if won {
 				cancel()
 			}
@@ -205,7 +226,11 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 	}
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
-	if s.config.Load() != cfg {
+	s.mu.RLock()
+	current := s.entryLocked(job.accountID, job.model)
+	stillCurrent := current != nil && current.row.RoundID == roundID
+	s.mu.RUnlock()
+	if s.config.Load() != cfg || !stillCurrent {
 		return false
 	}
 	now := time.Now().UTC()
@@ -229,6 +254,9 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 	}
 	entry.row.HTTPStatus, entry.row.TurnStateLength, entry.row.HasCodexTurnState = r.status, r.turnStateLength, r.hasCodexTurnState
 	entry.row.Status, entry.row.Message = r.result, r.message
+	if r.accountUnavailable || r.status == http.StatusUnauthorized {
+		s.blockAccountLocked(job.accountID, r.credentialStamp, "采集收到 401 或账号失效错误，停止采集；请先修复账号凭据")
+	}
 	if won {
 		entry.value, entry.credentialStamp, entry.version = r.value, r.credentialStamp, roundID
 		entry.proxyID = attempt.proxyID
@@ -252,7 +280,7 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 func (s *OpenAIStateKeeperService) recordCancelledAttempt(job openAIStateKeeperJob, roundID string, number int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if entry := s.entryLocked(job.accountID, job.model); entry != nil {
+	if entry := s.entryLocked(job.accountID, job.model); entry != nil && entry.row.RoundID == roundID {
 		s.appendEventLocked(entry, OpenAIStateKeeperEvent{At: time.Now().UTC(), AccountID: job.accountID, Model: entry.row.Model, Kind: "collection", Source: job.source, RoundID: roundID, Attempt: number, Result: "cancelled", Message: "本轮已结束，此并发请求的结果不再写入"})
 	}
 }
@@ -260,11 +288,13 @@ func (s *OpenAIStateKeeperService) recordCancelledAttempt(job openAIStateKeeperJ
 func (s *OpenAIStateKeeperService) finishRound(job openAIStateKeeperJob, roundID string, won bool, reason string) {
 	s.mu.Lock()
 	entry := s.entryLocked(job.accountID, job.model)
-	if entry != nil {
+	if entry != nil && entry.row.RoundID == roundID {
 		entry.row.Collecting = false
 		entry.row.NextRetryAt = nil
-		entry.row.Paused = !won
-		if !won {
+		entry.row.Paused = !won || entry.row.AccountUnavailable
+		if entry.row.AccountUnavailable {
+			entry.row.PauseReason = entry.row.AccountUnavailableReason
+		} else if !won {
 			entry.row.PauseReason = reason
 		}
 		entry.lastFinishedAt = time.Now().UTC()

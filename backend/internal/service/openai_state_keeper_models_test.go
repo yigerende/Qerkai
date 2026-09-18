@@ -109,6 +109,7 @@ func TestStateKeeperAllSourcesUseConfiguredRetryInterval(t *testing.T) {
 		t.Run(source, func(t *testing.T) {
 			s, _, _ := keeperTestService(t)
 			q := s.config.Load().OpenAIStateKeeperSettings
+			q.ResponseRefreshEnabled = true
 			q.RetryCount, q.RetryIntervalSeconds, q.MaxAttempts = 2, 1, 1
 			require.NoError(t, s.Save(context.Background(), q))
 			var calls []time.Time
@@ -178,6 +179,7 @@ func TestStateKeeperMultiModelConcurrentLoadKeepsAccountAndGlobalLimits(t *testi
 		q.AccountIDs = append(q.AccountIDs, id)
 	}
 	q.Concurrency, q.AccountConcurrency, q.MaxAttempts, q.Revision = 50, 4, 3, "multi-load"
+	keeperAddTestAccounts(s, q.AccountIDs)
 	s.install(q)
 	var mu sync.Mutex
 	active, peak := 0, 0
@@ -226,6 +228,7 @@ func TestStateKeeperMultiModelConcurrentLoadKeepsAccountAndGlobalLimits(t *testi
 func TestStateKeeperResponseRefreshTargetsOnlyItsModel(t *testing.T) {
 	s, gateway, a := keeperTestService(t)
 	q := s.config.Load().OpenAIStateKeeperSettings
+	q.ResponseRefreshEnabled = true
 	q.Models, q.DegradedStateLengths = defaultStateKeeperModels(), []int{356}
 	require.NoError(t, s.Save(context.Background(), q))
 	ticket := gateway.prepareCollectedStateWS(keeperTestContext(11), a, "gpt-5.6-sol", http.Header{})

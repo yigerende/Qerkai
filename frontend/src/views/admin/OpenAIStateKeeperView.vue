@@ -30,6 +30,7 @@ const message = ref('')
 const messageError = ref(false)
 const loadError = ref('')
 const search = ref('')
+const accountGroupID = ref<number | ''>('')
 const activeTab = ref<'settings' | 'states' | 'history'>('settings')
 const expandedAccounts = ref(new Set<number>())
 const showImport = ref(false)
@@ -55,18 +56,40 @@ const dirty = computed(() => !!form.value && !!snapshot.value && (
   modelsInput.value !== modelLines(snapshot.value.settings) ||
   JSON.stringify(selectedProxyIDs.value) !== JSON.stringify(proxyIDs(snapshot.value.settings))
 ))
-const visibleAccounts = computed(() => accounts.value.filter(a => `${a.id} ${a.name}`.toLowerCase().includes(search.value.toLowerCase())))
+const accountChoices = computed(() => {
+  const choices = new Map(accounts.value.map(a => [a.id, { id: a.id, name: a.name, group_ids: a.group_ids }]))
+  for (const row of snapshot.value?.rows || []) {
+    const existing = choices.get(row.account_id)
+    choices.set(row.account_id, { id: row.account_id, name: row.account_name || existing?.name || `账号 #${row.account_id}`, group_ids: row.account_group_ids || existing?.group_ids })
+  }
+  return [...choices.values()]
+})
+const visibleAccounts = computed(() => accountChoices.value.filter(a =>
+  (accountGroupID.value === '' || a.group_ids?.includes(accountGroupID.value)) &&
+  `${a.id} ${a.name}`.toLowerCase().includes(search.value.toLowerCase())
+))
+const groupSelectedAccounts = computed(() => {
+  const selected = new Set(form.value?.collection_group_ids || [])
+  return new Set(accountChoices.value.filter(a => a.group_ids?.some(id => selected.has(id))).map(a => a.id))
+})
+const selectedAccounts = computed(() => new Set([...(form.value?.account_ids || []), ...groupSelectedAccounts.value]))
+const selectableAccounts = computed(() => visibleAccounts.value.filter(a => !groupSelectedAccounts.value.has(a.id)))
 const visibleSelectedCount = computed(() => {
-  const selected = new Set(form.value?.account_ids || [])
-  return visibleAccounts.value.filter(account => selected.has(account.id)).length
+  return visibleAccounts.value.filter(account => selectedAccounts.value.has(account.id)).length
 })
 const allVisibleSelected = computed(() => visibleAccounts.value.length > 0 && visibleSelectedCount.value === visibleAccounts.value.length)
 function selectVisibleAccounts(event: Event) {
   if (!form.value) return
-  const visible = new Set(visibleAccounts.value.map(account => account.id))
+  const visible = new Set(selectableAccounts.value.map(account => account.id))
   form.value.account_ids = (event.target as HTMLInputElement).checked
     ? [...new Set([...form.value.account_ids, ...visible])]
     : form.value.account_ids.filter(id => !visible.has(id))
+}
+function selectAccount(id: number, event: Event) {
+  if (!form.value || groupSelectedAccounts.value.has(id)) return
+  form.value.account_ids = (event.target as HTMLInputElement).checked
+    ? [...new Set([...form.value.account_ids, id])]
+    : form.value.account_ids.filter(value => value !== id)
 }
 const readyCount = computed(() => snapshot.value?.rows.filter(r => (r.models || [r]).every(m => m.state_file_saved)).length || 0)
 const injectionCount = computed(() => snapshot.value?.rows.reduce((sum, r) => sum + r.injections, 0) || 0)
@@ -78,7 +101,7 @@ const accountStates = computed(() => (snapshot.value?.rows || []).map(account =>
     ...account,
     models,
     savedCount: models.filter(row => row.state_file_saved).length,
-    pausedCount: models.filter(row => row.paused && !row.queued && !row.collecting).length,
+    pausedCount: models.filter(row => !account.account_unavailable && !row.account_unavailable && row.paused && !row.queued && !row.collecting).length,
     activeCount: models.filter(row => row.queued || row.collecting).length,
     lastCollection: collectionTimes.sort().at(-1),
     httpStatuses: [...new Set(models.map(row => row.http_status).filter(Boolean))].join(' / ') || '—',
@@ -90,7 +113,7 @@ function toggleAccount(id: number) {
   if (expandedAccounts.value.has(id)) expandedAccounts.value.delete(id)
   else expandedAccounts.value.add(id)
 }
-const accountName = (id: number) => accounts.value.find(a => a.id === id)?.name || `账号 #${id}`
+const accountName = (id: number) => snapshot.value?.rows.find(a => a.account_id === id)?.account_name || accounts.value.find(a => a.id === id)?.name || `账号 #${id}`
 const proxyName = (id: number) => proxies.value.find(p => p.id === id)?.name || `代理 #${id}`
 function moveProxy(index: number, offset: number) {
   const target = index + offset
@@ -118,7 +141,8 @@ async function load(reset = false) {
     const nextAccountIDs = new Set(next.settings.account_ids)
     const removedAccountIDs = new Set(snapshot.value ? snapshot.value.settings.account_ids.filter(id => !nextAccountIDs.has(id)) : [])
     snapshot.value = next
-    for (const id of expandedAccounts.value) if (!nextAccountIDs.has(id)) expandedAccounts.value.delete(id)
+    const rowIDs = new Set(next.rows.map(row => row.account_id))
+    for (const id of expandedAccounts.value) if (!rowIDs.has(id)) expandedAccounts.value.delete(id)
     if (reset || !form.value || !preserveDraft) {
       form.value = structuredClone(next.settings)
       allowedLengthsInput.value = (next.settings.allowed_state_lengths || []).join(',')
@@ -297,6 +321,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
             <label class="state-check"><input v-model="form.auto_refresh" type="checkbox">定时自动采集</label>
             <label class="state-check"><input v-model="form.degradation_scan_enabled" type="checkbox">定时降智扫描</label>
             <label class="state-check"><input v-model="form.injection_enabled" type="checkbox">启用请求注入</label>
+            <label class="state-check"><input v-model="form.response_refresh_enabled" type="checkbox" aria-label="请求响应触发采集">请求响应触发采集</label>
           </div>
           <div class="grid gap-4 md:grid-cols-3">
             <label class="state-label">采集总并发数<input v-model.number="form.concurrency" class="input" type="number" min="1" max="500" step="1"></label>
@@ -353,13 +378,21 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
         </section>
 
         <section class="state-card space-y-4">
-          <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="font-semibold">采集账号 <span class="font-normal text-gray-500">{{ form.account_ids.length }} 个</span></h2><div class="flex gap-2"><button class="btn btn-secondary" @click="showCreate = true">添加账号</button><button class="btn btn-secondary" @click="showImport = true">导入账号</button></div></div>
+          <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="font-semibold">采集账号 <span class="font-normal text-gray-500">{{ selectedAccounts.size }} 个</span></h2><div class="flex gap-2"><button class="btn btn-secondary" @click="showCreate = true">添加账号</button><button class="btn btn-secondary" @click="showImport = true">导入账号</button></div></div>
+          <div class="space-y-3 border-b border-gray-200 pb-4 dark:border-dark-600">
+            <h3 class="text-sm font-medium">采集分组 <span class="font-normal text-gray-500">自动纳入</span></h3>
+            <div class="flex flex-wrap gap-4">
+              <label v-for="g in groups" :key="g.id" class="state-check min-w-0"><input v-model="form.collection_group_ids" type="checkbox" :value="g.id" :aria-label="`采集分组 ${g.name}`"><span class="break-all">{{ g.name }}</span></label>
+              <span v-if="!groups.length" class="text-sm text-gray-500">暂无可选分组</span>
+            </div>
+          </div>
           <div class="flex flex-wrap items-center gap-3">
             <input v-model="search" class="input max-w-md" placeholder="搜索账号名称或 ID" aria-label="搜索采集账号">
-            <label class="state-check shrink-0"><input type="checkbox" aria-label="全选采集账号" :checked="allVisibleSelected" :indeterminate="visibleSelectedCount > 0 && !allVisibleSelected" :disabled="busy || !visibleAccounts.length" @change="selectVisibleAccounts">{{ search ? '全选搜索结果' : '全选' }}</label>
+            <select v-model="accountGroupID" class="input max-w-xs" aria-label="按分组筛选采集账号"><option value="">全部分组</option><option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option></select>
+            <label class="state-check shrink-0"><input type="checkbox" aria-label="全选采集账号" :checked="allVisibleSelected" :indeterminate="visibleSelectedCount > 0 && !allVisibleSelected" :disabled="busy || !selectableAccounts.length" @change="selectVisibleAccounts">{{ search ? '全选搜索结果' : accountGroupID !== '' ? '全选当前分组' : '全选' }}</label>
           </div>
-          <div class="grid max-h-64 gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
-            <label v-for="a in visibleAccounts" :key="a.id" class="state-check rounded-lg border border-gray-200 p-3 dark:border-dark-600"><input v-model="form.account_ids" type="checkbox" :value="a.id"><span class="min-w-0 truncate">{{ a.name }} <span class="text-gray-400">#{{ a.id }}</span></span></label>
+          <div class="grid max-h-64 grid-cols-1 gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
+            <label v-for="a in visibleAccounts" :key="a.id" class="state-check min-w-0 rounded-lg border border-gray-200 p-3 dark:border-dark-600"><input type="checkbox" :value="a.id" :checked="selectedAccounts.has(a.id)" :disabled="groupSelectedAccounts.has(a.id)" :aria-label="`采集账号 ${a.name}`" @change="selectAccount(a.id, $event)"><span class="min-w-0 flex-1 truncate" :title="`${a.name} #${a.id}`">{{ a.name }} <span class="text-gray-400">#{{ a.id }}</span></span><span v-if="groupSelectedAccounts.has(a.id)" class="shrink-0 text-xs text-primary-600">分组</span></label>
             <p v-if="!visibleAccounts.length" class="py-5 text-sm text-gray-500">暂无匹配的 OpenAI OAuth 账号，请添加或导入。</p>
           </div>
         </section>
@@ -383,20 +416,22 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
         <div class="overflow-x-auto"><table class="state-table"><thead><tr><th>账号</th><th>模型 / 状态</th><th>状态值</th><th>返回码</th><th>响应头值长度</th><th>最近采集</th><th>采集 / 成功 / 注入</th><th>操作</th></tr></thead>
           <template v-for="account in accountStates" :key="account.account_id">
           <tbody class="state-account-group">
-            <tr class="state-account-summary bg-gray-50/60 dark:bg-dark-900/30">
+            <tr class="state-account-summary" :class="account.account_unavailable ? 'state-account-unavailable' : 'bg-gray-50/60 dark:bg-dark-900/30'">
               <td class="min-w-52">
                 <button type="button" class="flex w-full max-w-64 items-center gap-2 text-left font-medium text-primary-700 dark:text-primary-400" :aria-expanded="expandedAccounts.has(account.account_id)" :aria-controls="`state-models-${account.account_id}`" :title="accountName(account.account_id)" @click="toggleAccount(account.account_id)">
                   <Icon :name="expandedAccounts.has(account.account_id) ? 'chevronDown' : 'chevronRight'" size="sm" class="shrink-0" />
                   <span class="truncate">{{ accountName(account.account_id) }}</span>
                 </button>
                 <p class="mt-1 pl-6 text-xs text-gray-500" :title="account.quality_reason">#{{ account.account_id }} · 综合：{{ account.quality_status === 'degraded' ? '降智' : account.quality_status === 'normal' ? '无降智' : '待检测' }}</p>
+                <p v-if="account.account_unavailable" class="mt-1 max-w-64 pl-6 text-xs text-red-600 dark:text-red-300">{{ account.account_unavailable_reason || '账号不可用，已停止采集' }}</p>
               </td>
               <td class="min-w-40">
                 <span class="text-xs text-gray-500">{{ account.models.length }} 个模型</span>
                 <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                  <span v-if="account.pausedCount" class="text-amber-600">待人工 {{ account.pausedCount }}</span>
+                  <span v-if="account.account_unavailable" class="text-red-600 dark:text-red-300">账号不可用 · 停止采集</span>
+                  <span v-else-if="account.pausedCount" class="text-amber-600">待人工 {{ account.pausedCount }}</span>
                   <span v-if="account.activeCount" class="text-primary-600">排队 / 采集中 {{ account.activeCount }}</span>
-                  <span v-if="!account.pausedCount && !account.activeCount" class="text-gray-500">{{ account.savedCount === account.models.length ? '已采集' : '待采集' }}</span>
+                  <span v-if="!account.account_unavailable && !account.pausedCount && !account.activeCount" class="text-gray-500">{{ account.savedCount === account.models.length ? '已采集' : '待采集' }}</span>
                 </div>
               </td>
               <td class="whitespace-nowrap text-xs" :class="account.savedCount ? 'text-emerald-600' : 'text-gray-400'">已保存 {{ account.savedCount }} / {{ account.models.length }}</td>
@@ -404,11 +439,11 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td class="max-w-40 break-words text-xs tabular-nums">{{ account.stateLengths }}</td>
               <td class="whitespace-nowrap text-xs">{{ date(account.lastCollection) }}</td>
               <td class="whitespace-nowrap tabular-nums">{{ account.attempts }} / {{ account.successes }} / {{ account.injections }}</td>
-              <td><button class="whitespace-nowrap text-xs text-primary-600 disabled:opacity-40" :disabled="busy || dirty || account.collecting || account.queued || !snapshot?.settings.enabled" @click="collect(account.account_id)">采集全部模型</button></td>
+              <td><button class="whitespace-nowrap text-xs text-primary-600 disabled:opacity-40" :disabled="busy || dirty || account.account_unavailable || account.collecting || account.queued || !snapshot?.settings.enabled" @click="collect(account.account_id)">采集全部模型</button></td>
             </tr>
           </tbody>
           <tbody v-if="expandedAccounts.has(account.account_id)" :id="`state-models-${account.account_id}`" class="state-model-group">
-            <tr v-for="row in account.models" :key="row.model">
+            <tr v-for="row in account.models" :key="row.model" :class="{ 'state-account-unavailable': account.account_unavailable }">
               <td aria-hidden="true" class="bg-gray-50/30 dark:bg-dark-900/10"></td>
               <td class="min-w-44 max-w-60">
                 <div class="break-all font-medium">{{ row.model }}</div>
@@ -427,7 +462,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td><div class="flex flex-col items-start gap-2 whitespace-nowrap">
                 <button class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-40" :disabled="!row.has_details" @click="openDetail(row.account_id, 'header', row.model)"><Icon name="eye" size="sm" />详情</button>
                 <button class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-40" :disabled="!row.state_file_saved" title="查看已写入的 State 文件" @click="openDetail(row.account_id, 'file', row.model)"><Icon name="eye" size="sm" />查看</button>
-                <button class="text-primary-600 disabled:opacity-40" :disabled="busy || dirty || row.queued || row.collecting || !snapshot?.settings.enabled" @click="collect(row.account_id, row.model)">{{ row.paused ? '手动重试' : '采集' }}</button>
+                <button class="text-primary-600 disabled:opacity-40" :disabled="busy || dirty || account.account_unavailable || row.account_unavailable || row.queued || row.collecting || !snapshot?.settings.enabled" @click="collect(row.account_id, row.model)">{{ row.paused ? '手动重试' : '采集' }}</button>
               </div></td>
             </tr>
           </tbody>
@@ -495,4 +530,5 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
 .state-table td { @apply border-b border-gray-100 px-3 py-4 align-top dark:border-dark-700; }
 .state-table td > span, .state-table td > button { @apply whitespace-nowrap; }
 .state-account-group + .state-account-group { @apply border-t-2 border-gray-200 dark:border-dark-600; }
+.state-account-unavailable { @apply bg-red-50 dark:bg-red-950/30; }
 </style>

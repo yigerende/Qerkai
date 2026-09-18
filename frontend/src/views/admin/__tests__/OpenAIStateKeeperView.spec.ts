@@ -20,7 +20,7 @@ vi.mock('@/api/admin/proxies', () => ({ getAll: vi.fn().mockResolvedValue([{ id:
 const initial = (): StateKeeperSnapshot => ({
   collection_path: '/v1/chat/completions',
   collection_endpoint: 'https://chatgpt.com/backend-api/codex/responses',
-  settings: { enabled: true, injection_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, degradation_scan_enabled: false, degradation_scan_interval_seconds: 60, concurrency: 50, account_concurrency: 1, max_attempts: 3, retry_count: 0, retry_interval_seconds: 5, allowed_state_lengths: [], degraded_state_lengths: [], account_ids: [1], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', revision: 'one' },
+  settings: { enabled: true, injection_enabled: false, response_refresh_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, degradation_scan_enabled: false, degradation_scan_interval_seconds: 60, concurrency: 50, account_concurrency: 1, max_attempts: 3, retry_count: 0, retry_interval_seconds: 5, allowed_state_lengths: [], degraded_state_lengths: [], account_ids: [1], collection_group_ids: [], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', revision: 'one' },
   rows: [{ account_id: 1, model: 'test-model', status: 'ready', queued: false, collecting: false, http_status: 200, turn_state_length: 356, message: '已取得 x-codex-turn-state 响应头，已写入账号独立 State 文件', has_codex_turn_state: true, has_details: true, state_file_saved: true, fingerprint: 'stored-state', attempts: 1, successes: 1, injections: 0, paused: false, pause_reason: '', round_id: 'round1', round_attempts: 1, round_source: 'manual', quality_status: 'degraded', quality_reason: '答题异常' }],
   events: [{ at: new Date().toISOString(), account_id: 1, model: 'test-model', http_status: 200, turn_state_length: 356, result: 'collected', message: '已取得 x-codex-turn-state 响应头', kind: 'collection', source: 'manual', attempt: 1 }], server_time: new Date().toISOString(),
 })
@@ -57,6 +57,69 @@ async function showModelRows(wrapper: ReturnType<typeof render>) {
 describe('Upstream state management', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); vi.mocked(stateKeeperAPI.get).mockResolvedValue(initial()) })
   afterEach(() => vi.useRealTimers())
+
+  it('saves dynamic collection groups without turning members into explicit account selections', async () => {
+    vi.mocked(accountsAPI.list).mockResolvedValueOnce({ items: [
+      { id: 1, name: '手动账号', group_ids: [12] },
+      { id: 2, name: '分组账号', group_ids: [11] },
+    ], total: 2 } as Awaited<ReturnType<typeof accountsAPI.list>>)
+    vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...initial(), settings }))
+    const w = render(); await flushPromises()
+    await w.get('input[aria-label="采集分组 测试分组"]').setValue(true)
+    const member = w.get('input[aria-label="采集账号 分组账号"]')
+    expect((member.element as HTMLInputElement).checked).toBe(true)
+    expect(member.attributes('disabled')).toBeDefined()
+    await w.get('input[aria-label="全选采集账号"]').setValue(false)
+    await w.get('input[aria-label="全选采集账号"]').setValue(true)
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises()
+    await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ collection_group_ids: [11], account_ids: [1], group_ids: [11] }))
+    await w.get('input[aria-label="采集分组 测试分组"]').setValue(false)
+    expect((member.element as HTMLInputElement).checked).toBe(false)
+    expect(member.attributes('disabled')).toBeUndefined()
+    expect((w.get('input[aria-label="采集账号 手动账号"]').element as HTMLInputElement).checked).toBe(true)
+    expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('shows later group members from polling and preserves their expanded model rows', async () => {
+    const data = initial()
+    data.settings.account_ids = []
+    data.settings.collection_group_ids = [11]
+    data.rows[0].account_group_ids = [11]
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
+    const w = render(); await flushPromises()
+    const joined = { ...data, rows: [...data.rows, { ...data.rows[0], account_id: 2, account_name: '后来加入的账号', account_group_ids: [11] }] }
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(joined)
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises()
+    const member = w.get('input[aria-label="采集账号 后来加入的账号"]')
+    expect((member.element as HTMLInputElement).checked).toBe(true)
+    expect(member.attributes('disabled')).toBeDefined()
+    await w.findAll('button').find(b => b.text() === '账号状态')!.trigger('click')
+    await w.get('button[aria-controls="state-models-2"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises()
+    expect(w.find('#state-models-2').exists()).toBe(true)
+    expect(stateKeeperAPI.save).not.toHaveBeenCalled()
+    expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('saves response-triggered collection independently and preserves unsaved changes during polling', async () => {
+    vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...initial(), settings }))
+    const w = render(); await flushPromises()
+    const toggle = w.get('input[aria-label="请求响应触发采集"]')
+    expect((toggle.element as HTMLInputElement).checked).toBe(false)
+    await toggle.setValue(true)
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises()
+    expect((toggle.element as HTMLInputElement).checked).toBe(true)
+    await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ response_refresh_enabled: true, injection_enabled: false, auto_refresh: false, degradation_scan_enabled: false }))
+    await toggle.setValue(false)
+    await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ response_refresh_enabled: false }))
+    expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    w.unmount()
+  })
 
   it('selects all accounts and clears only matching accounts when searching', async () => {
     vi.mocked(accountsAPI.list).mockResolvedValueOnce({ items: [{ id: 1, name: '组A账号1' }, { id: 2, name: '组A账号2' }, { id: 3, name: '组B账号3' }], total: 3 } as Awaited<ReturnType<typeof accountsAPI.list>>)
@@ -101,6 +164,49 @@ describe('Upstream state management', () => {
     expect(w.find('#state-models-1').exists()).toBe(true)
     await toggle.trigger('click')
     expect(w.findAll('tbody tr')).toHaveLength(2)
+    expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('selects a whole group without removing selections in other groups', async () => {
+    vi.mocked(accountsAPI.list).mockResolvedValueOnce({ items: [
+      { id: 1, name: '账号1', group_ids: [12] },
+      { id: 2, name: '账号2', group_ids: [11] },
+      { id: 3, name: '账号3', group_ids: [11, 12] },
+    ], total: 3 } as Awaited<ReturnType<typeof accountsAPI.list>>)
+    vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...initial(), settings }))
+    const w = render(); await flushPromises()
+    await w.get('select[aria-label="按分组筛选采集账号"]').setValue('11')
+    expect(w.text()).toContain('全选当前分组')
+    await w.get('input[aria-label="全选采集账号"]').setValue(true)
+    await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ account_ids: [1, 2, 3], group_ids: [11] }))
+    await w.get('input[aria-label="全选采集账号"]').setValue(false)
+    await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ account_ids: [1] }))
+    w.unmount()
+  })
+
+  it('marks unavailable accounts red and prevents collection while allowing configuration saves', async () => {
+    const data = initial()
+    data.rows[0].account_unavailable = true
+    data.rows[0].account_unavailable_reason = '账号认证异常，停止采集'
+    data.rows[0].paused = true
+    data.rows[0].http_status = 401
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
+    vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...data, settings }))
+    const w = render(); await flushPromises()
+    await showModelRows(w)
+    expect(w.get('.state-account-summary').classes()).toContain('state-account-unavailable')
+    expect(w.text()).toContain('账号认证异常，停止采集')
+    expect(w.findAll('button').find(b => b.text() === '采集全部模型')!.attributes('disabled')).toBeDefined()
+    expect(w.findAll('button').find(b => b.text() === '手动重试')!.attributes('disabled')).toBeDefined()
+    const bulk = w.findAll('button').find(b => b.text().startsWith('一键重试待人工项'))!
+    expect(bulk.text()).toContain('(0)')
+    expect(bulk.attributes('disabled')).toBeDefined()
+    await w.findAll('button').find(b => b.text() === '采集配置')!.trigger('click')
+    await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ account_ids: [1] }))
     expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
     w.unmount()
   })

@@ -34,8 +34,16 @@ func (s *OpenAIStateKeeperService) collect(ctx context.Context, q OpenAIStateKee
 		return openAIStateProbeResult{result: "failed", message: message}
 	}
 	account, err := s.accounts.GetByID(ctx, id)
-	if err != nil || !stateKeeperAccountEligible(account) {
+	if err != nil || account == nil {
 		return failure("账号不可用，请检查 OAuth 凭据和账号状态")
+	}
+	s.syncAccountAvailability([]*Account{account})
+	s.mu.RLock()
+	entry := s.entryLocked(id, q.Model)
+	unavailable := entry == nil || entry.scopeLoading || entry.row.AccountUnavailable || !s.config.Load().includesCollectionAccount(account)
+	s.mu.RUnlock()
+	if unavailable || ctx.Err() != nil {
+		return failure("账号不可用，已停止采集")
 	}
 	proxy, err := s.proxies.GetByID(ctx, q.ProxyID)
 	if err != nil || proxy == nil || !proxy.IsActive() || proxy.IsExpired(time.Now()) {
@@ -90,6 +98,11 @@ func parseOpenAIStateProbeResponse(response *http.Response) openAIStateProbeResu
 		code := gjson.GetBytes(body, "error.code").String()
 		if code == "" {
 			code = gjson.GetBytes(body, "error.type").String()
+		}
+		out.accountUnavailable = response.StatusCode == http.StatusUnauthorized
+		switch code {
+		case "account_deactivated", "account_disabled", "account_suspended", "user_deactivated", "token_revoked", "invalid_api_key", "invalid_token", "token_expired":
+			out.accountUnavailable = true
 		}
 		// Only classify known errors. Upstream error text can contain credentials.
 		switch code {

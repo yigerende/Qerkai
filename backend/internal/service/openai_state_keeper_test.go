@@ -59,6 +59,22 @@ func (r *keeperAccountsStub) GetByIDs(_ context.Context, ids []int64) ([]*Accoun
 	return out, nil
 }
 
+func (r *keeperAccountsStub) ListAllWithFilters(_ context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
+	var out []Account
+	for _, a := range r.accounts {
+		if a.Platform != platform || a.Type != accountType {
+			continue
+		}
+		for _, id := range a.GroupIDs {
+			if id == groupID {
+				out = append(out, *a)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 type keeperProxiesStub struct {
 	ProxyRepository
 	proxy *Proxy
@@ -83,6 +99,15 @@ func (r *keeperHTTPStub) Do(req *http.Request, proxy string, id int64, concurren
 
 func keeperTestAccount(id int64) *Account {
 	return &Account{ID: id, Name: fmt.Sprintf("test-%d", id), Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Concurrency: 1, Credentials: map[string]any{"access_token": fmt.Sprintf("secret-%d", id), "chatgpt_account_id": fmt.Sprintf("chatgpt-%d", id)}}
+}
+
+func keeperAddTestAccounts(s *OpenAIStateKeeperService, ids []int64) {
+	accounts := s.accounts.(*keeperAccountsStub).accounts
+	for _, id := range ids {
+		if accounts[id] == nil {
+			accounts[id] = keeperTestAccount(id)
+		}
+	}
 }
 func keeperTestContext(group int64) *gin.Context {
 	c := &gin.Context{Request: httptest.NewRequest(http.MethodPost, "/v1/responses", nil)}
@@ -532,6 +557,7 @@ func TestStateKeeperConcurrentFortyAccounts(t *testing.T) {
 	for id := int64(1); id <= 40; id++ {
 		q.AccountIDs = append(q.AccountIDs, id)
 	}
+	keeperAddTestAccounts(s, q.AccountIDs)
 	s.install(q)
 	s.probe = func(_ context.Context, _ OpenAIStateKeeperSettings, id int64) openAIStateProbeResult {
 		return openAIStateProbeResult{status: 200, result: "collected", value: fmt.Sprintf("state-%d", id), credentialStamp: stateKeeperCredentialStamp(keeperTestAccount(id))}
@@ -614,6 +640,9 @@ func TestStateKeeperCollectorUsesChosenProxyAndRealResponse(t *testing.T) {
 func TestStateKeeperCollectorKeepsAccountAndOriginalError(t *testing.T) {
 	s, gateway, _ := keeperTestService(t)
 	s.accounts.(*keeperAccountsStub).accounts[2] = keeperTestAccount(2)
+	q := s.config.Load().OpenAIStateKeeperSettings
+	q.AccountIDs = []int64{1, 2}
+	require.NoError(t, s.Save(context.Background(), q))
 	calls := 0
 	gateway.httpUpstream = &keeperHTTPStub{do: func(req *http.Request, proxy string, id int64, concurrency int) (*http.Response, error) {
 		calls++

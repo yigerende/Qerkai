@@ -25,6 +25,7 @@ const openAIStateKeeperDefaultConcurrency = 50
 type OpenAIStateKeeperSettings struct {
 	Enabled                        bool     `json:"enabled"`
 	InjectionEnabled               bool     `json:"injection_enabled"`
+	ResponseRefreshEnabled         bool     `json:"response_refresh_enabled"`
 	AutoRefresh                    bool     `json:"auto_refresh"`
 	AutoCollectIntervalSeconds     int      `json:"auto_collect_interval_seconds"`
 	DegradationScanEnabled         bool     `json:"degradation_scan_enabled"`
@@ -37,6 +38,7 @@ type OpenAIStateKeeperSettings struct {
 	AllowedStateLengths            []int    `json:"allowed_state_lengths"`
 	DegradedStateLengths           []int    `json:"degraded_state_lengths"`
 	AccountIDs                     []int64  `json:"account_ids"`
+	CollectionGroupIDs             []int64  `json:"collection_group_ids"`
 	GroupIDs                       []int64  `json:"group_ids"`
 	AllGroups                      bool     `json:"all_groups"`
 	ProxyID                        int64    `json:"proxy_id"`
@@ -86,10 +88,10 @@ func defaultStateKeeperModels() []string {
 }
 
 func (q OpenAIStateKeeperSettings) Validate() error {
-	if len(q.AccountIDs) > 500 || len(q.GroupIDs) > 500 {
+	if len(q.AccountIDs) > 500 || len(q.GroupIDs) > 500 || len(q.CollectionGroupIDs) > 500 {
 		return errors.New("最多选择 500 个账号或分组")
 	}
-	for _, ids := range [][]int64{q.AccountIDs, q.GroupIDs} {
+	for _, ids := range [][]int64{q.AccountIDs, q.GroupIDs, q.CollectionGroupIDs} {
 		seen := map[int64]bool{}
 		for _, id := range ids {
 			if id <= 0 || seen[id] {
@@ -158,8 +160,8 @@ func (q OpenAIStateKeeperSettings) Validate() error {
 			return errors.New("允许保存与降智响应头长度不能重叠")
 		}
 	}
-	if q.Enabled && (len(proxies) == 0 || len(q.AccountIDs) == 0) {
-		return errors.New("启用前请选择采集代理和账号")
+	if q.Enabled && (len(proxies) == 0 || (len(q.AccountIDs) == 0 && len(q.CollectionGroupIDs) == 0)) {
+		return errors.New("启用前请选择采集代理，以及采集账号或分组")
 	}
 	if q.InjectionEnabled && !q.AllGroups && len(q.GroupIDs) == 0 {
 		return errors.New("启用注入前请选择适用分组")
@@ -193,9 +195,10 @@ func (q OpenAIStateKeeperSettings) isDegradedLength(length int) bool {
 
 type openAIStateKeeperConfig struct {
 	OpenAIStateKeeperSettings
-	accounts map[int64]bool
-	groups   map[int64]bool
-	models   map[string]bool
+	accounts         map[int64]bool
+	collectionGroups map[int64]bool
+	groups           map[int64]bool
+	models           map[string]bool
 }
 
 type openAIStateKey struct {
@@ -216,58 +219,66 @@ func (s *OpenAIStateKeeperService) entryLocked(id int64, models ...string) *open
 }
 
 type OpenAIStateKeeperRow struct {
-	AccountID         int64                  `json:"account_id"`
-	Model             string                 `json:"model"`
-	Status            string                 `json:"status"`
-	Queued            bool                   `json:"queued"`
-	Collecting        bool                   `json:"collecting"`
-	HTTPStatus        int                    `json:"http_status"`
-	TurnStateLength   int                    `json:"turn_state_length"`
-	Message           string                 `json:"message"`
-	LastAttemptAt     *time.Time             `json:"last_attempt_at,omitempty"`
-	LastCollectionAt  *time.Time             `json:"last_collection_at,omitempty"`
-	CollectedAt       *time.Time             `json:"collected_at,omitempty"`
-	NextAttemptAt     *time.Time             `json:"next_attempt_at,omitempty"`
-	Fingerprint       string                 `json:"fingerprint,omitempty"`
-	HasCodexTurnState bool                   `json:"has_codex_turn_state"`
-	HasDetails        bool                   `json:"has_details"`
-	StateFileSaved    bool                   `json:"state_file_saved"`
-	Attempts          int64                  `json:"attempts"`
-	Successes         int64                  `json:"successes"`
-	Injections        int64                  `json:"injections"`
-	Paused            bool                   `json:"paused"`
-	PauseReason       string                 `json:"pause_reason"`
-	RoundID           string                 `json:"round_id"`
-	RoundAttempts     int                    `json:"round_attempts"`
-	RoundSource       string                 `json:"round_source"`
-	QualityStatus     string                 `json:"quality_status"`
-	QualityReason     string                 `json:"quality_reason"`
-	StatePreview      string                 `json:"state_preview,omitempty"`
-	SavedStateLength  int                    `json:"saved_state_length"`
-	RetryAttempt      int                    `json:"retry_attempt"`
-	RetryLimit        int                    `json:"retry_limit"`
-	CollectionProxyID int64                  `json:"collection_proxy_id"`
-	SavedProxyID      int64                  `json:"saved_proxy_id"`
-	ProxyAttempt      int                    `json:"proxy_attempt"`
-	ProxyCount        int                    `json:"proxy_count"`
-	NextRetryAt       *time.Time             `json:"next_retry_at,omitempty"`
-	Models            []OpenAIStateKeeperRow `json:"models,omitempty"`
+	AccountID                int64                  `json:"account_id"`
+	AccountName              string                 `json:"account_name"`
+	AccountGroupIDs          []int64                `json:"account_group_ids"`
+	AccountStatus            string                 `json:"account_status"`
+	AccountUnavailable       bool                   `json:"account_unavailable"`
+	AccountUnavailableReason string                 `json:"account_unavailable_reason"`
+	Model                    string                 `json:"model"`
+	Status                   string                 `json:"status"`
+	Queued                   bool                   `json:"queued"`
+	Collecting               bool                   `json:"collecting"`
+	HTTPStatus               int                    `json:"http_status"`
+	TurnStateLength          int                    `json:"turn_state_length"`
+	Message                  string                 `json:"message"`
+	LastAttemptAt            *time.Time             `json:"last_attempt_at,omitempty"`
+	LastCollectionAt         *time.Time             `json:"last_collection_at,omitempty"`
+	CollectedAt              *time.Time             `json:"collected_at,omitempty"`
+	NextAttemptAt            *time.Time             `json:"next_attempt_at,omitempty"`
+	Fingerprint              string                 `json:"fingerprint,omitempty"`
+	HasCodexTurnState        bool                   `json:"has_codex_turn_state"`
+	HasDetails               bool                   `json:"has_details"`
+	StateFileSaved           bool                   `json:"state_file_saved"`
+	Attempts                 int64                  `json:"attempts"`
+	Successes                int64                  `json:"successes"`
+	Injections               int64                  `json:"injections"`
+	Paused                   bool                   `json:"paused"`
+	PauseReason              string                 `json:"pause_reason"`
+	RoundID                  string                 `json:"round_id"`
+	RoundAttempts            int                    `json:"round_attempts"`
+	RoundSource              string                 `json:"round_source"`
+	QualityStatus            string                 `json:"quality_status"`
+	QualityReason            string                 `json:"quality_reason"`
+	StatePreview             string                 `json:"state_preview,omitempty"`
+	SavedStateLength         int                    `json:"saved_state_length"`
+	RetryAttempt             int                    `json:"retry_attempt"`
+	RetryLimit               int                    `json:"retry_limit"`
+	CollectionProxyID        int64                  `json:"collection_proxy_id"`
+	SavedProxyID             int64                  `json:"saved_proxy_id"`
+	ProxyAttempt             int                    `json:"proxy_attempt"`
+	ProxyCount               int                    `json:"proxy_count"`
+	NextRetryAt              *time.Time             `json:"next_retry_at,omitempty"`
+	Models                   []OpenAIStateKeeperRow `json:"models,omitempty"`
 }
 
 type openAIKeptState struct {
-	row             OpenAIStateKeeperRow
-	value           string
-	detail          *OpenAIStateKeeperDetail
-	credentialStamp string
-	proxyID         int64
-	lastFinishedAt  time.Time
-	version         string
-	refreshVersion  string
-	runtimeLoaded   bool
-	qualityRevision string
-	qualityAt       time.Time
-	collections     []OpenAIStateKeeperEvent
-	injections      []OpenAIStateKeeperEvent
+	row                    OpenAIStateKeeperRow
+	value                  string
+	detail                 *OpenAIStateKeeperDetail
+	credentialStamp        string
+	blockedCredentialStamp string
+	proxyID                int64
+	lastFinishedAt         time.Time
+	version                string
+	refreshVersion         string
+	runtimeLoaded          bool
+	scopeLoading           bool
+	scopeID                string
+	qualityRevision        string
+	qualityAt              time.Time
+	collections            []OpenAIStateKeeperEvent
+	injections             []OpenAIStateKeeperEvent
 }
 
 type OpenAIStateKeeperEvent struct {
@@ -310,13 +321,14 @@ type OpenAIStateKeeperDetail struct {
 }
 
 type openAIStateProbeResult struct {
-	status            int
-	value             string
-	message           string
-	result            string
-	hasCodexTurnState bool
-	turnStateLength   int
-	credentialStamp   string
+	status             int
+	value              string
+	message            string
+	result             string
+	hasCodexTurnState  bool
+	turnStateLength    int
+	credentialStamp    string
+	accountUnavailable bool
 }
 
 type openAIStateKeeperJob struct {
@@ -324,6 +336,7 @@ type openAIStateKeeperJob struct {
 	model     string
 	revision  string
 	source    string
+	scopeID   string
 }
 
 type OpenAIStateKeeperService struct {
@@ -397,6 +410,7 @@ func (s *OpenAIStateKeeperService) Stop() {
 
 func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 	q.AccountIDs = append([]int64{}, q.AccountIDs...)
+	q.CollectionGroupIDs = append([]int64{}, q.CollectionGroupIDs...)
 	q.GroupIDs = append([]int64{}, q.GroupIDs...)
 	q.AllowedStateLengths = append([]int{}, q.AllowedStateLengths...)
 	q.DegradedStateLengths = append([]int{}, q.DegradedStateLengths...)
@@ -412,7 +426,10 @@ func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 			q.ProxyID = 0
 		}
 	}
-	cfg := &openAIStateKeeperConfig{OpenAIStateKeeperSettings: q, accounts: map[int64]bool{}, groups: map[int64]bool{}, models: map[string]bool{}}
+	cfg := &openAIStateKeeperConfig{OpenAIStateKeeperSettings: q, accounts: map[int64]bool{}, collectionGroups: map[int64]bool{}, groups: map[int64]bool{}, models: map[string]bool{}}
+	for _, id := range q.CollectionGroupIDs {
+		cfg.collectionGroups[id] = true
+	}
 	for _, model := range q.modelNames() {
 		cfg.models[model] = true
 	}
@@ -442,14 +459,35 @@ func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 	// Never publish state from a superseded collection, or keep state across a
 	// changed account/model/proxy policy.
 	oldRows := s.rows
+	blockedAccounts := make(map[int64]*openAIKeptState)
+	for key, entry := range oldRows {
+		if entry.blockedCredentialStamp != "" {
+			blockedAccounts[key.accountID] = entry
+		}
+	}
 	s.rows = map[openAIStateKey]*openAIKeptState{}
 	keepPolicy := previous != nil && previous.Enabled && q.Enabled
-	for _, id := range q.AccountIDs {
+	selectedIDs := append([]int64{}, q.AccountIDs...)
+	// Preserve resolved group members until the background membership sync.
+	// Request and collection boundaries also check the account's current groups.
+	if previous != nil && len(q.CollectionGroupIDs) > 0 {
+		seen := make(map[int64]bool, len(selectedIDs))
+		for _, id := range selectedIDs {
+			seen[id] = true
+		}
+		for key := range oldRows {
+			if !seen[key.accountID] {
+				selectedIDs = append(selectedIDs, key.accountID)
+				seen[key.accountID] = true
+			}
+		}
+	}
+	for _, id := range selectedIDs {
 		for _, model := range q.modelNames() {
 			key := openAIStateKey{id, model}
 			old := oldRows[key]
 			keep := keepPolicy && old != nil && (old.value == "" || q.allowsProxy(old.proxyID))
-			entry := &openAIKeptState{row: OpenAIStateKeeperRow{AccountID: id, Model: model, Status: "empty", QualityStatus: "pending"}}
+			entry := &openAIKeptState{scopeID: uuid.NewString(), row: OpenAIStateKeeperRow{AccountID: id, Model: model, Status: "empty", QualityStatus: "pending"}}
 			if old := oldRows[key]; keep && old != nil {
 				copy := *old
 				entry = &copy
@@ -484,8 +522,16 @@ func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 				entry.row.RetryAttempt, entry.row.RetryLimit = old.row.RetryAttempt, old.row.RetryLimit
 				entry.row.CollectionProxyID, entry.row.ProxyAttempt, entry.row.ProxyCount = old.row.CollectionProxyID, old.row.ProxyAttempt, old.row.ProxyCount
 				entry.row.Attempts, entry.row.Successes, entry.row.Injections = old.row.Attempts, old.row.Successes, old.row.Injections
+				entry.row.AccountStatus, entry.row.AccountUnavailable, entry.row.AccountUnavailableReason = old.row.AccountStatus, old.row.AccountUnavailable, old.row.AccountUnavailableReason
+				entry.blockedCredentialStamp = old.blockedCredentialStamp
 			}
 			entry.row.Collecting = s.activeCancels[key] != nil
+			if blocked := blockedAccounts[id]; blocked != nil {
+				entry.blockedCredentialStamp = blocked.blockedCredentialStamp
+				entry.row.AccountStatus = blocked.row.AccountStatus
+				entry.row.AccountUnavailable, entry.row.AccountUnavailableReason = true, blocked.row.AccountUnavailableReason
+				entry.row.Paused, entry.row.PauseReason = true, blocked.row.AccountUnavailableReason
+			}
 			entry.row.NextRetryAt = nil
 			entry.row.NextAttemptAt = stateKeeperNextAttempt(q, entry)
 			s.rows[key] = entry
@@ -525,8 +571,22 @@ func (s *OpenAIStateKeeperService) reload(ctx context.Context) {
 		s.configError = ""
 		s.mu.Unlock()
 	}
+	var selected []*Account
+	if len(q.CollectionGroupIDs) > 0 {
+		selected, err = s.resolveCollectionAccounts(ctx, q, nil)
+		if err != nil {
+			s.mu.Lock()
+			s.configError = "采集分组同步失败，保留当前范围，请稍后重试"
+			s.mu.Unlock()
+			return
+		}
+	}
 	s.install(q)
+	if len(q.CollectionGroupIDs) > 0 {
+		s.syncCollectionScope(q, selected)
+	}
 	s.restoreRuntime()
+	s.restoreScopeStateFiles(ctx)
 }
 
 func (s *OpenAIStateKeeperService) Save(ctx context.Context, q OpenAIStateKeeperSettings) error {
@@ -540,6 +600,7 @@ func (s *OpenAIStateKeeperService) Save(ctx context.Context, q OpenAIStateKeeper
 	if err := q.Validate(); err != nil {
 		return err
 	}
+	var selectedAccounts []*Account
 	if q.Enabled {
 		for _, id := range q.proxyIDs() {
 			proxy, err := s.proxies.GetByID(ctx, id)
@@ -555,10 +616,15 @@ func (s *OpenAIStateKeeperService) Save(ctx context.Context, q OpenAIStateKeeper
 			return errors.New("部分采集账号不存在")
 		}
 		for _, a := range accounts {
-			if !stateKeeperAccountEligible(a) {
-				return errors.New("采集仅支持启用的 OpenAI OAuth 账号")
+			if a == nil || a.Platform != PlatformOpenAI || a.Type != AccountTypeOAuth {
+				return errors.New("采集仅支持 OpenAI OAuth 账号")
 			}
 		}
+		selectedAccounts = accounts
+	}
+	selectedAccounts, err := s.resolveCollectionAccounts(ctx, q, selectedAccounts)
+	if err != nil {
+		return err
 	}
 	q.Revision = uuid.NewString()
 	encoded, err := json.Marshal(q)
@@ -571,10 +637,26 @@ func (s *OpenAIStateKeeperService) Save(ctx context.Context, q OpenAIStateKeeper
 		return err
 	}
 	s.install(q)
+	s.syncCollectionScope(q, selectedAccounts)
 	s.restoreRuntime()
+	s.restoreScopeStateFiles(ctx)
 	s.mu.Lock()
+	for _, account := range selectedAccounts {
+		s.syncAccountAvailabilityLocked(account)
+	}
 	s.configError = ""
+	blockedKeys := make([]openAIStateKey, 0)
+	for key, entry := range s.rows {
+		if entry.blockedCredentialStamp != "" {
+			blockedKeys = append(blockedKeys, key)
+		}
+	}
 	s.mu.Unlock()
+	for _, key := range blockedKeys {
+		if err := s.persistRuntimeLocked(key.accountID, key.model); err != nil {
+			return errors.New("配置已保存，但账号停止采集标记写入失败，请检查文件权限")
+		}
+	}
 	return nil
 }
 
@@ -625,26 +707,33 @@ func (s *OpenAIStateKeeperService) SyncSelection(ctx context.Context) error {
 			keptAccounts = append(keptAccounts, id)
 		}
 	}
-	if len(kept) == len(ids) && len(keptAccounts) == len(q.AccountIDs) {
-		return nil
-	}
+	selectionChanged := len(kept) != len(ids) || len(keptAccounts) != len(q.AccountIDs)
 	q.ProxyIDs, q.ProxyID, q.AccountIDs = kept, 0, keptAccounts
 	if len(kept) > 0 {
 		q.ProxyID = kept[0]
 	}
-	if len(kept) == 0 || len(keptAccounts) == 0 {
+	if len(kept) == 0 || (len(keptAccounts) == 0 && len(q.CollectionGroupIDs) == 0) {
 		q.Enabled = false
 	}
-	q.Revision = uuid.NewString()
-	encoded, err := json.Marshal(q)
+	accounts, err = s.resolveCollectionAccounts(ctx, q, accounts)
 	if err != nil {
 		return err
 	}
-	if err := s.settings.Set(ctx, openAIStateKeeperSettingKey, string(encoded)); err != nil {
-		return err
+	if selectionChanged {
+		q.Revision = uuid.NewString()
+		encoded, err := json.Marshal(q)
+		if err != nil {
+			return err
+		}
+		if err := s.settings.Set(ctx, openAIStateKeeperSettingKey, string(encoded)); err != nil {
+			return err
+		}
 	}
 	s.install(q)
+	s.syncCollectionScope(q, accounts)
 	s.restoreRuntime()
+	s.restoreScopeStateFiles(ctx)
+	s.syncAccountAvailability(accounts)
 	return nil
 }
 
@@ -657,6 +746,7 @@ func (s *OpenAIStateKeeperService) Snapshot() OpenAIStateKeeperSnapshot {
 	defer s.mu.RUnlock()
 	q := s.config.Load().OpenAIStateKeeperSettings
 	q.AccountIDs = append([]int64{}, q.AccountIDs...)
+	q.CollectionGroupIDs = append([]int64{}, q.CollectionGroupIDs...)
 	q.GroupIDs = append([]int64{}, q.GroupIDs...)
 	q.AllowedStateLengths = append([]int{}, q.AllowedStateLengths...)
 	q.DegradedStateLengths = append([]int{}, q.DegradedStateLengths...)
@@ -667,7 +757,7 @@ func (s *OpenAIStateKeeperService) Snapshot() OpenAIStateKeeperSnapshot {
 		q.ProxyIDs = append([]int64{}, q.ProxyIDs...)
 	}
 	out := OpenAIStateKeeperSnapshot{CollectionPath: openAIStateKeeperCollectionPath, CollectionEndpoint: openAIStateKeeperCollectionURL, Settings: q, Rows: []OpenAIStateKeeperRow{}, Events: append([]OpenAIStateKeeperEvent{}, s.events...), ServerTime: time.Now().UTC(), ConfigError: s.configError}
-	for _, id := range q.AccountIDs {
+	for _, id := range s.collectionAccountIDsLocked() {
 		var row OpenAIStateKeeperRow
 		for i, model := range q.modelNames() {
 			entry := s.entryLocked(id, model)
@@ -711,20 +801,23 @@ func (s *OpenAIStateKeeperService) Detail(accountID int64, model ...string) (Ope
 }
 
 func (s *OpenAIStateKeeperService) Schedule(ids []int64, models ...string) error {
+	if err := s.refreshAccountAvailability(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg := s.config.Load()
 	if !cfg.Enabled {
 		return errors.New("请先保存并启用采集配置")
 	}
-	if len(ids) == 0 {
-		ids = cfg.AccountIDs
-	}
 	if len(ids) > 500 {
 		return errors.New("一次最多采集 500 个账号")
 	}
+	if len(ids) == 0 {
+		ids = s.collectionAccountIDsLocked()
+	}
 	for _, id := range ids {
-		if !cfg.accounts[id] {
+		if s.entryLocked(id) == nil {
 			return errors.New("账号未加入采集范围")
 		}
 	}
@@ -735,6 +828,9 @@ func (s *OpenAIStateKeeperService) Schedule(ids []int64, models ...string) error
 }
 
 func (s *OpenAIStateKeeperService) SchedulePaused() (int, error) {
+	if err := s.refreshAccountAvailability(); err != nil {
+		return 0, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg := s.config.Load()
@@ -742,11 +838,11 @@ func (s *OpenAIStateKeeperService) SchedulePaused() (int, error) {
 		return 0, errors.New("请先保存并启用采集配置")
 	}
 	scheduled := 0
-	for _, id := range cfg.AccountIDs {
+	for _, id := range s.collectionAccountIDsLocked() {
 		for _, model := range cfg.modelNames() {
 			key := openAIStateKey{id, model}
 			entry := s.rows[key]
-			if entry == nil || !entry.row.Paused || entry.row.Queued || entry.row.Collecting || s.activeCancels[key] != nil {
+			if entry == nil || entry.row.AccountUnavailable || !entry.row.Paused || entry.row.Queued || entry.row.Collecting || s.activeCancels[key] != nil {
 				continue
 			}
 			if err := s.enqueueSourceLocked(cfg, []int64{id}, "manual", model); err != nil {
@@ -764,6 +860,9 @@ func (s *OpenAIStateKeeperService) enqueueLocked(cfg *openAIStateKeeperConfig, i
 }
 
 func (s *OpenAIStateKeeperService) enqueueSourceLocked(cfg *openAIStateKeeperConfig, ids []int64, source string, selected ...string) error {
+	if source == "response" && (!cfg.InjectionEnabled || !cfg.ResponseRefreshEnabled) {
+		return nil
+	}
 	models := cfg.modelNames()
 	if len(selected) > 0 && selected[0] != "" {
 		models = selected
@@ -772,14 +871,14 @@ func (s *OpenAIStateKeeperService) enqueueSourceLocked(cfg *openAIStateKeeperCon
 		for _, model := range models {
 			key := openAIStateKey{id, model}
 			entry := s.rows[key]
-			if entry == nil || (source != "manual" && entry.row.Paused) || (source == "degradation_scan" && !s.qualityEligibleLocked(entry)) {
+			if entry == nil || entry.scopeLoading || entry.row.AccountUnavailable || (source != "manual" && entry.row.Paused) || (source == "degradation_scan" && !s.qualityEligibleLocked(entry)) {
 				continue
 			}
 			if entry.row.Queued || entry.row.Collecting || s.activeCancels[key] != nil {
 				continue
 			}
 			select {
-			case s.queue <- openAIStateKeeperJob{accountID: id, model: model, revision: cfg.Revision, source: source}:
+			case s.queue <- openAIStateKeeperJob{accountID: id, model: model, revision: cfg.Revision, source: source, scopeID: entry.scopeID}:
 				entry.row.Queued = true
 			default:
 				return errors.New("采集队列已满，请稍后重试")
@@ -805,7 +904,7 @@ func (s *OpenAIStateKeeperService) scheduleDue(now time.Time) {
 }
 
 func stateKeeperNextAttempt(q OpenAIStateKeeperSettings, entry *openAIKeptState) *time.Time {
-	if entry.row.Paused || entry.lastFinishedAt.IsZero() || !q.AutoRefresh || q.AutoCollectIntervalSeconds <= 0 {
+	if entry.row.AccountUnavailable || entry.row.Paused || entry.lastFinishedAt.IsZero() || !q.AutoRefresh || q.AutoCollectIntervalSeconds <= 0 {
 		return nil
 	}
 	next := entry.lastFinishedAt.Add(time.Duration(q.AutoCollectIntervalSeconds) * time.Second)

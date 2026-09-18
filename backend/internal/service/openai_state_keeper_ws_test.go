@@ -112,11 +112,11 @@ func TestStateKeeperWSRotationClaimsCurrentPrewarmAsPrimary(t *testing.T) {
 }
 
 func TestStateKeeperForcedWSForwardingObservesFreshMetadataWithoutChangingOutput(t *testing.T) {
-	for _, enabled := range []bool{true, false} {
-		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+	for _, tc := range []struct{ injection, refresh bool }{{true, true}, {true, false}, {false, true}, {false, false}} {
+		t.Run(fmt.Sprintf("injection=%t/refresh=%t", tc.injection, tc.refresh), func(t *testing.T) {
 			s, gateway, account := keeperTestService(t)
 			q := s.config.Load().OpenAIStateKeeperSettings
-			q.InjectionEnabled, q.DegradedStateLengths = enabled, []int{356}
+			q.InjectionEnabled, q.ResponseRefreshEnabled, q.DegradedStateLengths = tc.injection, tc.refresh, []int{356}
 			require.NoError(t, s.Save(context.Background(), q))
 			cfg := &config.Config{}
 			cfg.Gateway.OpenAIWS.Enabled, cfg.Gateway.OpenAIWS.OAuthEnabled, cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true, true, true
@@ -153,15 +153,21 @@ func TestStateKeeperForcedWSForwardingObservesFreshMetadataWithoutChangingOutput
 			require.EqualValues(t, 2, result.Usage.InputTokens)
 			require.EqualValues(t, 3, result.Usage.OutputTokens)
 			want := "native-state"
-			if enabled {
+			if tc.injection {
 				want = "collected-secret"
 			}
 			require.Equal(t, want, dialer.lastHeaders.Get(openAICodexTurnStateHeader))
 			require.NotContains(t, fmt.Sprint(capture.lastWrite), "current_turn_state")
 			keeperDrainObservations(s)
-			require.Equal(t, enabled, len(s.queue) == 1)
-			if enabled {
-				require.Equal(t, "degraded_signal", s.Recent([]int64{1})[0].Injections[0].Result)
+			require.Equal(t, tc.injection && tc.refresh, len(s.queue) == 1)
+			if tc.injection {
+				event := s.Recent([]int64{1})[0].Injections[0]
+				if tc.refresh {
+					require.Equal(t, "degraded_signal", event.Result)
+				} else {
+					require.Equal(t, "sent", event.Result)
+					require.Zero(t, event.TurnStateLength)
+				}
 			} else {
 				require.Empty(t, s.observations)
 			}
