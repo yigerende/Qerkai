@@ -5,6 +5,7 @@ export interface StateKeeperSettings {
   injection_enabled: boolean
   auto_refresh: boolean
   auto_collect_interval_seconds: number
+  concurrency: number
   account_ids: number[]
   group_ids: number[]
   all_groups: boolean

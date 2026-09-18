@@ -95,7 +95,7 @@ func TestStateKeeperParallelCollectionBoundedAndAccountIsolated(t *testing.T) {
 	seen := make(map[int64]bool)
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
-	for range openAIStateKeeperWorkers {
+	for range openAIStateKeeperDefaultConcurrency {
 		select {
 		case id := <-started:
 			require.False(t, seen[id], "each active probe must use a different account")
@@ -191,4 +191,134 @@ func TestStateKeeperConfigChangeCancelsAllAndPreventsOverlappingAccount(t *testi
 	for _, entry := range s.rows {
 		require.Empty(t, entry.value, "cancelled results must not enter the new configuration")
 	}
+}
+
+func TestStateKeeperConcurrencyDefaultsValidationAndPersistence(t *testing.T) {
+	s, _, _ := keeperTestService(t)
+	require.NoError(t, s.settings.Set(context.Background(), openAIStateKeeperSettingKey, `{"revision":"legacy"}`))
+	s.reload(context.Background())
+	require.Equal(t, 50, s.Snapshot().Settings.Concurrency, "older settings must retain the previous concurrency")
+	q := s.config.Load().OpenAIStateKeeperSettings
+	q.Concurrency = 8
+	require.NoError(t, s.Save(context.Background(), q))
+	restarted := newOpenAIStateKeeper(s.settings, s.accounts, s.proxies, s.gateway)
+	t.Cleanup(restarted.Stop)
+	restarted.reload(context.Background())
+	require.Equal(t, 8, restarted.Snapshot().Settings.Concurrency)
+	for _, invalid := range []int{-1, 0, 501} {
+		q.Concurrency = invalid
+		require.Error(t, s.Save(context.Background(), q))
+	}
+	require.Equal(t, 8, s.Snapshot().Settings.Concurrency)
+}
+
+func TestStateKeeperConcurrencyCanIncreaseAndDecreaseWithoutRestart(t *testing.T) {
+	s, _, _ := keeperTestService(t)
+	q := s.config.Load().OpenAIStateKeeperSettings
+	q.AccountIDs = []int64{1, 2, 3, 4, 5, 6}
+	q.Concurrency = 2
+	q.Revision = "two"
+	s.install(q)
+	started := make(chan string, 12)
+	s.probe = func(ctx context.Context, cfg OpenAIStateKeeperSettings, _ int64) openAIStateProbeResult {
+		started <- cfg.Revision
+		<-ctx.Done()
+		return openAIStateProbeResult{result: "failed"}
+	}
+	s.startWorkers()
+	for _, phase := range []struct {
+		limit    int
+		revision string
+	}{{2, "two"}, {4, "four"}, {1, "one"}} {
+		q.Concurrency, q.Revision = phase.limit, phase.revision
+		s.install(q)
+		require.Eventually(t, func() bool {
+			s.mu.RLock()
+			defer s.mu.RUnlock()
+			return len(s.activeCancels) == 0
+		}, 5*time.Second, time.Millisecond)
+		require.NoError(t, s.Schedule(nil))
+		for range phase.limit {
+			select {
+			case revision := <-started:
+				require.Equal(t, phase.revision, revision)
+			case <-time.After(5 * time.Second):
+				t.Fatal("configured number of collectors did not start")
+			}
+		}
+		collecting, queued := 0, 0
+		for _, row := range s.Snapshot().Rows {
+			if row.Collecting {
+				collecting++
+			}
+			if row.Queued {
+				queued++
+			}
+		}
+		require.Equal(t, phase.limit, collecting)
+		require.Equal(t, 6-phase.limit, queued)
+	}
+	stopped := make(chan struct{})
+	go func() { s.Stop(); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("waiting workers were not released during shutdown")
+	}
+}
+
+func TestStateKeeperLowerConcurrencyCountsCancellingRequests(t *testing.T) {
+	s, _, _ := keeperTestService(t)
+	q := s.config.Load().OpenAIStateKeeperSettings
+	q.AccountIDs = []int64{1, 2, 3}
+	q.Concurrency = 2
+	q.Revision = "old"
+	s.install(q)
+	started := make(chan string, 3)
+	cancelled := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	s.probe = func(ctx context.Context, cfg OpenAIStateKeeperSettings, _ int64) openAIStateProbeResult {
+		started <- cfg.Revision
+		<-ctx.Done()
+		if cfg.Revision == "old" {
+			cancelled <- struct{}{}
+			<-release
+		}
+		return openAIStateProbeResult{result: "failed"}
+	}
+	s.startWorkers()
+	require.NoError(t, s.Schedule([]int64{1, 2}))
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("initial collectors did not start")
+		}
+	}
+	q.Concurrency, q.Revision = 1, "new"
+	s.install(q)
+	for range 2 {
+		select {
+		case <-cancelled:
+		case <-time.After(5 * time.Second):
+			t.Fatal("old collectors were not cancelled")
+		}
+	}
+	require.NoError(t, s.Schedule([]int64{3}))
+	require.Empty(t, started)
+	require.True(t, s.Snapshot().Rows[2].Queued)
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case revision := <-started:
+		require.Equal(t, "new", revision)
+	case <-time.After(5 * time.Second):
+		t.Fatal("queued account did not start after old collectors exited")
+	}
+	s.mu.RLock()
+	active := len(s.activeCancels)
+	s.mu.RUnlock()
+	require.Equal(t, 1, active)
+	s.Stop()
 }

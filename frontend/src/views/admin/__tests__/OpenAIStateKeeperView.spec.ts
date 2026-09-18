@@ -13,7 +13,7 @@ vi.mock('@/api/admin/proxies', () => ({ getAll: vi.fn().mockResolvedValue([{ id:
 const initial = (): StateKeeperSnapshot => ({
   collection_path: '/v1/chat/completions',
   collection_endpoint: 'https://chatgpt.com/backend-api/codex/responses',
-  settings: { enabled: true, injection_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, account_ids: [1], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', ttl_seconds: 3600, refresh_before_seconds: 300, retry_seconds: 60, revision: 'one' },
+  settings: { enabled: true, injection_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, concurrency: 50, account_ids: [1], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', ttl_seconds: 3600, refresh_before_seconds: 300, retry_seconds: 60, revision: 'one' },
   rows: [{ account_id: 1, model: 'test-model', status: 'not_observed', queued: false, collecting: false, http_status: 200, message: '仅发现普通 Codex 回合状态', has_codex_turn_state: true, attempts: 1, successes: 0, injections: 0 }],
   events: [], server_time: new Date().toISOString(),
 })
@@ -70,6 +70,19 @@ describe('Upstream state management', () => {
     expect(wrapper.find('input[placeholder="输入秒数"]').exists()).toBe(false)
     await wrapper.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
     expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ auto_refresh: false, auto_collect_interval_seconds: 120 }))
+    wrapper.unmount()
+  })
+
+  it('saves collection concurrency independently of automatic collection', async () => {
+    vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...initial(), settings: { ...JSON.parse(JSON.stringify(settings)), revision: 'two' } }))
+    const wrapper = render(); await flushPromises()
+    const input = wrapper.get('input[placeholder="输入并发数"]')
+    expect((input.element as HTMLInputElement).value).toBe('50')
+    await input.setValue(8)
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises()
+    expect((input.element as HTMLInputElement).value).toBe('8')
+    await wrapper.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ concurrency: 8, auto_refresh: false }))
     wrapper.unmount()
   })
 })

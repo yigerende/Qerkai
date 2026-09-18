@@ -24,13 +24,14 @@ import (
 const openAIStateKeeperSettingKey = "openai_state_keeper_v1"
 const openAICollectedStateHeader = "current_turn_state"
 const openAIStateProbeContextKey = "openai_state_keeper_probe"
-const openAIStateKeeperWorkers = 50
+const openAIStateKeeperDefaultConcurrency = 50
 
 type OpenAIStateKeeperSettings struct {
 	Enabled                    bool    `json:"enabled"`
 	InjectionEnabled           bool    `json:"injection_enabled"`
 	AutoRefresh                bool    `json:"auto_refresh"`
 	AutoCollectIntervalSeconds int     `json:"auto_collect_interval_seconds"`
+	Concurrency                int     `json:"concurrency"`
 	AccountIDs                 []int64 `json:"account_ids"`
 	GroupIDs                   []int64 `json:"group_ids"`
 	AllGroups                  bool    `json:"all_groups"`
@@ -43,7 +44,7 @@ type OpenAIStateKeeperSettings struct {
 }
 
 func DefaultOpenAIStateKeeperSettings() OpenAIStateKeeperSettings {
-	return OpenAIStateKeeperSettings{AutoRefresh: true, AccountIDs: []int64{}, GroupIDs: []int64{}, Model: "gpt-6-astra", TTLSeconds: 3600, RefreshBeforeSeconds: 300, RetrySeconds: 60}
+	return OpenAIStateKeeperSettings{AutoRefresh: true, Concurrency: openAIStateKeeperDefaultConcurrency, AccountIDs: []int64{}, GroupIDs: []int64{}, Model: "gpt-6-astra", TTLSeconds: 3600, RefreshBeforeSeconds: 300, RetrySeconds: 60}
 }
 
 func (q OpenAIStateKeeperSettings) Validate() error {
@@ -64,6 +65,9 @@ func (q OpenAIStateKeeperSettings) Validate() error {
 	}
 	if q.AutoCollectIntervalSeconds < 0 || q.AutoCollectIntervalSeconds > 86400 {
 		return errors.New("自动采集间隔须为 0–86400 秒，0 表示沿用原有自动续期")
+	}
+	if q.Concurrency < 1 || q.Concurrency > 500 {
+		return errors.New("采集并发数须为 1–500")
 	}
 	if q.TTLSeconds < 300 || q.TTLSeconds > 86400 || q.RefreshBeforeSeconds < 30 || q.RefreshBeforeSeconds >= q.TTLSeconds || q.RetrySeconds < 30 || q.RetrySeconds > 3600 {
 		return errors.New("缓存时间须为 300–86400 秒，提前刷新须为 30 秒以上且小于缓存时间，失败重试须为 30–3600 秒")
@@ -159,6 +163,8 @@ type OpenAIStateKeeperService struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	activeCancels map[int64]context.CancelFunc
+	workerSlots   *sync.Cond
+	workerCount   int
 	wg            sync.WaitGroup
 	probe         func(context.Context, OpenAIStateKeeperSettings, int64) openAIStateProbeResult
 	files         *openAIStateFileStore
@@ -177,6 +183,7 @@ func ProvideOpenAIStateKeeperService(settings *SettingService, accounts AccountR
 func newOpenAIStateKeeper(settings SettingRepository, accounts AccountRepository, proxies ProxyRepository, gateway *OpenAIGatewayService) *OpenAIStateKeeperService {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &OpenAIStateKeeperService{settings: settings, accounts: accounts, proxies: proxies, gateway: gateway, rows: map[int64]*openAIKeptState{}, events: []OpenAIStateKeeperEvent{}, queue: make(chan openAIStateKeeperJob, 500), ctx: ctx, cancel: cancel, activeCancels: make(map[int64]context.CancelFunc)}
+	s.workerSlots = sync.NewCond(&s.mu)
 	s.probe = s.collect
 	s.install(DefaultOpenAIStateKeeperSettings())
 	return s
@@ -185,6 +192,9 @@ func newOpenAIStateKeeper(settings SettingRepository, accounts AccountRepository
 func (s *OpenAIStateKeeperService) Stop() {
 	if s != nil {
 		s.cancel()
+		s.mu.Lock()
+		s.workerSlots.Broadcast()
+		s.mu.Unlock()
 		s.wg.Wait()
 	}
 }
@@ -234,6 +244,10 @@ func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 		s.rows[id] = entry
 	}
 	s.config.Store(cfg)
+	if s.workerCount > 0 {
+		s.growWorkersLocked(q.Concurrency)
+	}
+	s.workerSlots.Broadcast()
 }
 
 func (s *OpenAIStateKeeperService) reload(ctx context.Context) {
@@ -427,8 +441,18 @@ func (s *OpenAIStateKeeperService) scheduler() {
 }
 
 func (s *OpenAIStateKeeperService) startWorkers() {
-	s.wg.Add(openAIStateKeeperWorkers)
-	for range openAIStateKeeperWorkers {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.growWorkersLocked(s.config.Load().Concurrency)
+}
+
+func (s *OpenAIStateKeeperService) growWorkersLocked(concurrency int) {
+	if s.ctx.Err() != nil {
+		return
+	}
+	for s.workerCount < concurrency {
+		s.workerCount++
+		s.wg.Add(1)
 		go s.worker()
 	}
 }
@@ -450,11 +474,21 @@ func (s *OpenAIStateKeeperService) worker() {
 
 func (s *OpenAIStateKeeperService) run(job openAIStateKeeperJob) {
 	s.mu.Lock()
-	cfg := s.config.Load()
-	entry := s.rows[job.accountID]
-	if s.ctx.Err() != nil || !cfg.Enabled || cfg.Revision != job.revision || entry == nil || s.activeCancels[job.accountID] != nil {
-		s.mu.Unlock()
-		return
+	var cfg *openAIStateKeeperConfig
+	var entry *openAIKeptState
+	for {
+		cfg = s.config.Load()
+		entry = s.rows[job.accountID]
+		if s.ctx.Err() != nil || !cfg.Enabled || cfg.Revision != job.revision || entry == nil || s.activeCancels[job.accountID] != nil {
+			s.mu.Unlock()
+			return
+		}
+		if len(s.activeCancels) < cfg.Concurrency {
+			break
+		}
+		// Decreased limits also apply to existing workers. Waiting jobs remain
+		// queued and are woken by completion, configuration changes or shutdown.
+		s.workerSlots.Wait()
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Second)
 	s.activeCancels[job.accountID] = cancel
@@ -485,6 +519,7 @@ func (s *OpenAIStateKeeperService) run(job openAIStateKeeperJob) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.activeCancels, job.accountID)
+	s.workerSlots.Broadcast()
 	if current := s.rows[job.accountID]; current != nil {
 		current.row.Collecting = false
 	}

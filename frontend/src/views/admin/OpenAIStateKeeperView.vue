@@ -152,6 +152,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer) })
             <label class="state-check"><input v-model="form.auto_refresh" type="checkbox">自动采集与刷新</label>
             <label class="state-check"><input v-model="form.injection_enabled" type="checkbox">启用请求注入</label>
           </div>
+          <label class="state-label max-w-xs">采集并发数<input v-model.number="form.concurrency" class="input" type="number" min="1" max="500" step="1" placeholder="输入并发数"></label>
           <div v-if="form.auto_refresh" class="space-y-2">
             <label class="state-label max-w-xs">自动采集间隔（s）<input v-model.number="form.auto_collect_interval_seconds" class="input" type="number" min="0" max="86400" step="1" placeholder="输入秒数"></label>
             <p class="text-xs text-gray-500">保存后生效。大于 0 时，每次采集结束后等待该秒数再采集，失败也按此间隔重试；0 沿用原有自动续期。</p>
@@ -187,7 +188,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer) })
             <label v-for="a in visibleAccounts" :key="a.id" class="state-check rounded-lg border border-gray-200 p-3 dark:border-dark-600"><input v-model="form.account_ids" type="checkbox" :value="a.id"><span class="min-w-0 truncate">{{ a.name }} <span class="text-gray-400">#{{ a.id }}</span></span></label>
             <p v-if="!visibleAccounts.length" class="py-5 text-sm text-gray-500">暂无匹配的 OpenAI OAuth 账号，请添加或导入。</p>
           </div>
-          <p class="text-xs text-gray-500">不同账号并发采集，最多同时 50 个；同一账号不重复采集。最多选择 500 个账号。</p>
+          <p class="text-xs text-gray-500">同一账号不重复采集；并发数以已保存配置为准，超出部分排队。最多选择 500 个账号。</p>
         </section>
 
         <section class="state-card space-y-4">
