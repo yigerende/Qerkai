@@ -24,7 +24,7 @@ func (s *AccountQualityService) checkQualityModel(ctx context.Context, q Account
 			}
 		}
 	}
-	if len(logs) >= 3 {
+	if len(logs) > 0 {
 		applyQualityModelLogs(&v.Model, q, logs, time.Now().UTC())
 		return
 	}

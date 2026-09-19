@@ -45,7 +45,7 @@ func qualityModelTestLogs(id int64, model string, count int, at time.Time) []Mod
 	return logs
 }
 
-func TestAccountQualityModelUsesThreeLogsOrOneHi(t *testing.T) {
+func TestAccountQualityModelUsesAvailableLogsOrOneHi(t *testing.T) {
 	defer setForceUpstreamWSForTest(false)()
 	for _, count := range []int{0, 1, 2, 3} {
 		for _, injection := range []bool{false, true} {
@@ -64,17 +64,19 @@ func TestAccountQualityModelUsesThreeLogsOrOneHi(t *testing.T) {
 				s.stateKeeper.Store(keeper)
 				v := AccountQualityResult{AccountID: account.ID}
 				s.checkQualityModel(context.Background(), q, &v)
-				if count == 3 {
+				if count > 0 {
 					require.Empty(t, u.requests)
-					require.Equal(t, 3, v.Model.Failures)
+					require.Equal(t, count, v.Model.Failures)
+					require.EqualValues(t, count, v.Model.LatestID)
 					s.checkQualityModel(context.Background(), q, &v)
-					require.Empty(t, u.requests, "rechecking three old logs must not trigger a probe")
-					require.Equal(t, 3, v.Model.Failures, "old logs cannot count twice")
+					require.Empty(t, u.requests, "rechecking available logs must not trigger a probe")
+					require.Equal(t, count, v.Model.Failures, "old logs cannot count twice")
+					require.True(t, v.Model.NoNewSamples)
 					return
 				}
 				require.Len(t, u.requests, 1)
 				require.Equal(t, 1, v.Model.Successes)
-				require.Zero(t, v.Model.Failures, "partial logs are replaced by one fresh probe")
+				require.Zero(t, v.Model.Failures)
 				require.Zero(t, v.Model.LatestID, "direct samples do not invent usage log IDs")
 				require.Equal(t, q.ModelAuditModel, v.Model.ResponseModel)
 				body, err := io.ReadAll(u.requests[0].Body)
@@ -145,14 +147,14 @@ func TestAccountQualityModelHiVerdictsAndFailures(t *testing.T) {
 	}
 }
 
-func TestAccountQualityModelInvalidLogsTriggerHi(t *testing.T) {
+func TestAccountQualityModelOnlyInvalidLogsTriggerHi(t *testing.T) {
 	defer setForceUpstreamWSForTest(false)()
 	for _, mode := range []string{"before-state", "no-start-time", "old-config", "other-model", "no-response-model", "no-verdict", "other-account"} {
 		t.Run(mode, func(t *testing.T) {
 			q := DefaultAccountQualitySettings()
 			q.UpdatedAt = time.Now().Add(-time.Hour)
 			collected := time.Now().Add(-time.Minute)
-			logs := qualityModelTestLogs(1, q.ModelAuditModel, 3, time.Now())
+			logs := qualityModelTestLogs(1, q.ModelAuditModel, 1, time.Now())
 			switch mode {
 			case "before-state":
 				before := collected.Add(-time.Second)
@@ -178,6 +180,15 @@ func TestAccountQualityModelInvalidLogsTriggerHi(t *testing.T) {
 			require.Equal(t, "state_pending", v.Model.Status)
 			require.Equal(t, 1, v.Model.Successes)
 			require.Zero(t, v.Model.Failures)
+			for _, count := range []int{1, 2} {
+				validLogs := qualityModelTestLogs(1, q.ModelAuditModel, count, time.Now())
+				s.usage.usageRepo = &qualityModelAuditStub{logs: append(logs, validLogs...)}
+				v = AccountQualityResult{AccountID: 1, Model: QualityModelResult{StateCollectedAt: &collected, StateValidationPending: true}}
+				s.checkQualityModel(context.Background(), q, &v)
+				require.Len(t, u.requests, 1, "valid logs alongside invalid logs must avoid additional probes")
+				require.Equal(t, count, v.Model.Failures)
+				require.Zero(t, v.Model.Successes)
+			}
 		})
 	}
 }
