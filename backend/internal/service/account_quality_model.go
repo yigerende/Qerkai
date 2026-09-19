@@ -26,8 +26,11 @@ func (s *AccountQualityService) checkQualityModel(ctx context.Context, q Account
 	}
 	if len(logs) > 0 {
 		applyQualityModelLogs(&v.Model, q, logs, time.Now().UTC())
-		return
+		if !v.Model.StateValidationPending || !v.Model.NoNewSamples {
+			return
+		}
 	}
+	// Pending State validation needs fresh evidence even when old logs exist.
 	// A direct sample is not a usage log: do not invent IDs or change LatestID.
 	modelPolicy := q
 	modelPolicy.Model = q.ModelAuditModel

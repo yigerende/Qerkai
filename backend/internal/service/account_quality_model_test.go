@@ -93,6 +93,89 @@ func TestAccountQualityModelUsesAvailableLogsOrOneHi(t *testing.T) {
 	}
 }
 
+func TestAccountQualityModelPendingContinuesAfterLogsAreConsumed(t *testing.T) {
+	defer setForceUpstreamWSForTest(false)()
+	for _, injection := range []bool{false, true} {
+		for _, matches := range []bool{false, true} {
+			t.Run(fmt.Sprintf("injection=%t/matches=%t", injection, matches), func(t *testing.T) {
+				keeper, _, account := keeperTestService(t)
+				account.GroupIDs = []int64{11}
+				cfg := keeper.config.Load().OpenAIStateKeeperSettings
+				cfg.InjectionEnabled = injection
+				require.NoError(t, keeper.Save(context.Background(), cfg))
+				q := DefaultAccountQualitySettings()
+				q.ModelAuditModel, q.FailureLimit, q.RecoveryLimit = cfg.Model, 3, 3
+				q.UpdatedAt = time.Now().Add(-time.Hour)
+				collected := time.Now().Add(-time.Minute)
+				logs := qualityModelTestLogs(account.ID, q.ModelAuditModel, 1, collected.Add(time.Second))
+				responseModel := "wrong-model"
+				if matches {
+					responseModel = q.ModelAuditModel
+					*logs[0].Mismatch = false
+					logs[0].ResponseModel = responseModel
+				}
+				body := fmt.Sprintf("data: {\"type\":\"response.completed\",\"response\":{\"model\":%q}}\n\n", responseModel)
+				u := &queuedHTTPUpstream{responses: []*http.Response{newJSONResponse(200, body), newJSONResponse(200, body)}}
+				repo := &qualityModelAuditStub{logs: logs}
+				s := &AccountQualityService{usage: &UsageService{usageRepo: repo}, tests: &AccountTestService{accountRepo: &qualityAccountRepo{account: account}, httpUpstream: u}}
+				s.stateKeeper.Store(keeper)
+				v := AccountQualityResult{AccountID: account.ID, Model: QualityModelResult{StateCollectedAt: &collected, StateValidationPending: true}}
+				s.checkQualityModel(context.Background(), q, &v)
+				require.Empty(t, u.requests, "new valid logs supply evidence without a probe")
+				require.True(t, v.Model.StateValidationPending)
+				require.Equal(t, 1, v.Model.Successes+v.Model.Failures)
+				for round := 2; round <= 3; round++ {
+					s.checkQualityModel(context.Background(), q, &v)
+					require.Len(t, u.requests, round-1, "one probe per pending round, not a tight retry loop")
+					require.Equal(t, round, v.Model.Successes+v.Model.Failures)
+					require.Equal(t, round < 3, v.Model.StateValidationPending)
+					require.False(t, v.Model.NoNewSamples)
+					require.EqualValues(t, 1, v.Model.LatestID)
+					require.Equal(t, v.Model.CheckedAt.Add(time.Duration(q.ModelAuditIntervalSeconds)*time.Second), *v.Model.NextAt)
+				}
+				require.Equal(t, !matches, v.Model.Degraded)
+				for _, req := range u.requests {
+					payload, err := io.ReadAll(req.Body)
+					require.NoError(t, err)
+					require.Equal(t, "hi", gjson.GetBytes(payload, "input.0.content.0.text").String())
+					require.Equal(t, q.ModelAuditModel, gjson.GetBytes(payload, "model").String())
+					wantState := ""
+					if injection {
+						wantState = "collected-secret"
+					}
+					require.Equal(t, wantState, req.Header.Get(openAICodexTurnStateHeader))
+				}
+				s.checkQualityModel(context.Background(), q, &v)
+				require.Len(t, u.requests, 2, "completed validation returns to ordinary log-based checks")
+				require.Equal(t, 3, v.Model.Successes+v.Model.Failures)
+			})
+		}
+	}
+}
+
+func TestAccountQualityModelPendingLateLogAndProbeFailure(t *testing.T) {
+	defer setForceUpstreamWSForTest(false)()
+	q := DefaultAccountQualitySettings()
+	q.UpdatedAt = time.Now().Add(-time.Hour)
+	collected, evidence := time.Now().Add(-time.Minute), time.Now().Add(-time.Second)
+	logs := qualityModelTestLogs(1, q.ModelAuditModel, 1, collected.Add(time.Second))
+	logs[0].ID = 10
+	u := &queuedHTTPUpstream{responses: []*http.Response{newJSONResponse(429, "rate limited")}}
+	s := &AccountQualityService{usage: &UsageService{usageRepo: &qualityModelAuditStub{logs: logs}}, tests: &AccountTestService{accountRepo: &qualityAccountRepo{account: keeperTestAccount(1)}, httpUpstream: u}}
+	v := AccountQualityResult{AccountID: 1, Model: QualityModelResult{
+		QualityVerdict: QualityVerdict{Status: "state_pending", Successes: 1, EvidenceAt: &evidence},
+		LatestID:       1, StateCollectedAt: &collected, StateValidationPending: true,
+	}}
+	s.checkQualityModel(context.Background(), q, &v)
+	require.Len(t, u.requests, 1, "a higher log ID with older evidence cannot stall pending validation")
+	require.Equal(t, "error", v.Model.Status)
+	require.True(t, v.Model.StateValidationPending)
+	require.Equal(t, 1, v.Model.Successes)
+	require.Zero(t, v.Model.Failures)
+	require.EqualValues(t, 1, v.Model.LatestID)
+	require.Equal(t, v.Model.CheckedAt.Add(time.Duration(q.RetrySeconds)*time.Second), *v.Model.NextAt)
+}
+
 func TestAccountQualityModelHiVerdictsAndFailures(t *testing.T) {
 	defer setForceUpstreamWSForTest(false)()
 	for _, tc := range []struct {

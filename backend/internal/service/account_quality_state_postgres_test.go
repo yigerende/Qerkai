@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 
@@ -49,6 +50,8 @@ func TestAccountQualityPostgresStateRefreshPreservesQuestionAndRejectsStaleWorke
 	require.NoError(t, err)
 	require.Zero(t, summary["degraded"])
 	require.Zero(t, summary["model_degraded"])
+	require.EqualValues(t, 1, summary["model_state_pending"])
+	require.EqualValues(t, 61, summary["no_samples"])
 	history, err := svc.History(ctx, 1, 100)
 	require.NoError(t, err)
 	require.Equal(t, "state_refresh", history[0].DetectionKind)
@@ -82,9 +85,72 @@ func TestAccountQualityPostgresStateRefreshPreservesQuestionAndRejectsStaleWorke
 	summary, err = svc.Summary(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, summary["model_normal"])
+	require.Zero(t, summary["model_state_pending"])
+	require.EqualValues(t, 61, summary["no_samples"])
 	// A second successful collection also fences the previous State's workers.
 	keeper.run(openAIStateKeeperJob{accountID: 1, revision: keeper.config.Load().Revision})
 	require.NoError(t, svc.saveResult(ctx, q, verified, 1))
 	require.Equal(t, "state_pending", stored().Model.Status)
 	require.NotEqual(t, verified.Model.StateVersion, stored().Model.StateVersion)
+}
+
+func TestAccountQualityPostgresStateValidationRespectsIntervalsAndManualRun(t *testing.T) {
+	defer setForceUpstreamWSForTest(false)()
+	db := qualitySchedulingDB(t)
+	_, keeper, q, original := qualityCollectedStateFixture(t)
+	ctx := context.Background()
+	_, err := db.Exec(`DELETE FROM accounts WHERE id<>1`)
+	require.NoError(t, err)
+	account := keeperTestAccount(1)
+	account.GroupIDs = []int64{11}
+	u := &queuedHTTPUpstream{responses: []*http.Response{
+		newJSONResponse(200, "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-6-astra\"}}\n\n"),
+		newJSONResponse(200, "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-6-astra\"}}\n\n"),
+	}}
+	repo := &qualityModelAuditStub{}
+	s := &AccountQualityService{db: db, settings: &SettingService{settingRepo: &qualityPGSettings{db: db}},
+		usage: &UsageService{usageRepo: repo}, tests: &AccountTestService{accountRepo: &qualityAccountRepo{account: account}, httpUpstream: u}}
+	q.RecoveryLimit, q.ModelAuditIntervalSeconds = 3, 3600
+	q, err = s.SaveSettings(ctx, q)
+	require.NoError(t, err)
+	original.Revision = q.Revision
+	require.NoError(t, s.saveResult(ctx, q, original, 0))
+	require.NoError(t, s.saveResult(ctx, q, original, 1))
+	s.stateKeeper.Store(keeper)
+	keeper.quality = s
+	keeper.syncQuality(ctx)
+	pending := readQualityRecovery(t, s)
+	require.True(t, pending.Model.StateValidationPending)
+	// The next background pass must notice the newly collected State immediately.
+	var due bool
+	require.NoError(t, db.QueryRow(`SELECT model_next_at<=NOW() FROM account_quality_states WHERE account_id=1`).Scan(&due))
+	require.True(t, due)
+	repo.logs = qualityModelTestLogs(1, q.ModelAuditModel, 1, time.Now().UTC())
+	repo.logs[0].ID = original.Model.LatestID + 1
+	repo.logs[0].ResponseModel = q.ModelAuditModel
+	*repo.logs[0].Mismatch = false
+	require.NoError(t, s.runDue(ctx, 1))
+	v := readQualityRecovery(t, s)
+	require.Equal(t, 1, v.Model.Successes)
+	require.Empty(t, u.requests)
+	keeper.syncQuality(ctx)
+	require.NoError(t, s.runDue(ctx, 1))
+	require.Empty(t, u.requests, "background polling must respect the configured model interval")
+	// Simulate the next configured deadline without sleeping in the test.
+	_, err = db.Exec(`UPDATE account_quality_states SET model_next_at=NOW() WHERE account_id=1`)
+	require.NoError(t, err)
+	require.NoError(t, s.runDue(ctx, 1))
+	v = readQualityRecovery(t, s)
+	require.Len(t, u.requests, 1)
+	require.Equal(t, 2, v.Model.Successes)
+	require.True(t, v.Model.StateValidationPending)
+	require.NoError(t, s.runDue(ctx, 1))
+	require.Len(t, u.requests, 1)
+	require.NoError(t, s.Schedule(ctx, nil))
+	require.NoError(t, s.runDue(ctx, 1))
+	v = readQualityRecovery(t, s)
+	require.Len(t, u.requests, 2, "manual detection also continues validation with consumed logs")
+	require.Equal(t, 3, v.Model.Successes)
+	require.False(t, v.Model.StateValidationPending)
+	require.Equal(t, "normal", v.Model.Status)
 }

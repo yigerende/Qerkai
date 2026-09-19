@@ -248,7 +248,7 @@ func (s *AccountQualityService) Summary(ctx context.Context) (map[string]int64, 
 	if err != nil {
 		return nil, err
 	}
-	var total, normal, degraded, suspect, failed, mnormal, mfailed, nosamples int64
+	var total, normal, degraded, suspect, failed, mnormal, mfailed, nosamples, mpending int64
 	args := []any{q.Revision}
 	scope := qualityGroupScope(q, &args)
 	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*),
@@ -258,10 +258,11 @@ func (s *AccountQualityService) Summary(ctx context.Context) (map[string]int64, 
  COUNT(*) FILTER(WHERE s.payload->'question'->>'status'='error'),
  COUNT(*) FILTER(WHERE s.payload->'model'->>'status' IN ('normal','variant')),
  COUNT(*) FILTER(WHERE s.payload->'model'->>'degraded'='true'),
- COUNT(*) FILTER(WHERE COALESCE(s.payload->'model'->>'status','') IN ('','no_samples','state_pending'))
+ COUNT(*) FILTER(WHERE COALESCE(s.payload->'model'->>'status','') IN ('','no_samples')),
+ COUNT(*) FILTER(WHERE s.payload->'model'->>'status'='state_pending')
  FROM accounts a LEFT JOIN account_quality_states s ON s.account_id=a.id AND s.revision=$1
- WHERE a.deleted_at IS NULL AND a.platform='openai' AND `+scope, args...).Scan(&total, &normal, &degraded, &suspect, &failed, &mnormal, &mfailed, &nosamples)
-	return map[string]int64{"total": total, "normal": normal, "degraded": degraded, "suspect": suspect, "errors": failed, "model_normal": mnormal, "model_degraded": mfailed, "no_samples": nosamples}, err
+ WHERE a.deleted_at IS NULL AND a.platform='openai' AND `+scope, args...).Scan(&total, &normal, &degraded, &suspect, &failed, &mnormal, &mfailed, &nosamples, &mpending)
+	return map[string]int64{"total": total, "normal": normal, "degraded": degraded, "suspect": suspect, "errors": failed, "model_normal": mnormal, "model_degraded": mfailed, "no_samples": nosamples, "model_state_pending": mpending}, err
 }
 
 // Scheduling only updates due times. Read endpoints never enqueue paid probes.
