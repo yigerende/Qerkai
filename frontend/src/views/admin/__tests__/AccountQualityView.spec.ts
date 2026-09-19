@@ -35,7 +35,7 @@ describe('quality detection progress', () => {
   vi.mocked(qualityAPI.save).mockImplementation(async value => ({settings:value}))
  })
  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
- it('saves selected overall conditions and the any/all mode', async () => {
+ it('saves selected overall conditions and concurrency above eight without an input maximum', async () => {
   const w=render(); await flushPromises()
   await w.findAll('button').find(b=>b.text()==='检测配置')!.trigger('click')
   expect((w.get('input[type="radio"][value="any"]').element as HTMLInputElement).checked).toBe(true)
@@ -43,8 +43,11 @@ describe('quality detection progress', () => {
   await w.get('input[name="pause_on_degradation"]').setValue(true)
   await w.get('input[type="radio"][value="all"]').setValue(true)
   await w.get('input[type="checkbox"][value="model"]').setValue(false)
+  const concurrency = w.findAll('label').find(label => label.text() === '并发数')!.get('input')
+  expect(concurrency.attributes('max')).toBeUndefined()
+  await concurrency.setValue(40)
   await w.get('form').trigger('submit'); await flushPromises()
-  expect(qualityAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({degradation_mode:'all', degradation_conditions:['question'],pause_on_degradation:true}))
+  expect(qualityAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({degradation_mode:'all', degradation_conditions:['question'],pause_on_degradation:true,concurrency:40}))
   w.unmount()
  })
  it('shows the independent scheduling pause and recovery progress', () => {

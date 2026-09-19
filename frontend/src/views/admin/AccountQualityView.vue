@@ -103,7 +103,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); progressController?.a
       <div class="flex flex-wrap gap-5"><label class="check"><input v-model="form.degradation_mode" type="radio" value="any">任一勾选条件满足</label><label class="check"><input v-model="form.degradation_mode" type="radio" value="all">全部勾选条件满足</label></div>
       <label class="check"><input v-model="form.pause_on_degradation" type="checkbox" name="pause_on_degradation">综合降智时暂停账号调度，复检恢复后自动解除</label>
      </fieldset>
-     <label>并发数<input v-model.number="form.concurrency" class="input" type="number" min="1" max="8" required></label>
+     <label>并发数<input v-model.number="form.concurrency" class="input" type="number" min="1" required></label>
      <label>请求超时（秒）<input v-model.number="form.timeout_seconds" class="input" type="number" min="5" max="300" required></label>
      <label>每账号历史上限<input v-model.number="form.history_limit" class="input" type="number" min="1" max="1000" required></label>
      <label>导入原降智配置<input type="file" accept="application/json,.json" @change="importConfig"></label>

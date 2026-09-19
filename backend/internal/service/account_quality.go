@@ -345,11 +345,17 @@ func (s *AccountQualityService) runDue(ctx context.Context, kind int) error {
 	if q.PauseOnDegradation {
 		pauseFilter = " AND COALESCE(s.payload->'scheduling'->>'paused','false') <> 'true'"
 	}
+	batchSize := 32
+	if kind == 0 {
+		batchSize = max(batchSize, q.Concurrency)
+	}
+	args = append(args, batchSize)
+	limitParam := fmt.Sprintf("$%d", len(args))
 	rows, err := s.db.QueryContext(queryCtx, `SELECT a.id,s.payload FROM accounts a LEFT JOIN account_quality_states s ON s.account_id=a.id
  WHERE a.deleted_at IS NULL AND a.platform='openai' AND (`+scope+` OR `+manual+`)`+pauseFilter+` AND (s.account_id IS NULL OR s.revision<>$1 OR s.`+dueColumn+`<=NOW())
  ORDER BY CASE WHEN `+manual+` THEN 0 ELSE 1 END,
  CASE WHEN s.revision=$1 AND s.payload->'`+verdict+`'->>'checked_at' IS NOT NULL THEN 1 ELSE 0 END,
- COALESCE(s.`+dueColumn+`,'epoch'::timestamptz),a.id LIMIT 32`, args...)
+ COALESCE(s.`+dueColumn+`,'epoch'::timestamptz),a.id LIMIT `+limitParam, args...)
 	if err != nil {
 		queryCancel()
 		return err
@@ -394,7 +400,7 @@ func (s *AccountQualityService) runDue(ctx context.Context, kind int) error {
 	defer batch.finish(ctx)
 	queue := make(chan AccountQualityResult)
 	var wg sync.WaitGroup
-	workers := q.Concurrency
+	workers := min(q.Concurrency, len(jobs))
 	if kind == 1 && workers > 2 {
 		workers = 2
 	}

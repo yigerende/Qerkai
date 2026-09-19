@@ -50,10 +50,19 @@ func TestAccountQualityDefaultsValidation(t *testing.T) {
 	require.NoError(t, q.Validate())
 	require.False(t, q.Enabled)
 	require.Equal(t, "21", q.Questions[0].Answer)
-	for _, mutate := range []func(*AccountQualitySettings){func(q *AccountQualitySettings) { q.Concurrency = 9 }, func(q *AccountQualitySettings) { q.FailureLimit = 0 }, func(q *AccountQualitySettings) { q.IntervalSeconds = 1 }, func(q *AccountQualitySettings) { q.Questions[0].MatchMode = "bad" }, func(q *AccountQualitySettings) { q.Questions[0].MatchMode = "regex"; q.Questions[0].Answer = "[" }, func(q *AccountQualitySettings) { q.Questions[1].ID = q.Questions[0].ID }, func(q *AccountQualitySettings) { q.Questions = nil }} {
+	for _, mutate := range []func(*AccountQualitySettings){func(q *AccountQualitySettings) { q.Concurrency = 0 }, func(q *AccountQualitySettings) { q.Concurrency = -1 }, func(q *AccountQualitySettings) { q.FailureLimit = 0 }, func(q *AccountQualitySettings) { q.IntervalSeconds = 1 }, func(q *AccountQualitySettings) { q.Questions[0].MatchMode = "bad" }, func(q *AccountQualitySettings) { q.Questions[0].MatchMode = "regex"; q.Questions[0].Answer = "[" }, func(q *AccountQualitySettings) { q.Questions[1].ID = q.Questions[0].ID }, func(q *AccountQualitySettings) { q.Questions = nil }} {
 		v := DefaultAccountQualitySettings()
 		mutate(&v)
 		require.Error(t, v.Validate())
+	}
+	s := &AccountQualityService{settings: &SettingService{settingRepo: &qualitySettingsRepo{}}}
+	for _, concurrency := range []int{9, 40, 1000} {
+		q.Concurrency = concurrency
+		_, err := s.SaveSettings(context.Background(), q)
+		require.NoError(t, err)
+		saved, err := s.Settings(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, concurrency, saved.Concurrency)
 	}
 }
 func TestAccountQualityAnswerModesAndStreaks(t *testing.T) {

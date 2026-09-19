@@ -99,7 +99,7 @@ func (q AccountQualitySettings) Validate() error {
 			return errors.New("间隔必须为10至86400秒")
 		}
 	}
-	if q.FailureLimit < 1 || q.FailureLimit > 20 || q.RecoveryLimit < 1 || q.RecoveryLimit > 20 || q.Concurrency < 1 || q.Concurrency > 8 || q.TimeoutSeconds < 5 || q.TimeoutSeconds > 300 || q.HistoryLimit < 1 || q.HistoryLimit > 1000 {
+	if q.FailureLimit < 1 || q.FailureLimit > 20 || q.RecoveryLimit < 1 || q.RecoveryLimit > 20 || q.Concurrency < 1 || q.TimeoutSeconds < 5 || q.TimeoutSeconds > 300 || q.HistoryLimit < 1 || q.HistoryLimit > 1000 {
 		return errors.New("连续次数、并发、超时或记录上限无效")
 	}
 	seen := map[string]bool{}
