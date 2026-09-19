@@ -147,22 +147,26 @@ type QualityQuestionResult struct {
 }
 type QualityModelResult struct {
 	QualityVerdict
-	LatestID      int64  `json:"latest_id"`
-	SentModel     string `json:"sent_model,omitempty"`
-	ResponseModel string `json:"response_model,omitempty"`
-	NoNewSamples  bool   `json:"no_new_samples"`
+	LatestID               int64      `json:"latest_id"`
+	SentModel              string     `json:"sent_model,omitempty"`
+	ResponseModel          string     `json:"response_model,omitempty"`
+	NoNewSamples           bool       `json:"no_new_samples"`
+	StateVersion           string     `json:"state_version,omitempty"`
+	StateCollectedAt       *time.Time `json:"state_collected_at,omitempty"`
+	StateValidationPending bool       `json:"state_validation_pending,omitempty"`
 }
 type AccountQualityResult struct {
-	DetectionKind     string                `json:"detection_kind,omitempty"`
-	RecordedAt        *time.Time            `json:"recorded_at,omitempty"`
-	QuestionExecution string                `json:"question_execution,omitempty"`
-	ModelExecution    string                `json:"model_execution,omitempty"`
-	AccountID         int64                 `json:"account_id"`
-	Revision          string                `json:"revision"`
-	Version           string                `json:"version"`
-	Question          QualityQuestionResult `json:"question"`
-	Model             QualityModelResult    `json:"model"`
-	Overall           QualityOverallVerdict `json:"overall"`
+	stateRefreshPending bool
+	DetectionKind       string                `json:"detection_kind,omitempty"`
+	RecordedAt          *time.Time            `json:"recorded_at,omitempty"`
+	QuestionExecution   string                `json:"question_execution,omitempty"`
+	ModelExecution      string                `json:"model_execution,omitempty"`
+	AccountID           int64                 `json:"account_id"`
+	Revision            string                `json:"revision"`
+	Version             string                `json:"version"`
+	Question            QualityQuestionResult `json:"question"`
+	Model               QualityModelResult    `json:"model"`
+	Overall             QualityOverallVerdict `json:"overall"`
 }
 
 var qualityFinalAnswerPattern = regexp.MustCompile(`(?m)^\s*FINAL_ANSWER\s*=\s*([^\r\n]+)\s*$`)
@@ -262,6 +266,11 @@ func applyQualityModelLogs(v *QualityModelResult, q AccountQualitySettings, logs
 			continue
 		}
 		v.LatestID = item.ID
+		// Usage timestamps are completion times. An older in-flight request
+		// cannot validate a State collected while that request was running.
+		if v.StateCollectedAt != nil && (item.RequestStartedAt == nil || !item.RequestStartedAt.After(*v.StateCollectedAt)) {
+			continue
+		}
 		if !strings.EqualFold(strings.TrimSpace(item.SentModel), strings.TrimSpace(q.ModelAuditModel)) || strings.TrimSpace(item.ResponseModel) == "" || item.Mismatch == nil {
 			continue
 		}
@@ -275,8 +284,18 @@ func applyQualityModelLogs(v *QualityModelResult, q AccountQualitySettings, logs
 		if variant {
 			v.Status = "variant"
 		}
+		if v.StateValidationPending {
+			if v.Failures >= q.FailureLimit || v.Successes >= q.RecoveryLimit {
+				v.StateValidationPending = false
+			} else if same || variant {
+				v.Status = "state_pending"
+			}
+		}
 	}
 	if v.NoNewSamples && v.EvidenceAt == nil {
 		v.Status = "no_samples"
+		if v.StateValidationPending {
+			v.Status = "state_pending"
+		}
 	}
 }

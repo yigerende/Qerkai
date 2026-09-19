@@ -29,8 +29,8 @@ async function show() {
     <p v-else-if="!history.length" class="py-6 text-gray-500">暂无检测记录</p>
     <article v-for="item in history" :key="item.version" class="border-b py-4 dark:border-dark-700">
      <p v-if="item.overall?.status" class="mb-1 text-sm">综合：{{ qualityOverallLabel(item.overall.status) }} · {{ item.overall.reason }}</p>
-     <p class="mb-2 text-xs text-gray-500">{{ item.detection_kind === 'question' ? '答题检测' : item.detection_kind === 'model' ? '模型一致性检测' : '旧版状态快照（不代表两项都重新检测）' }}<template v-if="item.recorded_at"> · {{ date(item.recorded_at) }}</template></p>
-     <template v-if="item.detection_kind !== 'model' && item.question.checked_at">
+     <p class="mb-2 text-xs text-gray-500">{{ item.detection_kind === 'question' ? '答题检测' : item.detection_kind === 'model' ? '模型一致性检测' : item.detection_kind === 'state_refresh' ? 'State 已更新，等待模型验证' : '旧版状态快照（不代表两项都重新检测）' }}<template v-if="item.recorded_at"> · {{ date(item.recorded_at) }}</template></p>
+     <template v-if="item.detection_kind !== 'model' && item.detection_kind !== 'state_refresh' && item.question.checked_at">
      <p>{{ item.question.question_name || '答题' }}：{{ qualityStatusLabel(item.question) }} · {{ date(item.question.checked_at) }} · {{ item.question.duration_ms }} ms</p>
      <p class="whitespace-pre-wrap break-words text-sm">{{ item.question.answer || item.question.error || '-' }}</p>
      <p class="text-xs text-gray-500">{{ item.question.reason }} · 连续异常 {{ item.question.failures }} / 连续正常 {{ item.question.successes }}</p>
@@ -38,6 +38,7 @@ async function show() {
      <template v-if="item.detection_kind !== 'question' && item.model.checked_at">
      <p class="mt-2 text-sm">模型：{{ qualityStatusLabel(item.model) }} · {{ item.model.sent_model || '-' }} → {{ item.model.response_model || '-' }}</p>
      <p class="text-xs text-gray-500">样本 {{ date(item.model.evidence_at) }} · {{ item.model.error || '' }}</p>
+     <p v-if="item.model.state_collected_at" class="text-xs text-gray-500">State 更新于 {{ date(item.model.state_collected_at) }}</p>
      </template>
     </article>
    </section>

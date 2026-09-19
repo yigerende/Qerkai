@@ -18,12 +18,13 @@ func modelAuditQuery(input service.ModelAuditInput) (string, []any) {
 	}
 	// Each lateral scan uses the existing account_id/created_at index. No COUNT,
 	// OFFSET, association hydration, or changes to the ordinary usage query.
-	query := `SELECT recent.id,recent.account_id,recent.created_at,recent.requested_model,recent.sent_model,recent.response_model,recent.upstream_model_mismatch
+	query := `SELECT recent.id,recent.account_id,recent.created_at,recent.requested_model,recent.sent_model,recent.response_model,recent.upstream_model_mismatch,recent.request_started_at
  FROM (VALUES ` + strings.Join(values, ",") + `) AS wanted(account_id,since)
  CROSS JOIN LATERAL (
  SELECT id,account_id,created_at,COALESCE(NULLIF(TRIM(requested_model),''),model) AS requested_model,
  COALESCE(NULLIF(TRIM(upstream_model),''),model) AS sent_model,
- COALESCE(upstream_response_model,'') AS response_model,upstream_model_mismatch
+ COALESCE(upstream_response_model,'') AS response_model,upstream_model_mismatch,
+ CASE WHEN duration_ms IS NOT NULL AND duration_ms>=0 THEN created_at-duration_ms*INTERVAL '1 millisecond' END AS request_started_at
  FROM usage_logs WHERE account_id=wanted.account_id AND created_at>=wanted.since
  AND LOWER(COALESCE(NULLIF(TRIM(upstream_model),''),TRIM(model)))=LOWER($1)
  ORDER BY created_at DESC,id DESC LIMIT 3
@@ -49,12 +50,16 @@ func (r *usageLogRepository) LatestModelAudit(ctx context.Context, input service
 	for rows.Next() {
 		var log service.ModelAuditLog
 		var mismatch sql.NullBool
-		if err = rows.Scan(&log.ID, &log.AccountID, &log.CreatedAt, &log.RequestedModel, &log.SentModel, &log.ResponseModel, &mismatch); err != nil {
+		var started sql.NullTime
+		if err = rows.Scan(&log.ID, &log.AccountID, &log.CreatedAt, &log.RequestedModel, &log.SentModel, &log.ResponseModel, &mismatch, &started); err != nil {
 			return nil, err
 		}
 		if mismatch.Valid {
 			v := mismatch.Bool
 			log.Mismatch = &v
+		}
+		if started.Valid {
+			log.RequestStartedAt = &started.Time
 		}
 		if i, ok := indices[log.AccountID]; ok {
 			out[i].Logs = append(out[i].Logs, log)

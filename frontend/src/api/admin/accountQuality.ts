@@ -11,11 +11,11 @@ export interface QualitySettings {
 export interface QualityVerdict { status?: string; degraded: boolean; failures: number; successes: number; checked_at?: string; evidence_at?: string; next_at?: string; error?: string }
 export interface QualityResult {
  overall?: { status: 'degraded' | 'pending' | 'normal'; reason: string; conditions: { kind: string; status: string }[] };
- detection_kind?: 'question' | 'model'; recorded_at?: string;
+ detection_kind?: 'question' | 'model' | 'state_refresh'; recorded_at?: string;
  question_execution?: string; model_execution?: string;
  account_id: number; revision: string; version: string;
  question: QualityVerdict & { question_name?: string; answer?: string; reason?: string; duration_ms: number };
- model: QualityVerdict & { sent_model?: string; response_model?: string; no_new_samples: boolean }
+ model: QualityVerdict & { sent_model?: string; response_model?: string; no_new_samples: boolean; state_version?: string; state_collected_at?: string; state_validation_pending?: boolean }
 }
 export interface QualityBatch {
  id: string; status: string; total: number; done: number; failed: number; skipped: number;
@@ -47,7 +47,7 @@ export function qualityExecutionLabel(execution: string | undefined, verdict?: Q
  return qualityStatusLabel(verdict)
 }
 export function qualityStatusLabel(v?: QualityVerdict) {
- const labels: Record<string, string> = { normal: '正常', variant: '版本别名一致', suspect: '疑似异常', degraded: '已确认异常', error: '检测失败', no_samples: '暂无样本' }
+ const labels: Record<string, string> = { normal: '正常', variant: '版本别名一致', suspect: '疑似异常', degraded: '已确认异常', error: '检测失败', no_samples: '暂无样本', state_pending: '新 State 待验证' }
  return labels[v?.status || ''] || '未检测'
 }
 export const qualityOverallLabel = (status?: string) => ({ degraded: '降智', pending: '待检测', normal: '无降智' }[status || 'pending'] || '待检测')

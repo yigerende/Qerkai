@@ -166,6 +166,80 @@ func TestStateKeeperEveryCollectionSourceResetsTheOrdinaryTimer(t *testing.T) {
 	}
 }
 
+func TestStateKeeperSavingUnchangedSettingsPreservesCollectionWork(t *testing.T) {
+	s, _, _ := keeperTestService(t)
+	q := s.Snapshot().Settings
+	q.AccountIDs = []int64{1, 2}
+	q.DegradationScanEnabled = true
+	q.DegradationScanIntervalSeconds = 600
+	keeperAddTestAccounts(s, q.AccountIDs)
+	require.NoError(t, s.Save(context.Background(), q))
+	q = s.Snapshot().Settings
+	nextScan := time.Now().Add(10 * time.Minute)
+	s.nextDegradationScan = nextScan
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.activeCancels[s.key(1)] = cancel
+	s.entryLocked(1).row.Collecting = true
+	require.NoError(t, s.Schedule([]int64{2}))
+	queued := <-s.queue
+	s.queue <- queued
+	// The UI expands legacy model/proxy fields and sends empty lists explicitly.
+	q.Models, q.ProxyIDs = q.modelNames(), q.proxyIDs()
+	q.CollectionGroupIDs = []int64{}
+	for range 3 {
+		require.NoError(t, s.Save(context.Background(), q))
+		require.Equal(t, q.Revision, s.Snapshot().Settings.Revision)
+		require.NoError(t, ctx.Err(), "saving unchanged settings must not cancel a running collection")
+		require.Len(t, s.queue, 1, "saving unchanged settings must preserve queued work")
+		require.True(t, s.entryLocked(2).row.Queued)
+		require.Equal(t, nextScan, s.nextDegradationScan)
+	}
+	require.Equal(t, queued, <-s.queue)
+}
+
+func TestStateKeeperSavingSettingsPreservesCollectionDeadlines(t *testing.T) {
+	s, _, _ := keeperTestService(t)
+	q := s.Snapshot().Settings
+	q.AutoRefresh, q.AutoCollectIntervalSeconds = true, 300
+	q.DegradationScanEnabled, q.DegradationScanIntervalSeconds = true, 600
+	require.NoError(t, s.Save(context.Background(), q))
+	scanAt := time.Now().UTC()
+	s.scheduleDegradationScan(scanAt)
+	require.Len(t, s.queue, 1)
+	s.run(<-s.queue)
+	nextCollection := *s.Snapshot().Rows[0].NextAttemptAt
+	nextScan := scanAt.Add(600 * time.Second)
+	for range 3 {
+		q.Concurrency++
+		require.NoError(t, s.Save(context.Background(), q))
+		require.Equal(t, nextScan, s.nextDegradationScan)
+		require.Equal(t, nextCollection, *s.Snapshot().Rows[0].NextAttemptAt)
+		s.scheduleDue(nextCollection.Add(-time.Nanosecond))
+		s.scheduleDegradationScan(nextScan.Add(-time.Nanosecond))
+		require.Empty(t, s.queue, "saving settings cannot make either timer fire early")
+	}
+	s.scheduleDegradationScan(nextScan)
+	require.Len(t, s.queue, 1, "degradation scanning must still run at its original deadline")
+	require.Equal(t, "degradation_scan", (<-s.queue).source)
+}
+
+func TestStateKeeperChangingScanIntervalUsesLastScanTime(t *testing.T) {
+	s, _, _ := keeperTestService(t)
+	q := s.Snapshot().Settings
+	q.DegradationScanEnabled, q.DegradationScanIntervalSeconds = true, 600
+	require.NoError(t, s.Save(context.Background(), q))
+	scannedAt := time.Now().UTC()
+	s.nextDegradationScan = scannedAt.Add(600 * time.Second)
+	q.DegradationScanIntervalSeconds = 120
+	require.NoError(t, s.Save(context.Background(), q))
+	require.Equal(t, scannedAt.Add(120*time.Second), s.nextDegradationScan)
+	s.scheduleDegradationScan(scannedAt.Add(119 * time.Second))
+	require.Empty(t, s.queue)
+	s.scheduleDegradationScan(scannedAt.Add(120 * time.Second))
+	require.Len(t, s.queue, 1)
+}
+
 func TestStateKeeperParallelCollectionBoundedAndAccountIsolated(t *testing.T) {
 	s, _, _ := keeperTestService(t)
 	q := s.config.Load().OpenAIStateKeeperSettings

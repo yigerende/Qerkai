@@ -28,7 +28,9 @@ func TestModelAuditBoundedQueryNoCountOrHydration(t *testing.T) {
 	for _, forbidden := range []string{"COUNT(", "OFFSET", "JOIN accounts", "JOIN users", "SELECT *"} {
 		require.NotContains(t, query, forbidden)
 	}
-	rows := sqlmock.NewRows([]string{"id", "account_id", "created_at", "requested_model", "sent_model", "response_model", "upstream_model_mismatch"}).AddRow(9, 1, since, "alias", "gpt-6-astra", "other-model", true)
+	started := since.Add(-time.Second)
+	require.Contains(t, query, "created_at-duration_ms*INTERVAL '1 millisecond'")
+	rows := sqlmock.NewRows([]string{"id", "account_id", "created_at", "requested_model", "sent_model", "response_model", "upstream_model_mismatch", "request_started_at"}).AddRow(9, 1, since, "alias", "gpt-6-astra", "other-model", true, started)
 	mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs("gpt-6-astra", int64(1), since, int64(2), since).WillReturnRows(rows)
 	repo := newUsageLogRepositoryWithSQL(nil, db)
 	out, err := repo.LatestModelAudit(context.Background(), input)
@@ -38,6 +40,7 @@ func TestModelAuditBoundedQueryNoCountOrHydration(t *testing.T) {
 	require.Empty(t, out[1].Logs)
 	require.Equal(t, "alias", out[0].Logs[0].RequestedModel)
 	require.True(t, *out[0].Logs[0].Mismatch)
+	require.Equal(t, started, *out[0].Logs[0].RequestStartedAt)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 func TestModelAuditValidationLimits(t *testing.T) {

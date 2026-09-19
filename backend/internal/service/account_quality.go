@@ -197,6 +197,9 @@ func (s *AccountQualityService) Results(ctx context.Context, ids []int64) (Accou
 		} else {
 			v.QuestionExecution, v.ModelExecution = "unavailable", "unavailable"
 		}
+		if eligible.Valid {
+			v.stateRefreshPending = s.reconcileCollectedModelState(q, &v)
+		}
 		v.Overall = evaluateQualityOverall(q, v)
 		out.Accounts = append(out.Accounts, v)
 	}
@@ -244,7 +247,7 @@ func (s *AccountQualityService) Summary(ctx context.Context) (map[string]int64, 
  COUNT(*) FILTER(WHERE s.payload->'question'->>'status'='error'),
  COUNT(*) FILTER(WHERE s.payload->'model'->>'status' IN ('normal','variant')),
  COUNT(*) FILTER(WHERE s.payload->'model'->>'degraded'='true'),
- COUNT(*) FILTER(WHERE COALESCE(s.payload->'model'->>'status','') IN ('','no_samples'))
+ COUNT(*) FILTER(WHERE COALESCE(s.payload->'model'->>'status','') IN ('','no_samples','state_pending'))
  FROM accounts a LEFT JOIN account_quality_states s ON s.account_id=a.id AND s.revision=$1
  WHERE a.deleted_at IS NULL AND a.platform='openai' AND `+scope, args...).Scan(&total, &normal, &degraded, &suspect, &failed, &mnormal, &mfailed, &nosamples)
 	return map[string]int64{"total": total, "normal": normal, "degraded": degraded, "suspect": suspect, "errors": failed, "model_normal": mnormal, "model_degraded": mfailed, "no_samples": nosamples}, err
@@ -417,7 +420,8 @@ func (s *AccountQualityService) probe(ctx context.Context, q AccountQualitySetti
 	now := time.Now().UTC()
 	changed := false
 	if kind == 1 && q.ModelAuditEnabled && (v.Model.NextAt == nil || !now.Before(*v.Model.NextAt)) {
-		results, e := s.usage.LatestModelAudit(ctx, ModelAuditInput{Model: q.ModelAuditModel, Accounts: []ModelAuditAccount{{AccountID: v.AccountID, Since: q.UpdatedAt}}})
+		s.reconcileCollectedModelState(q, &v)
+		results, e := s.usage.LatestModelAudit(ctx, ModelAuditInput{Model: q.ModelAuditModel, Accounts: []ModelAuditAccount{{AccountID: v.AccountID, Since: qualityModelSampleSince(q, v.Model)}}})
 		if e != nil {
 			v.Model.Status = "error"
 			v.Model.Error = e.Error()
@@ -495,12 +499,19 @@ func (s *AccountQualityService) saveResult(ctx context.Context, q AccountQuality
 		saved = AccountQualityResult{AccountID: v.AccountID, Revision: q.Revision}
 		questionNext, modelNext = time.Unix(0, 0).UTC(), time.Unix(0, 0).UTC()
 	}
+	stateChanged := s.reconcileCollectedModelState(q, &saved)
+	if stateChanged {
+		modelNext = *saved.Model.NextAt
+	}
+	if kind == accountQualityStateRefresh && !stateChanged {
+		return nil
+	}
 	if kind == 0 {
 		saved.Question = v.Question
 		if v.Question.NextAt != nil {
 			questionNext = *v.Question.NextAt
 		}
-	} else {
+	} else if kind == 1 && !qualityModelResultPredatesState(v.Model, saved.Model) {
 		saved.Model = v.Model
 		if v.Model.NextAt != nil {
 			modelNext = *v.Model.NextAt
@@ -527,6 +538,8 @@ func (s *AccountQualityService) saveResult(ctx context.Context, q AccountQuality
 	history.DetectionKind = "question"
 	if kind == 1 {
 		history.DetectionKind = "model"
+	} else if kind == accountQualityStateRefresh {
+		history.DetectionKind = "state_refresh"
 	}
 	recordedAt := time.Now().UTC()
 	history.RecordedAt = &recordedAt

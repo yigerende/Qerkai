@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -108,6 +109,15 @@ func (s *OpenAIStateKeeperService) syncQuality(ctx context.Context) {
 		p := snapshot.Settings
 		q := AccountQualitySettings{Enabled: p.Enabled, Revision: p.Revision, UpdatedAt: p.UpdatedAt, QuestionEnabled: p.QuestionEnabled, ModelAuditEnabled: p.ModelAuditEnabled, DegradationMode: p.DegradationMode, DegradationConditions: p.DegradationConditions}
 		for _, v := range snapshot.Accounts {
+			if v.stateRefreshPending {
+				policy, err := s.quality.Settings(ctx)
+				if err == nil && policy.Revision == v.Revision {
+					err = s.quality.saveResult(ctx, policy, v, accountQualityStateRefresh)
+				}
+				if err != nil {
+					slog.Warn("account quality state refresh save failed", "account_id", v.AccountID, "error", err)
+				}
+			}
 			s.observeQualityResult(q, v)
 		}
 	}

@@ -16,13 +16,14 @@ type ModelAuditInput struct {
 	Model    string              `json:"model"`
 }
 type ModelAuditLog struct {
-	ID             int64     `json:"id"`
-	AccountID      int64     `json:"account_id"`
-	CreatedAt      time.Time `json:"created_at"`
-	RequestedModel string    `json:"requested_model"`
-	SentModel      string    `json:"sent_model"`
-	ResponseModel  string    `json:"response_model"`
-	Mismatch       *bool     `json:"mismatch"`
+	ID               int64      `json:"id"`
+	AccountID        int64      `json:"account_id"`
+	CreatedAt        time.Time  `json:"created_at"`
+	RequestStartedAt *time.Time `json:"request_started_at,omitempty"`
+	RequestedModel   string     `json:"requested_model"`
+	SentModel        string     `json:"sent_model"`
+	ResponseModel    string     `json:"response_model"`
+	Mismatch         *bool      `json:"mismatch"`
 }
 type ModelAuditResult struct {
 	AccountID int64           `json:"account_id"`

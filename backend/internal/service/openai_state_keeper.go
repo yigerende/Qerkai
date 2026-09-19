@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -571,7 +573,12 @@ func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 	}
 	s.config.Store(cfg)
 	s.pendingSignals = make(map[openAIStateKey]openAIStateObservation)
-	s.nextDegradationScan = time.Time{}
+	// Unrelated settings edits must not make degradation scanning immediately due.
+	if previous == nil || previous.Enabled != q.Enabled || previous.DegradationScanEnabled != q.DegradationScanEnabled {
+		s.nextDegradationScan = time.Time{}
+	} else if !s.nextDegradationScan.IsZero() {
+		s.nextDegradationScan = s.nextDegradationScan.Add(time.Duration(q.DegradationScanIntervalSeconds-previous.DegradationScanIntervalSeconds) * time.Second)
+	}
 	if s.workerCount > 0 {
 		s.growWorkersLocked(q.Concurrency)
 	}
@@ -621,6 +628,24 @@ func (s *OpenAIStateKeeperService) reload(ctx context.Context) {
 	s.restoreScopeStateFiles(ctx)
 }
 
+func sameStateKeeperSettings(a, b OpenAIStateKeeperSettings) bool {
+	for _, q := range []*OpenAIStateKeeperSettings{&a, &b} {
+		q.Revision = ""
+		q.Models, q.ProxyIDs = append([]string{}, q.modelNames()...), append([]int64{}, q.proxyIDs()...)
+		q.Model, q.ProxyID = "", 0
+		// Model and proxy order is meaningful; account selections and lengths are sets.
+		for _, ids := range []*[]int64{&q.AccountIDs, &q.CollectionGroupIDs, &q.GroupIDs} {
+			*ids = append([]int64{}, (*ids)...)
+			slices.Sort(*ids)
+		}
+		for _, lengths := range []*[]int{&q.AllowedStateLengths, &q.DegradedStateLengths} {
+			*lengths = append([]int{}, (*lengths)...)
+			slices.Sort(*lengths)
+		}
+	}
+	return reflect.DeepEqual(a, b)
+}
+
 func (s *OpenAIStateKeeperService) Save(ctx context.Context, q OpenAIStateKeeperSettings) error {
 	q.Model = strings.TrimSpace(q.Model)
 	if q.Models != nil {
@@ -658,13 +683,16 @@ func (s *OpenAIStateKeeperService) Save(ctx context.Context, q OpenAIStateKeeper
 	if err != nil {
 		return err
 	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	q.Revision = uuid.NewString()
+	if current := s.config.Load(); current != nil && current.Revision != "" && sameStateKeeperSettings(current.OpenAIStateKeeperSettings, q) {
+		q.Revision = current.Revision
+	}
 	encoded, err := json.Marshal(q)
 	if err != nil {
 		return err
 	}
-	s.saveMu.Lock()
-	defer s.saveMu.Unlock()
 	if err = s.settings.Set(ctx, openAIStateKeeperSettingKey, string(encoded)); err != nil {
 		return err
 	}
