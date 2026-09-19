@@ -64,6 +64,25 @@ func (s *OpenAIStateKeeperService) syncAccountAvailabilityLocked(a *Account) {
 		if e == nil {
 			continue
 		}
+		if a.GetOpenAIAccessToken() != "" {
+			previous := e.observedCredentialStamp
+			if previous == "" {
+				previous = e.credentialStamp
+				if previous == "" {
+					previous = e.blockedCredentialStamp
+				}
+			}
+			if previous != "" && previous != stamp {
+				e.credentialRefreshPending = true
+				if cancel := s.activeCancels[key]; cancel != nil {
+					cancel()
+				}
+			}
+			if e.observedCredentialStamp != stamp {
+				e.observedCredentialStamp = stamp
+				s.dirtyRuntime[key] = true
+			}
+		}
 		previousStamp, previousStatus := e.blockedCredentialStamp, e.row.AccountStatus
 		accountPaused := e.row.Paused && keeperAccountPause(e.row.PauseReason)
 		if e.blockedCredentialStamp != "" && a.GetOpenAIAccessToken() != "" && (e.blockedCredentialStamp != stamp || (e.row.AccountStatus != "" && e.row.AccountStatus != StatusActive && a.Status == StatusActive)) {
@@ -101,7 +120,27 @@ func (s *OpenAIStateKeeperService) syncAccountAvailabilityLocked(a *Account) {
 		if previousStamp != e.blockedCredentialStamp || previousStatus != e.row.AccountStatus {
 			s.dirtyRuntime[key] = true
 		}
+		s.scheduleCredentialRefreshLocked(cfg, key, e)
 	}
+}
+
+// Preserve the intent while an old round drains or the account is unavailable.
+// It is consumed only when a round starts with the currently observed token.
+func (s *OpenAIStateKeeperService) scheduleCredentialRefreshLocked(cfg *openAIStateKeeperConfig, key openAIStateKey, e *openAIKeptState) {
+	if !e.credentialRefreshPending || !cfg.Enabled || e.scopeLoading || e.row.AccountUnavailable || e.row.Paused || s.activeCancels[key] != nil {
+		return
+	}
+	if e.row.AutoRetryPending && e.row.RoundSource == "credentials_updated" {
+		return
+	}
+	e.row.RoundSource, e.refreshVersion = "credentials_updated", ""
+	next, message := time.Now().UTC(), "账号凭据已更新，等待后台重新采集"
+	if until, reason := s.accountCollectionWaitLocked(key.accountID, cfg, next); !until.IsZero() {
+		next, message = until, reason
+	}
+	s.deferCollectionLocked(e, next, message)
+	e.row.Message = message
+	s.dirtyRuntime[key] = true
 }
 
 func (s *OpenAIStateKeeperService) setAccountUnavailableLocked(key openAIStateKey, e *openAIKeptState, reason string) {

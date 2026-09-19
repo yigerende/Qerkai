@@ -3,6 +3,7 @@ import apiClient from '../client'
 export interface StateKeeperSettings {
   enabled: boolean
   injection_enabled: boolean
+  suspend_old_state_on_reauth: boolean
   response_refresh_enabled: boolean
   auto_refresh: boolean
   auto_collect_interval_seconds: number

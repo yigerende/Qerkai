@@ -20,7 +20,7 @@ vi.mock('@/api/admin/proxies', () => ({ getAll: vi.fn().mockResolvedValue([{ id:
 const initial = (): StateKeeperSnapshot => ({
   collection_path: '/v1/chat/completions',
   collection_endpoint: 'https://chatgpt.com/backend-api/codex/responses',
-  settings: { enabled: true, injection_enabled: false, response_refresh_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, degradation_scan_enabled: false, degradation_scan_interval_seconds: 60, concurrency: 50, account_concurrency: 1, max_attempts: 3, retry_count: 0, retry_interval_seconds: 5, request_interval_seconds: 1, proxy_failure_threshold: 2, cooldown_seconds: 30, max_cooldown_seconds: 900, account_hourly_limit: 120, account_five_minute_limit: 0, account_ten_minute_limit: 0, allowed_state_lengths: [], degraded_state_lengths: [], account_ids: [1], collection_group_ids: [], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', revision: 'one' },
+  settings: { enabled: true, injection_enabled: false, suspend_old_state_on_reauth: true, response_refresh_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, degradation_scan_enabled: false, degradation_scan_interval_seconds: 60, concurrency: 50, account_concurrency: 1, max_attempts: 3, retry_count: 0, retry_interval_seconds: 5, request_interval_seconds: 1, proxy_failure_threshold: 2, cooldown_seconds: 30, max_cooldown_seconds: 900, account_hourly_limit: 120, account_five_minute_limit: 0, account_ten_minute_limit: 0, allowed_state_lengths: [], degraded_state_lengths: [], account_ids: [1], collection_group_ids: [], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', revision: 'one' },
   rows: [{ account_id: 1, model: 'test-model', status: 'ready', queued: false, collecting: false, http_status: 200, turn_state_length: 356, message: '已取得 x-codex-turn-state 响应头，已写入账号独立 State 文件', has_codex_turn_state: true, has_details: true, state_file_saved: true, fingerprint: 'stored-state', attempts: 1, successes: 1, injections: 0, paused: false, pause_reason: '', round_id: 'round1', round_attempts: 1, round_source: 'manual', quality_status: 'degraded', quality_reason: '答题异常' }],
   events: [{ at: new Date().toISOString(), account_id: 1, model: 'test-model', http_status: 200, turn_state_length: 356, result: 'collected', message: '已取得 x-codex-turn-state 响应头', kind: 'collection', source: 'manual', attempt: 1 }], server_time: new Date().toISOString(),
 })
@@ -57,6 +57,23 @@ async function showModelRows(wrapper: ReturnType<typeof render>) {
 describe('Upstream state management', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); vi.mocked(stateKeeperAPI.get).mockResolvedValue(initial()) })
   afterEach(() => vi.useRealTimers())
+
+  it('defaults to suspending old State after reauthorization and saves either policy independently', async () => {
+    vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...initial(), settings }))
+    const w = render(); await flushPromises()
+    const checkbox = w.get<HTMLInputElement>('[aria-label="新采集成功前停用旧 State"]')
+    expect(checkbox.element.checked).toBe(true)
+    await checkbox.setValue(false)
+    await vi.advanceTimersByTimeAsync(15000); await flushPromises()
+    expect(checkbox.element.checked).toBe(false)
+    await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ suspend_old_state_on_reauth: false, injection_enabled: false }))
+    await checkbox.setValue(true)
+    await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ suspend_old_state_on_reauth: true }))
+    expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    w.unmount()
+  })
 
   it('shows the longest successful collection age per account and individual model ages, ignoring failed attempts', async () => {
     vi.setSystemTime(new Date('2026-09-19T06:30:00Z'))

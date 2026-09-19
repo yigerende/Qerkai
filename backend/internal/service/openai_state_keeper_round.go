@@ -59,6 +59,9 @@ func (s *OpenAIStateKeeperService) run(job openAIStateKeeperJob) {
 		return
 	}
 	entry.row.Queued = false
+	if entry.credentialRefreshPending && entry.observedCredentialStamp == stateKeeperCredentialStamp(account) {
+		job.source = "credentials_updated"
+	}
 	if job.source == "automatic_retry" && entry.row.RoundSource == "response" && (!cfg.InjectionEnabled || !cfg.ResponseRefreshEnabled) {
 		entry.row.AutoRetryPending, entry.row.NextRetryAt, entry.row.RetryReason = false, nil, ""
 		entry.refreshVersion = ""
@@ -82,6 +85,8 @@ func (s *OpenAIStateKeeperService) run(job openAIStateKeeperJob) {
 		return
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
+	job.credentialStamp = stateKeeperCredentialStamp(account)
+	entry.credentialRefreshPending = false
 	s.activeCancels[key] = cancel
 	entry.row.Collecting = true
 	entry.row.Paused, entry.row.PauseReason = false, ""
@@ -272,9 +277,19 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	defer s.flushProxySuccessesLocked()
+	// Only collection workers read the repository here. Never publish a late
+	// State or 401 belonging to credentials replaced while the probe was running.
+	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
+	account, err := s.accounts.GetByID(ctx, job.accountID)
+	cancel()
+	if err != nil || account == nil {
+		return false
+	}
+	s.syncAccountAvailability([]*Account{account})
 	s.mu.RLock()
 	current := s.entryLocked(job.accountID, job.model)
-	stillCurrent := current != nil && current.row.RoundID == roundID
+	stillCurrent := current != nil && current.row.RoundID == roundID && !current.row.AccountUnavailable && cfg.includesCollectionAccount(account) &&
+		current.observedCredentialStamp == job.credentialStamp && (r.credentialStamp == "" || r.credentialStamp == job.credentialStamp)
 	s.mu.RUnlock()
 	if s.config.Load() != cfg || !stillCurrent {
 		return false
@@ -283,7 +298,7 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 	saved := false
 	if valid && r.result == "collected" {
 		if s.files != nil {
-			err := s.files.save(openAIStateFileRecord{AccountID: job.accountID, Model: job.model, ProxyID: attempt.proxyID, Endpoint: openAIStateKeeperCollectionURL, HeaderName: openAICodexTurnStateHeader, CredentialStamp: r.credentialStamp, Value: r.value, CollectedAt: now, Version: roundID})
+			err := s.files.save(openAIStateFileRecord{AccountID: job.accountID, Model: job.model, ProxyID: attempt.proxyID, Endpoint: openAIStateKeeperCollectionURL, HeaderName: openAICodexTurnStateHeader, CredentialStamp: r.credentialStamp, IdentityStamp: stateKeeperIdentityStamp(account), Value: r.value, CollectedAt: now, Version: roundID})
 			if err != nil {
 				r.result, r.message = "failed", "响应头已取得，但 State 文件保存失败"
 				r.permanentFailure = true
@@ -296,7 +311,7 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry := s.entryLocked(job.accountID, job.model)
-	if entry == nil || s.config.Load() != cfg {
+	if entry == nil || s.config.Load() != cfg || entry.row.RoundID != roundID || entry.observedCredentialStamp != job.credentialStamp {
 		return false
 	}
 	entry.row.HTTPStatus, entry.row.TurnStateLength, entry.row.HasCodexTurnState = r.status, r.turnStateLength, r.hasCodexTurnState
@@ -309,6 +324,7 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 	}
 	if won {
 		entry.value, entry.credentialStamp, entry.version = r.value, r.credentialStamp, roundID
+		entry.identityStamp = stateKeeperIdentityStamp(account)
 		entry.proxyID = attempt.proxyID
 		entry.refreshVersion = ""
 		entry.row.Status, entry.row.Message = "ready", "已保存该账号的 State"
@@ -386,6 +402,10 @@ func (s *OpenAIStateKeeperService) finishRound(job openAIStateKeeperJob, roundID
 		current.row.AutoRetryPending, current.row.NextRetryAt = false, nil
 	}
 	delete(s.activeCancels, s.key(job.accountID, job.model))
+	// Credential updates wait for every old sibling to drain before requeueing.
+	if current := s.entryLocked(job.accountID, job.model); current != nil {
+		s.scheduleCredentialRefreshLocked(s.config.Load(), s.key(job.accountID, job.model), current)
+	}
 	s.workerSlots.Broadcast()
 	s.mu.Unlock()
 }

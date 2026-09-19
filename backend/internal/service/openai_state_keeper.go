@@ -27,6 +27,7 @@ const openAIStateKeeperDefaultConcurrency = 50
 type OpenAIStateKeeperSettings struct {
 	Enabled                        bool     `json:"enabled"`
 	InjectionEnabled               bool     `json:"injection_enabled"`
+	SuspendOldStateOnReauth        bool     `json:"suspend_old_state_on_reauth"`
 	ResponseRefreshEnabled         bool     `json:"response_refresh_enabled"`
 	AutoRefresh                    bool     `json:"auto_refresh"`
 	AutoCollectIntervalSeconds     int      `json:"auto_collect_interval_seconds"`
@@ -58,7 +59,7 @@ type OpenAIStateKeeperSettings struct {
 }
 
 func DefaultOpenAIStateKeeperSettings() OpenAIStateKeeperSettings {
-	return OpenAIStateKeeperSettings{AutoRefresh: true, DegradationScanIntervalSeconds: 60, Concurrency: openAIStateKeeperDefaultConcurrency, AccountConcurrency: 1, MaxAttempts: 3, RetryIntervalSeconds: 5, RequestIntervalSeconds: 1, ProxyFailureThreshold: 2, CooldownSeconds: 30, MaxCooldownSeconds: 900, AccountHourlyLimit: 120, AllowedStateLengths: []int{}, DegradedStateLengths: []int{}, AccountIDs: []int64{}, GroupIDs: []int64{}, Model: "gpt-6-astra"}
+	return OpenAIStateKeeperSettings{SuspendOldStateOnReauth: true, AutoRefresh: true, DegradationScanIntervalSeconds: 60, Concurrency: openAIStateKeeperDefaultConcurrency, AccountConcurrency: 1, MaxAttempts: 3, RetryIntervalSeconds: 5, RequestIntervalSeconds: 1, ProxyFailureThreshold: 2, CooldownSeconds: 30, MaxCooldownSeconds: 900, AccountHourlyLimit: 120, AllowedStateLengths: []int{}, DegradedStateLengths: []int{}, AccountIDs: []int64{}, GroupIDs: []int64{}, Model: "gpt-6-astra"}
 }
 
 func (q OpenAIStateKeeperSettings) modelNames() []string {
@@ -289,23 +290,26 @@ type OpenAIStateKeeperRow struct {
 }
 
 type openAIKeptState struct {
-	row                    OpenAIStateKeeperRow
-	value                  string
-	detail                 *OpenAIStateKeeperDetail
-	credentialStamp        string
-	blockedCredentialStamp string
-	proxyID                int64
-	lastFinishedAt         time.Time
-	version                string
-	refreshVersion         string
-	runtimeLoaded          bool
-	scopeLoading           bool
-	scopeID                string
-	qualityRevision        string
-	qualityAt              time.Time
-	collections            []OpenAIStateKeeperEvent
-	injections             []OpenAIStateKeeperEvent
-	nextProxyID            int64
+	row                      OpenAIStateKeeperRow
+	value                    string
+	detail                   *OpenAIStateKeeperDetail
+	credentialStamp          string
+	identityStamp            string
+	observedCredentialStamp  string
+	credentialRefreshPending bool
+	blockedCredentialStamp   string
+	proxyID                  int64
+	lastFinishedAt           time.Time
+	version                  string
+	refreshVersion           string
+	runtimeLoaded            bool
+	scopeLoading             bool
+	scopeID                  string
+	qualityRevision          string
+	qualityAt                time.Time
+	collections              []OpenAIStateKeeperEvent
+	injections               []OpenAIStateKeeperEvent
+	nextProxyID              int64
 }
 
 type OpenAIStateKeeperEvent struct {
@@ -364,11 +368,12 @@ type openAIStateProbeResult struct {
 }
 
 type openAIStateKeeperJob struct {
-	accountID int64
-	model     string
-	revision  string
-	source    string
-	scopeID   string
+	accountID       int64
+	model           string
+	revision        string
+	source          string
+	scopeID         string
+	credentialStamp string
 }
 
 type OpenAIStateKeeperService struct {
@@ -566,6 +571,8 @@ func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 				entry.row.FailureCycles, entry.nextProxyID = old.row.FailureCycles, old.nextProxyID
 				entry.row.AccountStatus, entry.row.AccountUnavailable, entry.row.AccountUnavailableReason = old.row.AccountStatus, old.row.AccountUnavailable, old.row.AccountUnavailableReason
 				entry.blockedCredentialStamp = old.blockedCredentialStamp
+				entry.observedCredentialStamp = old.observedCredentialStamp
+				entry.credentialRefreshPending = old.credentialRefreshPending
 			}
 			entry.row.Collecting = s.activeCancels[key] != nil
 			if blocked := blockedAccounts[id]; blocked != nil {
@@ -1162,9 +1169,35 @@ func validCollectedState(value string) bool {
 	return true
 }
 
-// Checking credentials also prevents an old account ID's state being used
-// after reauthorization. Rotating an access token merely requires recollection.
+// Access-token changes are reconciled by the background account sync.
 func stateKeeperCredentialStamp(account *Account) string {
 	sum := sha256.Sum256([]byte(account.GetOpenAIAccessToken()))
 	return fmt.Sprintf("%x", sum[:])
+}
+
+// A shared team ID alone cannot establish that two logins are the same user.
+func stateKeeperIdentityStamp(account *Account) string {
+	accountID := strings.TrimSpace(account.GetChatGPTAccountID())
+	userID := strings.TrimSpace(account.GetCredential("chatgpt_user_id"))
+	if userID == "" {
+		if email := strings.TrimSpace(account.GetCredential("email")); email != "" {
+			userID = "email:" + strings.ToLower(email)
+		}
+	}
+	if accountID == "" || userID == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(accountID + "\x00" + userID))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func stateKeeperStateMatchesAccount(q OpenAIStateKeeperSettings, credential, identity string, account *Account) bool {
+	if account.GetOpenAIAccessToken() == "" {
+		return false
+	}
+	currentIdentity := stateKeeperIdentityStamp(account)
+	if identity != "" && identity != currentIdentity {
+		return false
+	}
+	return credential == stateKeeperCredentialStamp(account) || (!q.SuspendOldStateOnReauth && identity != "" && identity == currentIdentity)
 }

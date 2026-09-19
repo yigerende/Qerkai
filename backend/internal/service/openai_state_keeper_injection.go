@@ -91,7 +91,7 @@ func (s *OpenAIStateKeeperService) accountTicket(cfg *openAIStateKeeperConfig, a
 		return nil
 	}
 	value := e.value
-	if value != "" && e.credentialStamp != stateKeeperCredentialStamp(a) {
+	if value != "" && !stateKeeperStateMatchesAccount(cfg.OpenAIStateKeeperSettings, e.credentialStamp, e.identityStamp, a) {
 		value = ""
 	}
 	return &openAIStateTicket{keeper: s, config: cfg, accountID: a.ID, model: model, version: e.version, value: value, id: uuid.NewString(), transport: transport}

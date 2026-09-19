@@ -222,6 +222,7 @@ func TestStateKeeperAccountRecoveryPreservesLimitsAndDisabledTriggers(t *testing
 			case "disabled":
 				q.Enabled = false
 			case "response-injection-off", "response-trigger-off":
+				a.Status = StatusError
 				for _, e := range s.rows {
 					e.row.RoundSource = "response"
 				}
@@ -229,7 +230,11 @@ func TestStateKeeperAccountRecoveryPreservesLimitsAndDisabledTriggers(t *testing
 				q.ResponseRefreshEnabled = mode != "response-trigger-off"
 			}
 			require.NoError(t, s.Save(context.Background(), q))
-			a.Credentials["access_token"] = "repaired-token"
+			if strings.HasPrefix(mode, "response-") {
+				a.Status = StatusActive
+			} else {
+				a.Credentials["access_token"] = "repaired-token"
+			}
 			require.NoError(t, s.SyncSelection(context.Background()))
 			for _, row := range s.Snapshot().Rows[0].Models {
 				require.False(t, row.Paused)

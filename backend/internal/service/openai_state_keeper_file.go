@@ -30,6 +30,7 @@ type openAIStateFileRecord struct {
 	Endpoint        string    `json:"endpoint"`
 	HeaderName      string    `json:"header_name"`
 	CredentialStamp string    `json:"credential_stamp"`
+	IdentityStamp   string    `json:"identity_stamp,omitempty"`
 	Value           string    `json:"turn_state"`
 	CollectedAt     time.Time `json:"collected_at"`
 	Version         string    `json:"version,omitempty"`
@@ -185,7 +186,11 @@ func (s *OpenAIStateKeeperService) restoreStateFiles(ctx context.Context, select
 				continue
 			}
 			account, err := s.accounts.GetByID(ctx, id)
-			if err != nil || !stateKeeperAccountEligible(account) || stateKeeperCredentialStamp(account) != record.CredentialStamp {
+			// Keep a compatible saved State visible even when injection of old
+			// credentials is suspended; the injection boundary enforces that setting.
+			policy := cfg.OpenAIStateKeeperSettings
+			policy.SuspendOldStateOnReauth = false
+			if err != nil || !stateKeeperAccountEligible(account) || !stateKeeperStateMatchesAccount(policy, record.CredentialStamp, record.IdentityStamp, account) {
 				continue
 			}
 			s.mu.Lock()
@@ -198,6 +203,10 @@ func (s *OpenAIStateKeeperService) restoreStateFiles(ctx context.Context, select
 					entry.version = record.CollectedAt.UTC().Format(time.RFC3339Nano)
 				}
 				entry.credentialStamp = record.CredentialStamp
+				entry.identityStamp = record.IdentityStamp
+				if entry.identityStamp == "" && entry.credentialStamp == stateKeeperCredentialStamp(account) {
+					entry.identityStamp = stateKeeperIdentityStamp(account)
+				}
 				entry.row.Status = "ready"
 				entry.row.HTTPStatus = http.StatusOK
 				entry.row.TurnStateLength = len(record.Value)

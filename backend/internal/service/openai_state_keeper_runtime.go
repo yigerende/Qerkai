@@ -10,35 +10,37 @@ import (
 )
 
 type openAIStateRuntime struct {
-	Version                int                        `json:"version"`
-	AutoRetryPending       bool                       `json:"auto_retry_pending"`
-	NextRetryAt            *time.Time                 `json:"next_retry_at,omitempty"`
-	RetryReason            string                     `json:"retry_reason"`
-	FailureCycles          int                        `json:"failure_cycles"`
-	NextProxyID            int64                      `json:"next_proxy_id"`
-	CollectionLimit        openAIStateCollectionLimit `json:"collection_limit"`
-	AccountID              int64                      `json:"account_id"`
-	AccountStatus          string                     `json:"account_status,omitempty"`
-	BlockedCredentialStamp string                     `json:"blocked_credential_stamp,omitempty"`
-	Model                  string                     `json:"model"`
-	RetryAttempt           int                        `json:"retry_attempt"`
-	RetryLimit             int                        `json:"retry_limit"`
-	CollectionProxyID      int64                      `json:"collection_proxy_id"`
-	ProxyAttempt           int                        `json:"proxy_attempt"`
-	ProxyCount             int                        `json:"proxy_count"`
-	Paused                 bool                       `json:"paused"`
-	PauseReason            string                     `json:"pause_reason"`
-	InProgress             bool                       `json:"in_progress"`
-	RoundID                string                     `json:"round_id"`
-	RoundAttempts          int                        `json:"round_attempts"`
-	RoundSource            string                     `json:"round_source"`
-	Attempts               int64                      `json:"attempts"`
-	Successes              int64                      `json:"successes"`
-	Injections             int64                      `json:"injections"`
-	LastFinishedAt         time.Time                  `json:"last_finished_at"`
-	RefreshVersion         string                     `json:"refresh_version"`
-	Collections            []OpenAIStateKeeperEvent   `json:"collections"`
-	InjectionEvents        []OpenAIStateKeeperEvent   `json:"injection_events"`
+	Version                  int                        `json:"version"`
+	AutoRetryPending         bool                       `json:"auto_retry_pending"`
+	NextRetryAt              *time.Time                 `json:"next_retry_at,omitempty"`
+	RetryReason              string                     `json:"retry_reason"`
+	FailureCycles            int                        `json:"failure_cycles"`
+	NextProxyID              int64                      `json:"next_proxy_id"`
+	CollectionLimit          openAIStateCollectionLimit `json:"collection_limit"`
+	AccountID                int64                      `json:"account_id"`
+	AccountStatus            string                     `json:"account_status,omitempty"`
+	BlockedCredentialStamp   string                     `json:"blocked_credential_stamp,omitempty"`
+	ObservedCredentialStamp  string                     `json:"observed_credential_stamp,omitempty"`
+	CredentialRefreshPending bool                       `json:"credential_refresh_pending,omitempty"`
+	Model                    string                     `json:"model"`
+	RetryAttempt             int                        `json:"retry_attempt"`
+	RetryLimit               int                        `json:"retry_limit"`
+	CollectionProxyID        int64                      `json:"collection_proxy_id"`
+	ProxyAttempt             int                        `json:"proxy_attempt"`
+	ProxyCount               int                        `json:"proxy_count"`
+	Paused                   bool                       `json:"paused"`
+	PauseReason              string                     `json:"pause_reason"`
+	InProgress               bool                       `json:"in_progress"`
+	RoundID                  string                     `json:"round_id"`
+	RoundAttempts            int                        `json:"round_attempts"`
+	RoundSource              string                     `json:"round_source"`
+	Attempts                 int64                      `json:"attempts"`
+	Successes                int64                      `json:"successes"`
+	Injections               int64                      `json:"injections"`
+	LastFinishedAt           time.Time                  `json:"last_finished_at"`
+	RefreshVersion           string                     `json:"refresh_version"`
+	Collections              []OpenAIStateKeeperEvent   `json:"collections"`
+	InjectionEvents          []OpenAIStateKeeperEvent   `json:"injection_events"`
 }
 
 func (s *openAIStateFileStore) runtimePath(id int64, models ...string) string {
@@ -85,6 +87,7 @@ func (s *OpenAIStateKeeperService) persistRuntimeLocked(id int64, models ...stri
 	r := openAIStateRuntime{AccountID: id, Model: key.model, RetryAttempt: e.row.RetryAttempt, RetryLimit: e.row.RetryLimit, Paused: e.row.Paused, PauseReason: e.row.PauseReason, InProgress: e.row.Collecting || e.row.Queued,
 		Version: 2, AutoRetryPending: e.row.AutoRetryPending, NextRetryAt: e.row.NextRetryAt, RetryReason: e.row.RetryReason, FailureCycles: e.row.FailureCycles, NextProxyID: e.nextProxyID,
 		AccountStatus: e.row.AccountStatus, BlockedCredentialStamp: e.blockedCredentialStamp,
+		ObservedCredentialStamp: e.observedCredentialStamp, CredentialRefreshPending: e.credentialRefreshPending,
 		CollectionProxyID: e.row.CollectionProxyID, ProxyAttempt: e.row.ProxyAttempt, ProxyCount: e.row.ProxyCount,
 		RoundID: e.row.RoundID, RoundAttempts: e.row.RoundAttempts, RoundSource: e.row.RoundSource, Attempts: e.row.Attempts, Successes: e.row.Successes, Injections: e.row.Injections,
 		LastFinishedAt: e.lastFinishedAt, RefreshVersion: e.refreshVersion, Collections: append([]OpenAIStateKeeperEvent{}, e.collections...), InjectionEvents: append([]OpenAIStateKeeperEvent{}, e.injections...)}
@@ -168,9 +171,22 @@ func (s *OpenAIStateKeeperService) restoreRuntime() {
 					err = errors.New("runtime account or model mismatch")
 				}
 			}
+			// Older runtime files did not track credential changes. Seed from the
+			// saved State so reauthorization during downtime also gets recollected.
+			observed := r.ObservedCredentialStamp
+			if observed == "" {
+				observed = r.BlockedCredentialStamp
+				if record, loadErr := s.files.load(id, cfg.forModel(model)); loadErr == nil && record != nil && observed == "" {
+					observed = record.CredentialStamp
+				}
+			}
 			s.mu.Lock()
 			e := s.entryLocked(id, model)
 			e.runtimeLoaded = true
+			if observed != "" {
+				e.observedCredentialStamp = observed
+			}
+			e.credentialRefreshPending = e.credentialRefreshPending || r.CredentialRefreshPending
 			if err == nil {
 				if e.blockedCredentialStamp == "" {
 					e.row.AccountStatus, e.blockedCredentialStamp = r.AccountStatus, r.BlockedCredentialStamp

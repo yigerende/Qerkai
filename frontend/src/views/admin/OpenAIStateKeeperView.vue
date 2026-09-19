@@ -355,6 +355,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
             <label class="state-check"><input v-model="form.degradation_scan_enabled" type="checkbox">定时降智扫描</label>
             <label class="state-check"><input v-model="form.injection_enabled" type="checkbox">启用请求注入</label>
             <label class="state-check"><input v-model="form.response_refresh_enabled" type="checkbox" aria-label="请求响应触发采集">请求响应触发采集</label>
+            <label class="state-check"><input v-model="form.suspend_old_state_on_reauth" type="checkbox" aria-label="新采集成功前停用旧 State">重授权后，新采集成功前停用旧 State</label>
           </div>
           <div class="grid gap-4 md:grid-cols-3">
             <label class="state-label">采集总并发数<input v-model.number="form.concurrency" class="input" type="number" min="1" max="500" step="1"></label>

@@ -134,8 +134,8 @@ func keeperTestService(t *testing.T) (*OpenAIStateKeeperService, *OpenAIGatewayS
 	q.Revision = "test"
 	s.install(q)
 	keeperMarkDegraded(s, 1)
-	s.probe = func(context.Context, OpenAIStateKeeperSettings, int64) openAIStateProbeResult {
-		return openAIStateProbeResult{status: 200, value: "collected-secret", result: "collected", message: "collected", credentialStamp: stateKeeperCredentialStamp(a)}
+	s.probe = func(_ context.Context, _ OpenAIStateKeeperSettings, id int64) openAIStateProbeResult {
+		return openAIStateProbeResult{status: 200, value: "collected-secret", result: "collected", message: "collected", credentialStamp: stateKeeperCredentialStamp(accounts.accounts[id])}
 	}
 	s.run(openAIStateKeeperJob{accountID: 1, revision: "test", source: "manual"})
 	return s, gateway, a
