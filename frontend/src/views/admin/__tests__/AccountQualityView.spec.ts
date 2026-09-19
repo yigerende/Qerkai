@@ -39,10 +39,19 @@ describe('quality detection progress', () => {
   const w=render(); await flushPromises()
   await w.findAll('button').find(b=>b.text()==='检测配置')!.trigger('click')
   expect((w.get('input[type="radio"][value="any"]').element as HTMLInputElement).checked).toBe(true)
+  expect((w.get('input[name="pause_on_degradation"]').element as HTMLInputElement).checked).toBe(false)
+  await w.get('input[name="pause_on_degradation"]').setValue(true)
   await w.get('input[type="radio"][value="all"]').setValue(true)
   await w.get('input[type="checkbox"][value="model"]').setValue(false)
   await w.get('form').trigger('submit'); await flushPromises()
-  expect(qualityAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({degradation_mode:'all', degradation_conditions:['question']}))
+  expect(qualityAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({degradation_mode:'all', degradation_conditions:['question'],pause_on_degradation:true}))
+  w.unmount()
+ })
+ it('shows the independent scheduling pause and recovery progress', () => {
+  const result={overall:{status:'normal',reason:'正常',conditions:[]},scheduling:{paused:true,successes:1,error:'等待第二次复检'}} as unknown as QualityResult
+  const w=mount(Cell,{props:{accountId:1,result},global:{stubs:{Teleport:true}}})
+  expect(w.text()).toContain('调度：降智暂停 · 连续正常 1')
+  expect(w.text()).toContain('综合：无降智')
   w.unmount()
  })
  it('shows all three overall states and the explanation independently of collection', async () => {

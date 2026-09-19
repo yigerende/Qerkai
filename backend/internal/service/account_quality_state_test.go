@@ -81,6 +81,7 @@ func TestAccountQualityNewStateInvalidatesOnlyMatchingEnabledSavedState(t *testi
 }
 
 func TestAccountQualityNewStateIgnoresOldSamplesAndRequiresFreshStreak(t *testing.T) {
+	defer setForceUpstreamWSForTest(false)()
 	for _, matches := range []bool{false, true} {
 		t.Run(map[bool]string{true: "recovery", false: "still-degraded"}[matches], func(t *testing.T) {
 			svc, _, q, v := qualityCollectedStateFixture(t)

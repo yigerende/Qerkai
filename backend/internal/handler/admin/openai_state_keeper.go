@@ -99,12 +99,26 @@ func (h *OpenAIStateKeeperHandler) Save(c *gin.Context) {
 func (h *OpenAIStateKeeperHandler) Collect(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
 	var input struct {
-		AccountIDs []int64 `json:"account_ids"`
-		Model      string  `json:"model"`
-		PausedOnly bool    `json:"paused_only"`
+		AccountIDs  []int64 `json:"account_ids"`
+		Model       string  `json:"model"`
+		PausedOnly  bool    `json:"paused_only"`
+		CoolingOnly bool    `json:"cooling_only"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.BadRequest(c, "采集请求格式不正确")
+		return
+	}
+	if input.CoolingOnly {
+		if input.PausedOnly || len(input.AccountIDs) > 0 || input.Model != "" {
+			response.BadRequest(c, "批量重试冷却中不支持同时指定待人工项、账号或模型")
+			return
+		}
+		count, err := h.svc.ScheduleCooling()
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		response.Success(c, gin.H{"scheduled": true, "scheduled_count": count})
 		return
 	}
 	if input.PausedOnly {

@@ -625,7 +625,7 @@ const (
 	OpenAITTFTModeSemantic   = "semantic"
 	OpenAITTFTModeVisible    = "visible"
 	// OpenAITTFTModeNetwork 取上游返回的第一帧（不含终止事件），与 CPA 口径对齐。
-	// 仅作用于 OpenAI OAuth 账号的 WS 上游链路，详见 openai_ws_ttft_network.go。
+	// 作用于 OpenAI OAuth 类账号的 HTTP/SSE 与 WS 上游链路，不依赖强制 WS 开关。
 	OpenAITTFTModeNetwork = "network"
 	// SettingKeyEnableFingerprintUnification 是否统一 OAuth 账号的 X-Stainless-* 指纹头（默认 true）
 	SettingKeyEnableFingerprintUnification = "enable_fingerprint_unification"

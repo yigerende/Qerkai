@@ -18,6 +18,7 @@ type qualityAccountRepo struct {
 }
 
 func TestAccountQualityInjectsMatchingStateWithoutChangingPromptOrTransport(t *testing.T) {
+	defer setForceUpstreamWSForTest(false)()
 	for _, tc := range []struct {
 		name                                           string
 		enabled, matchingGroup, matchingModel, refresh bool
@@ -27,6 +28,7 @@ func TestAccountQualityInjectsMatchingStateWithoutChangingPromptOrTransport(t *t
 		{"other-group", true, false, true, true},
 		{"other-model", true, true, false, true},
 		{"response-refresh-disabled", true, true, true, false},
+		{"no-state", true, true, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			keeper, _, account := keeperTestService(t)
@@ -38,6 +40,9 @@ func TestAccountQualityInjectsMatchingStateWithoutChangingPromptOrTransport(t *t
 				account.GroupIDs = []int64{12}
 			}
 			require.NoError(t, keeper.Save(context.Background(), settings))
+			if tc.name == "no-state" {
+				keeper.entryLocked(account.ID).value = ""
+			}
 			q := DefaultAccountQualitySettings()
 			q.Model = settings.Model
 			if !tc.matchingModel {
@@ -54,15 +59,17 @@ func TestAccountQualityInjectsMatchingStateWithoutChangingPromptOrTransport(t *t
 			require.Equal(t, "21", answer)
 			require.Len(t, upstream.requests, 1)
 			want := ""
-			if tc.enabled && tc.matchingGroup && tc.matchingModel {
+			if tc.enabled && tc.matchingGroup && tc.matchingModel && tc.name != "no-state" {
 				want = "collected-secret"
 			}
 			require.Equal(t, want, upstream.requests[0].Header.Get(openAICodexTurnStateHeader))
+			require.Equal(t, "https://chatgpt.com/backend-api/codex/responses", upstream.requests[0].URL.String())
+			require.Empty(t, upstream.requests[0].Header.Get("Upgrade"))
 			body, err := io.ReadAll(upstream.requests[0].Body)
 			require.NoError(t, err)
 			require.Equal(t, question.Prompt, gjson.GetBytes(body, "input.0.content.0.text").String())
 			keeperDrainObservations(keeper)
-			require.Equal(t, want != "" && tc.refresh, len(keeper.queue) == 1)
+			require.Equal(t, tc.enabled && tc.matchingGroup && tc.matchingModel && tc.refresh, len(keeper.queue) == 1)
 			if want != "" {
 				require.Equal(t, "quality_http", keeper.Recent([]int64{account.ID})[0].Injections[0].Source)
 			}

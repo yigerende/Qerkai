@@ -477,7 +477,7 @@ export default {
         openaiTTFTModeSemantic: 'Legacy-compatible (semantic event)',
         openaiTTFTModeVisible: 'Actual visible output',
         openaiTTFTModeNetwork: 'Network first frame (CPA-aligned)',
-        openaiTTFTModeHint: 'The default records first_token_ms at the first non-preamble semantic event. Actual visible output records it only when non-empty text, tool arguments, or image content arrives. Network first frame records it on the first upstream frame (terminal events excluded), yielding the smallest value and matching the CPA definition; it applies only to the WebSocket upstream path for OpenAI OAuth accounts and leaves HTTP unchanged.',
+        openaiTTFTModeHint: 'Legacy mode records first_token_ms at the first non-preamble semantic event; visible output mode waits for non-empty text, tool arguments, or image content. Network first frame records the first non-terminal event and immediately forwards notifications such as response.created for OpenAI OAuth/SetupToken accounts over HTTP/SSE or WebSocket, independently of forced upstream WebSocket. Once an HTTP notification is sent, subsequent errors are handled as part of the started response.',
         fingerprintUnification: 'Fingerprint Unification',
         fingerprintUnificationHint: 'Unify X-Stainless-* headers across users sharing the same OAuth account. Disabling passes through each client\'s original headers.',
         metadataPassthrough: 'Metadata Passthrough',

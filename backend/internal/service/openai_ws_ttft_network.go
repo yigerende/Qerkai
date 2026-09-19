@@ -7,7 +7,7 @@ import (
 
 // OpenAI WS 上游的网络口径首字（二次开发功能，非上游代码）
 //
-// 需求：让 OpenAI OAuth 账号在 WS 上游链路上的 first_token_ms 与 CPA 对齐 ——
+// 需求：让 OpenAI OAuth 账号的 first_token_ms 与 CPA 对齐 ——
 // CPA 取「上游返回的第一个字节/帧」，不做语义过滤
 // （HTTP 侧 usage_helpers.go 的 Read 读到首个非零字节即 mark；
 // WS 侧 codex_websockets_stream.go 在帧路由归属校验后立即 mark，不看 type）。
@@ -24,7 +24,7 @@ import (
 //
 // 作用范围严格限定（按需求）：
 //   - 仅 OpenAI OAuth 类账号；API Key 账号与其他平台不受影响
-//   - 仅 WS 上游链路；HTTP 链路的 semantic/visible 判定完全不变
+//   - HTTP/SSE 与 WS 链路均支持 network，不依赖强制 WS；HTTP 判定见 openAIStreamDataStartsTTFT
 //   - 仅改判定终点，不改计时起点 —— 起点仍是 Forward() 入口，
 //     故 network 模式下的数值仍包含预处理与连接池排队，
 //     与 CPA「握手后起算」并非逐段可比；该模式回答的是

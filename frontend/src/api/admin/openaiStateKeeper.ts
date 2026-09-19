@@ -18,6 +18,8 @@ export interface StateKeeperSettings {
   cooldown_seconds: number
   max_cooldown_seconds: number
   account_hourly_limit: number
+  account_five_minute_limit: number
+  account_ten_minute_limit: number
   allowed_state_lengths: number[]
   degraded_state_lengths: number[]
   account_ids: number[]
@@ -77,6 +79,8 @@ export interface StateKeeperRow {
   failure_cycles?: number
   cooldown_until?: string
   hourly_requests?: number
+  five_minute_requests?: number
+  ten_minute_requests?: number
   effective_concurrency?: number
   models?: StateKeeperRow[]
 }
@@ -114,6 +118,8 @@ export interface StateKeeperSnapshot {
   events: StateKeeperEvent[]
   server_time: string
   config_error?: string
+  proxy_successes?: Record<string, number>
+  proxy_stats_error?: string
 }
 
 export interface StateKeeperDetail {
@@ -163,5 +169,8 @@ export const stateKeeperAPI = {
   },
   async collectPaused() {
     return (await apiClient.post<{ scheduled: boolean; scheduled_count: number }>('/admin/openai-state-keeper/collect', { paused_only: true })).data
+  },
+  async collectCooling() {
+    return (await apiClient.post<{ scheduled: boolean; scheduled_count: number }>('/admin/openai-state-keeper/collect', { cooling_only: true })).data
   },
 }

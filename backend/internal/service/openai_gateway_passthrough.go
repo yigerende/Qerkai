@@ -1276,10 +1276,25 @@ func (s *OpenAIGatewayService) openAITTFTMode(ctx context.Context) string {
 }
 
 func openAIStreamDataStartsTTFT(data, eventType string, forceOutput bool, mode string) bool {
+	if mode == OpenAITTFTModeNetwork {
+		trimmed := strings.TrimSpace(data)
+		if trimmed == "" || trimmed == "[DONE]" || !gjson.Valid(trimmed) {
+			return false
+		}
+		return isOpenAIWSNetworkFirstFrame(effectiveOpenAISSEEventType([]byte(trimmed), eventType))
+	}
 	if mode == OpenAITTFTModeVisible {
 		return openAIStreamDataStartsVisibleOutput(data, eventType)
 	}
 	return forceOutput || openAIStreamDataStartsSemanticTTFT(data, eventType)
+}
+
+func (s *OpenAIGatewayService) openAIStreamTTFTMode(ctx context.Context, account *Account) string {
+	mode := s.openAITTFTMode(ctx)
+	if mode == OpenAITTFTModeNetwork && (account == nil || !account.IsOpenAIOAuthLike()) {
+		return OpenAITTFTModeSemantic
+	}
+	return mode
 }
 
 // openAIStreamFailedEventErrorCode 提取流内 failed 事件的错误码（小写），
@@ -1859,7 +1874,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	imageCounter := newOpenAIImageOutputCounter()
 	var firstTokenMs *int
 	responseID := ""
-	ttftMode := s.openAITTFTMode(ctx)
+	ttftMode := s.openAIStreamTTFTMode(ctx, account)
 	clientDisconnected := false
 	sawDone := false
 	sawTerminalEvent := false
@@ -2150,9 +2165,16 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
 				return resultWithUsage(), newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
 			}
-			if firstTokenMs == nil && openAIStreamDataStartsTTFT(trimmedData, eventType, forceFlushFailedEvent, ttftMode) {
+			startsTTFTOutput := false
+			if firstTokenMs == nil || ttftMode == OpenAITTFTModeNetwork {
+				startsTTFTOutput = openAIStreamDataStartsTTFT(trimmedData, eventType, forceFlushFailedEvent, ttftMode)
+			}
+			if firstTokenMs == nil && startsTTFTOutput {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
+			}
+			if ttftMode == OpenAITTFTModeNetwork && startsTTFTOutput {
+				lineStartsClientOutput = true
 			}
 			s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
 		}

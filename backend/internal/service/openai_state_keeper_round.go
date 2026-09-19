@@ -271,6 +271,7 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 	}
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	defer s.flushProxySuccessesLocked()
 	s.mu.RLock()
 	current := s.entryLocked(job.accountID, job.model)
 	stillCurrent := current != nil && current.row.RoundID == roundID
@@ -312,9 +313,16 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 		entry.refreshVersion = ""
 		entry.row.Status, entry.row.Message = "ready", "已保存该账号的 State"
 		entry.row.CollectedAt, entry.row.StateFileSaved = &now, saved
+		if saved && s.quality != nil {
+			s.quality.notifyQualityCollection(job.accountID)
+		}
 		sum := sha256.Sum256([]byte(r.value))
 		entry.row.Fingerprint = fmt.Sprintf("%x", sum[:])
 		entry.row.Successes++
+		if saved && attempt.proxyID > 0 {
+			s.proxySuccesses[attempt.proxyID]++
+			s.proxyStatsDirty = true
+		}
 		entry.nextProxyID = 0
 		limit := s.collectionLimitLocked(job.accountID)
 		if !limit.CooldownUntil.After(now) {

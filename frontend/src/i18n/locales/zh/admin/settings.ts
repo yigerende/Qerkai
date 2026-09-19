@@ -470,7 +470,7 @@ export default {
         openaiTTFTModeSemantic: '历史兼容（语义事件）',
         openaiTTFTModeNetwork: '网络首帧（对齐 CPA）',
         openaiTTFTModeVisible: '真实可见输出',
-        openaiTTFTModeHint: '默认使用历史兼容口径，首个非预置语义事件即记录 first_token_ms。选择真实可见输出后，仅在首个非空文本、工具参数或图片内容到达时记录。选择网络首帧后，上游返回的第一帧（终止事件除外）即记录，数值最小、与 CPA 口径一致；该模式仅作用于 OpenAI OAuth 账号的 WebSocket 上游链路，HTTP 链路不受影响。',
+        openaiTTFTModeHint: '历史兼容口径在首个非预置语义事件记录 first_token_ms；真实可见输出在首个非空文本、工具参数或图片内容到达时记录。网络首帧在首个非终止上游事件到达时记录，并即时转发 response.created 等通知，适用于 OpenAI OAuth/SetupToken 账号的 HTTP/SSE 和 WebSocket 链路，独立于强制上游 WebSocket 开关。HTTP 首帧通知发出后，按已开始响应处理后续错误。',
         fingerprintUnification: '指纹统一化',
         fingerprintUnificationHint: '统一共享同一 OAuth 账号的用户的 X-Stainless-* 请求头。关闭后透传客户端原始请求头。',
         metadataPassthrough: 'Metadata 透传',

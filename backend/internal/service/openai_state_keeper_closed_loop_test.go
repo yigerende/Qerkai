@@ -290,6 +290,7 @@ func TestStateKeeperSaturatedHistoryKeepsDegradationSignal(t *testing.T) {
 }
 
 func TestStateKeeperOnlyDegradationScanRequiresOverallDegradation(t *testing.T) {
+	defer setForceUpstreamWSForTest(false)()
 	for _, detectionEnabled := range []bool{false, true} {
 		for _, state := range []string{"pending", "normal", "degraded"} {
 			t.Run(fmt.Sprintf("detection=%t/status=%s", detectionEnabled, state), func(t *testing.T) {
@@ -328,6 +329,7 @@ func TestStateKeeperOnlyDegradationScanRequiresOverallDegradation(t *testing.T) 
 }
 
 func TestStateKeeperThreeTriggerSettingsAreIndependent(t *testing.T) {
+	defer setForceUpstreamWSForTest(false)()
 	s, gateway, a := keeperTestService(t)
 	q := s.config.Load().OpenAIStateKeeperSettings
 	q.AutoRefresh, q.AutoCollectIntervalSeconds = true, 120

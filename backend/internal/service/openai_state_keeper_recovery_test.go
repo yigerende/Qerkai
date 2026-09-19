@@ -286,6 +286,8 @@ func TestStateKeeperRecoverySettingsDefaultsAndValidation(t *testing.T) {
 	require.Equal(t, 30, q.CooldownSeconds)
 	require.Equal(t, 900, q.MaxCooldownSeconds)
 	require.Equal(t, 120, q.AccountHourlyLimit)
+	require.Zero(t, q.AccountFiveMinuteLimit)
+	require.Zero(t, q.AccountTenMinuteLimit)
 	for _, edit := range []func(*OpenAIStateKeeperSettings){
 		func(q *OpenAIStateKeeperSettings) { q.RequestIntervalSeconds = -1 },
 		func(q *OpenAIStateKeeperSettings) { q.RequestIntervalSeconds = 301 },
@@ -293,6 +295,10 @@ func TestStateKeeperRecoverySettingsDefaultsAndValidation(t *testing.T) {
 		func(q *OpenAIStateKeeperSettings) { q.CooldownSeconds = 0 },
 		func(q *OpenAIStateKeeperSettings) { q.MaxCooldownSeconds = 29 },
 		func(q *OpenAIStateKeeperSettings) { q.AccountHourlyLimit = 0 },
+		func(q *OpenAIStateKeeperSettings) { q.AccountFiveMinuteLimit = -1 },
+		func(q *OpenAIStateKeeperSettings) { q.AccountFiveMinuteLimit = 10001 },
+		func(q *OpenAIStateKeeperSettings) { q.AccountTenMinuteLimit = -1 },
+		func(q *OpenAIStateKeeperSettings) { q.AccountTenMinuteLimit = 10001 },
 	} {
 		invalid := q
 		edit(&invalid)

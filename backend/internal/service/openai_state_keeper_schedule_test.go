@@ -62,6 +62,7 @@ func TestStateKeeperSchedulePausedRespectsDisabledConfiguration(t *testing.T) {
 }
 
 func TestStateKeeperFixedIntervalControlsSuccessAndFailure(t *testing.T) {
+	defer setForceUpstreamWSForTest(false)()
 	for _, result := range []openAIStateProbeResult{
 		{status: 200, result: "collected", value: "new-state"},
 		{status: 200, result: "not_observed"},

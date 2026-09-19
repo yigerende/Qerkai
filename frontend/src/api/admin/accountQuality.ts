@@ -7,11 +7,13 @@ export interface QualitySettings {
  interval_seconds: number; model_audit_interval_seconds: number; retry_seconds: number; failure_limit: number;
  recovery_limit: number; concurrency: number; timeout_seconds: number; history_limit: number
  degradation_mode: 'any' | 'all'; degradation_conditions: ('question' | 'model')[]
+ pause_on_degradation?: boolean
 }
 export interface QualityVerdict { status?: string; degraded: boolean; failures: number; successes: number; checked_at?: string; evidence_at?: string; next_at?: string; error?: string }
 export interface QualityResult {
  overall?: { status: 'degraded' | 'pending' | 'normal'; reason: string; conditions: { kind: string; status: string }[] };
- detection_kind?: 'question' | 'model' | 'state_refresh'; recorded_at?: string;
+ detection_kind?: 'question' | 'model' | 'state_refresh' | 'recovery'; recorded_at?: string;
+ scheduling?: { paused: boolean; since?: string; next_at?: string; successes: number; error?: string }
  question_execution?: string; model_execution?: string;
  account_id: number; revision: string; version: string;
  question: QualityVerdict & { question_name?: string; answer?: string; reason?: string; duration_ms: number };

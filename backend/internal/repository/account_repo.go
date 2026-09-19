@@ -1989,6 +1989,7 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 			AND a.deleted_at IS NULL
 			AND a.status = $2
 			AND a.schedulable = TRUE
+			AND COALESCE(a.extra->>'quality_scheduling_paused','false') <> 'true'
 			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= $3)
 			AND (a.expires_at IS NULL OR a.expires_at > $3 OR a.auto_pause_on_expired = FALSE)
 			AND (a.overload_until IS NULL OR a.overload_until <= $3)
@@ -3204,6 +3205,7 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 
 func tempUnschedulablePredicate() dbpredicate.Account {
 	return dbpredicate.Account(func(s *entsql.Selector) {
+		s.Where(entsql.ExprP("COALESCE(" + s.C("extra") + "->>'quality_scheduling_paused','false') <> 'true'"))
 		col := s.C("temp_unschedulable_until")
 		s.Where(entsql.Or(
 			entsql.IsNull(col),

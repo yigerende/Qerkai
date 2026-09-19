@@ -129,6 +129,7 @@ func (s *OpenAIStateKeeperService) restoreRuntime() {
 	if s.files == nil {
 		return
 	}
+	s.flushProxySuccessesLocked()
 	cfg := s.config.Load()
 	for _, id := range s.collectionAccountIDs() {
 		limitBody, limitErr := os.ReadFile(s.files.collectionLimitPath(id))

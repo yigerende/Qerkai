@@ -101,5 +101,15 @@ func (s *AccountQualityService) ScheduleSelected(ctx context.Context, ids []int6
 		}
 		out.Accounts = append(out.Accounts, item)
 	}
-	return out, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return out, err
+	}
+	if q.PauseOnDegradation {
+		for _, item := range out.Accounts {
+			if item.SkipReason == "" {
+				s.notifyQualityCollection(item.AccountID)
+			}
+		}
+	}
+	return out, nil
 }

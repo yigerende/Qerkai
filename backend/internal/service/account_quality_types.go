@@ -28,6 +28,7 @@ type AccountQualitySettings struct {
 	ModelAuditEnabled         bool              `json:"model_audit_enabled"`
 	DegradationMode           string            `json:"degradation_mode"`
 	DegradationConditions     []string          `json:"degradation_conditions"`
+	PauseOnDegradation        bool              `json:"pause_on_degradation"`
 	Questions                 []QualityQuestion `json:"questions"`
 	Model                     string            `json:"model"`
 	ModelAuditModel           string            `json:"model_audit_model"`
@@ -167,6 +168,16 @@ type AccountQualityResult struct {
 	Question            QualityQuestionResult `json:"question"`
 	Model               QualityModelResult    `json:"model"`
 	Overall             QualityOverallVerdict `json:"overall"`
+	Scheduling          QualityScheduling     `json:"scheduling"`
+}
+
+type QualityScheduling struct {
+	Paused        bool              `json:"paused"`
+	Since         *time.Time        `json:"since,omitempty"`
+	NextAt        *time.Time        `json:"next_at,omitempty"`
+	Successes     int               `json:"successes"`
+	Error         string            `json:"error,omitempty"`
+	StateVersions map[string]string `json:"state_versions,omitempty"`
 }
 
 var qualityFinalAnswerPattern = regexp.MustCompile(`(?m)^\s*FINAL_ANSWER\s*=\s*([^\r\n]+)\s*$`)

@@ -42,6 +42,8 @@ type OpenAIStateKeeperSettings struct {
 	CooldownSeconds                int      `json:"cooldown_seconds"`
 	MaxCooldownSeconds             int      `json:"max_cooldown_seconds"`
 	AccountHourlyLimit             int      `json:"account_hourly_limit"`
+	AccountFiveMinuteLimit         int      `json:"account_five_minute_limit"`
+	AccountTenMinuteLimit          int      `json:"account_ten_minute_limit"`
 	AllowedStateLengths            []int    `json:"allowed_state_lengths"`
 	DegradedStateLengths           []int    `json:"degraded_state_lengths"`
 	AccountIDs                     []int64  `json:"account_ids"`
@@ -95,6 +97,9 @@ func defaultStateKeeperModels() []string {
 }
 
 func (q OpenAIStateKeeperSettings) Validate() error {
+	if q.AccountFiveMinuteLimit < 0 || q.AccountFiveMinuteLimit > 10000 || q.AccountTenMinuteLimit < 0 || q.AccountTenMinuteLimit > 10000 {
+		return errors.New("每账号 5 分钟和 10 分钟采集上限须为 0–10000，0 表示不限")
+	}
 	if q.RequestIntervalSeconds < 0 || q.RequestIntervalSeconds > 300 || q.ProxyFailureThreshold < 1 || q.ProxyFailureThreshold > 100 {
 		return errors.New("单账号请求间隔须为 0–300 秒，切换代理失败次数须为 1–100")
 	}
@@ -277,6 +282,8 @@ type OpenAIStateKeeperRow struct {
 	FailureCycles            int                    `json:"failure_cycles"`
 	CooldownUntil            *time.Time             `json:"cooldown_until,omitempty"`
 	HourlyRequests           int                    `json:"hourly_requests"`
+	FiveMinuteRequests       int                    `json:"five_minute_requests"`
+	TenMinuteRequests        int                    `json:"ten_minute_requests"`
 	EffectiveConcurrency     int                    `json:"effective_concurrency"`
 	Models                   []OpenAIStateKeeperRow `json:"models,omitempty"`
 }
@@ -326,6 +333,8 @@ type OpenAIStateKeeperSnapshot struct {
 	Events             []OpenAIStateKeeperEvent  `json:"events"`
 	ServerTime         time.Time                 `json:"server_time"`
 	ConfigError        string                    `json:"config_error,omitempty"`
+	ProxySuccesses     map[int64]int64           `json:"proxy_successes"`
+	ProxyStatsError    string                    `json:"proxy_stats_error,omitempty"`
 }
 
 type OpenAIStateKeeperDetail struct {
@@ -394,6 +403,10 @@ type OpenAIStateKeeperService struct {
 	eventsStarted       bool
 	dirtyRuntime        map[openAIStateKey]bool
 	nextDegradationScan time.Time
+	proxySuccesses      map[int64]int64
+	proxyStatsLoaded    bool
+	proxyStatsDirty     bool
+	proxyStatsError     string
 }
 
 func ProvideOpenAIStateKeeperService(settings *SettingService, accounts AccountRepository, proxies ProxyRepository, gateway *OpenAIGatewayService, quality *AccountQualityService) *OpenAIStateKeeperService {
@@ -417,6 +430,7 @@ func newOpenAIStateKeeper(settings SettingRepository, accounts AccountRepository
 	s.pendingSignals = make(map[openAIStateKey]openAIStateObservation)
 	s.signalWake = make(chan struct{}, 1)
 	s.dirtyRuntime = make(map[openAIStateKey]bool)
+	s.proxySuccesses = make(map[int64]int64)
 	s.probe = s.collect
 	initial := DefaultOpenAIStateKeeperSettings()
 	initial.Models = defaultStateKeeperModels()
@@ -817,6 +831,11 @@ func (s *OpenAIStateKeeperService) Snapshot() OpenAIStateKeeperSnapshot {
 		q.ProxyIDs = append([]int64{}, q.ProxyIDs...)
 	}
 	out := OpenAIStateKeeperSnapshot{CollectionPath: openAIStateKeeperCollectionPath, CollectionEndpoint: openAIStateKeeperCollectionURL, Settings: q, Rows: []OpenAIStateKeeperRow{}, Events: append([]OpenAIStateKeeperEvent{}, s.events...), ServerTime: time.Now().UTC(), ConfigError: s.configError}
+	out.ProxySuccesses = make(map[int64]int64, len(s.proxySuccesses))
+	for id, count := range s.proxySuccesses {
+		out.ProxySuccesses[id] = count
+	}
+	out.ProxyStatsError = s.proxyStatsError
 	for _, id := range s.collectionAccountIDsLocked() {
 		var row OpenAIStateKeeperRow
 		for i, model := range q.modelNames() {
@@ -913,6 +932,72 @@ func (s *OpenAIStateKeeperService) SchedulePaused() (int, error) {
 		}
 	}
 	return scheduled, nil
+}
+
+// This explicit administrator action releases local collection cooldowns.
+// Normal scheduling and individual manual collection still honor all limits.
+func (s *OpenAIStateKeeperService) ScheduleCooling() (int, error) {
+	if err := s.refreshAccountAvailability(); err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg := s.config.Load()
+	if !cfg.Enabled {
+		return 0, errors.New("请先保存并启用采集配置")
+	}
+	now := time.Now().UTC()
+	var targets []openAIStateKey
+	accounts := make(map[int64]bool)
+	for _, id := range s.collectionAccountIDsLocked() {
+		until, _ := s.accountCollectionWaitLocked(id, cfg, now)
+		for _, model := range cfg.modelNames() {
+			key := openAIStateKey{id, model}
+			entry := s.rows[key]
+			if entry == nil || entry.scopeLoading || entry.row.AccountUnavailable || entry.row.Paused || entry.row.Queued || entry.row.Collecting || s.activeCancels[key] != nil {
+				continue
+			}
+			if !entry.row.AutoRetryPending && until.IsZero() {
+				continue
+			}
+			targets = append(targets, key)
+			accounts[id] = true
+		}
+	}
+	// Reserve capacity before changing any limit; other producers also hold s.mu.
+	if len(targets) > cap(s.queue)-len(s.queue) {
+		return 0, errors.New("采集队列已满，请稍后重试")
+	}
+	for id := range accounts {
+		limit := s.collectionLimitLocked(id)
+		limit.CooldownUntil, limit.CooldownReason = time.Time{}, ""
+		if cfg.AccountHourlyLimit > 0 && limit.WindowRequests >= cfg.AccountHourlyLimit {
+			limit.WindowStartedAt, limit.WindowRequests = now, 0
+		}
+		if cfg.AccountFiveMinuteLimit > 0 && limit.FiveMinute.Requests >= cfg.AccountFiveMinuteLimit {
+			limit.FiveMinute = openAIStateBudgetWindow{StartedAt: now}
+		}
+		if cfg.AccountTenMinuteLimit > 0 && limit.TenMinute.Requests >= cfg.AccountTenMinuteLimit {
+			limit.TenMinute = openAIStateBudgetWindow{StartedAt: now}
+		}
+		// Preserve request pacing and reduced concurrency after a recent 429.
+		limit.UpdatedAt = now
+	}
+	for key := range s.rows {
+		if accounts[key.accountID] {
+			s.dirtyRuntime[key] = true
+		}
+	}
+	for _, key := range targets {
+		entry := s.rows[key]
+		s.queue <- openAIStateKeeperJob{accountID: key.accountID, model: key.model, revision: cfg.Revision, source: "manual", scopeID: entry.scopeID}
+		entry.row.Queued = true
+		entry.row.AutoRetryPending, entry.row.NextRetryAt, entry.row.RetryReason = false, nil, ""
+		entry.row.RoundSource = "manual"
+		entry.row.NextAttemptAt = stateKeeperNextAttempt(cfg.OpenAIStateKeeperSettings, entry)
+		entry.row.Message = "已手动解除本地冷却，等待重新采集"
+	}
+	return len(targets), nil
 }
 
 // The caller holds s.mu so a configuration change cannot enqueue an old plan.

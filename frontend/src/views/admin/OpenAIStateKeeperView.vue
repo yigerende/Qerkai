@@ -105,7 +105,7 @@ const accountStates = computed(() => (snapshot.value?.rows || []).map(account =>
     savedCount: models.filter(row => row.state_file_saved).length,
     pausedCount: models.filter(row => !account.account_unavailable && !row.account_unavailable && row.paused && !row.queued && !row.collecting).length,
     activeCount: models.filter(row => row.queued || row.collecting).length,
-    coolingCount: models.filter(row => !row.paused && (row.auto_retry_pending || row.cooldown_until)).length,
+    coolingCount: models.filter(row => !account.account_unavailable && !row.account_unavailable && !row.paused && !row.queued && !row.collecting && (row.auto_retry_pending || (row.cooldown_until && Date.parse(row.cooldown_until) > currentTime.value))).length,
     lastCollection: collectionTimes.sort().at(-1),
     lastSuccessfulCollection: successTimes.sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1),
     httpStatuses: [...new Set(models.map(row => row.http_status).filter(Boolean))].join(' / ') || '—',
@@ -113,6 +113,9 @@ const accountStates = computed(() => (snapshot.value?.rows || []).map(account =>
   }
 }))
 const pausedCount = computed(() => accountStates.value.reduce((sum, account) => sum + account.pausedCount, 0))
+const coolingCount = computed(() => accountStates.value.reduce((sum, account) => sum + account.coolingCount, 0))
+const savedStateCount = computed(() => accountStates.value.reduce((sum, account) => sum + account.savedCount, 0))
+const totalStateCount = computed(() => accountStates.value.reduce((sum, account) => sum + account.models.length, 0))
 function toggleAccount(id: number) {
   if (expandedAccounts.value.has(id)) expandedAccounts.value.delete(id)
   else expandedAccounts.value.add(id)
@@ -130,6 +133,13 @@ const date = (value?: string) => value ? new Date(value).toLocaleString() : '—
 function minutesSinceSuccess(value?: string) {
   const timestamp = value ? Date.parse(value) : NaN
   return Number.isFinite(timestamp) ? `${Math.max(0, (currentTime.value - timestamp) / 60000).toFixed(1)} 分钟` : '—'
+}
+function successAgeClass(value?: string) {
+  const minutes = value ? (currentTime.value - Date.parse(value)) / 60000 : NaN
+  if (minutes > 60) return 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300'
+  if (minutes >= 50) return 'bg-yellow-50 text-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-300'
+  if (minutes > 40) return 'bg-sky-50 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300'
+  return ''
 }
 const errorText = (error: unknown) => {
   const e = error as { response?: { data?: { message?: string } }; message?: string }
@@ -237,6 +247,18 @@ async function collectPaused() {
   finally { busy.value = false }
 }
 
+async function collectCooling() {
+  if (busy.value || !coolingCount.value || !snapshot.value?.settings.enabled) return
+  if (dirty.value) { notify('请先保存配置，再开始采集', true); return }
+  busy.value = true
+  try {
+    const result = await stateKeeperAPI.collectCooling()
+    notify(result.scheduled_count ? `已排队 ${result.scheduled_count} 个冷却中的账号模型` : '当前没有可重试的冷却项')
+    await load()
+  } catch (e) { notify(errorText(e), true) }
+  finally { busy.value = false }
+}
+
 async function openDetail(id: number, mode: 'header' | 'file' = 'header', model = '') {
   const request = ++detailRequest
   detailAccountID.value = id
@@ -312,10 +334,12 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
       <p v-if="loadError || snapshot?.config_error" role="alert" class="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{{ loadError || snapshot?.config_error }}</p>
       <p v-if="message" role="status" class="rounded-xl px-4 py-3 text-sm" :class="messageError ? 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'">{{ message }}</p>
 
-      <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div class="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
         <article class="state-card"><span class="text-sm text-gray-500">采集开关</span><strong class="mt-2 block text-xl">{{ snapshot?.settings.enabled ? '已开启' : '已关闭' }}</strong></article>
         <article class="state-card"><span class="text-sm text-gray-500">全部模型已采集 / 选中账号</span><strong class="mt-2 block text-xl">{{ readyCount }} / {{ snapshot?.rows.length || 0 }}</strong></article>
+        <article class="state-card"><span class="text-sm text-gray-500">State 已保存</span><strong class="mt-2 block text-xl tabular-nums">{{ savedStateCount }} / {{ totalStateCount }}</strong></article>
         <article class="state-card"><span class="text-sm text-gray-500">排队与采集中</span><strong class="mt-2 block text-xl">{{ collectingCount }}</strong></article>
+        <article class="state-card"><span class="text-sm text-gray-500">冷却模型</span><strong class="mt-2 block text-xl tabular-nums text-amber-600 dark:text-amber-400">{{ coolingCount }}</strong></article>
         <article class="state-card"><span class="text-sm text-gray-500">已注入请求次数</span><strong class="mt-2 block text-xl">{{ injectionCount }}</strong></article>
       </div>
 
@@ -343,6 +367,8 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
             <label class="state-label">自动冷却起始时间（s）<input v-model.number="form.cooldown_seconds" class="input" type="number" min="1" max="86400" step="1" aria-label="自动冷却起始时间（s）"></label>
             <label class="state-label">自动冷却上限（s）<input v-model.number="form.max_cooldown_seconds" class="input" type="number" min="1" max="86400" step="1" aria-label="自动冷却上限（s）"></label>
             <label class="state-label">每账号每小时采集上限<input v-model.number="form.account_hourly_limit" class="input" type="number" min="1" max="10000" step="1" aria-label="每账号每小时采集上限"></label>
+            <label class="state-label">每账号每 5 分钟采集上限（0 不限）<input v-model.number="form.account_five_minute_limit" class="input" type="number" min="0" max="10000" step="1" aria-label="每账号每 5 分钟采集上限"></label>
+            <label class="state-label">每账号每 10 分钟采集上限（0 不限）<input v-model.number="form.account_ten_minute_limit" class="input" type="number" min="0" max="10000" step="1" aria-label="每账号每 10 分钟采集上限"></label>
           </div>
           <label class="state-label max-w-md">允许保存的响应头长度<input v-model="allowedLengthsInput" class="input" type="text" maxlength="2000" placeholder="292,332；留空不限制" aria-label="允许保存的响应头长度"></label>
           <label class="state-label max-w-md">降智响应头长度<input v-model="degradedLengthsInput" class="input" type="text" maxlength="2000" placeholder="356" aria-label="降智响应头长度"></label>
@@ -364,10 +390,11 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
                 <p v-if="!proxies.length" class="text-sm text-gray-400">暂无代理</p>
               </div>
               <h3 class="text-sm font-medium">代理优先级</h3>
+              <p v-if="snapshot?.proxy_stats_error" role="alert" class="text-sm text-red-600">{{ snapshot.proxy_stats_error }}</p>
               <ol class="divide-y divide-gray-100 dark:divide-dark-700" aria-label="代理优先级">
                 <li v-for="(id, index) in selectedProxyIDs" :key="id" class="flex min-h-10 items-center gap-2 py-1">
                   <span class="w-6 shrink-0 text-center text-xs tabular-nums text-gray-400">{{ index + 1 }}</span>
-                  <span class="min-w-0 flex-1 break-words text-sm">{{ proxyName(id) }}</span>
+                  <span class="min-w-0 flex-1 break-words text-sm">{{ proxyName(id) }}<span class="mt-0.5 block text-xs tabular-nums text-emerald-600 dark:text-emerald-400">成功 {{ snapshot?.proxy_successes?.[id] ?? 0 }} 次</span></span>
                   <button type="button" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-30 dark:hover:bg-dark-700" :disabled="index === 0" title="提高优先级" :aria-label="`提高 ${proxyName(id)} 优先级`" @click="moveProxy(index, -1)"><Icon name="arrowUp" size="sm" /></button>
                   <button type="button" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded hover:bg-gray-100 disabled:opacity-30 dark:hover:bg-dark-700" :disabled="index === selectedProxyIDs.length - 1" title="降低优先级" :aria-label="`降低 ${proxyName(id)} 优先级`" @click="moveProxy(index, 1)"><Icon name="arrowDown" size="sm" /></button>
                 </li>
@@ -423,6 +450,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="font-semibold">账号状态</h2>
           <div class="flex flex-wrap items-center gap-2">
+            <button class="btn btn-secondary" :disabled="busy || dirty || !snapshot?.settings.enabled || !coolingCount" @click="collectCooling"><Icon name="refresh" size="sm" />一键重试冷却中<span class="tabular-nums">({{ coolingCount }})</span></button>
             <button class="btn btn-secondary" :disabled="busy || dirty || !snapshot?.settings.enabled || !pausedCount" @click="collectPaused"><Icon name="refresh" size="sm" />一键重试待人工项<span class="tabular-nums">({{ pausedCount }})</span></button>
             <button class="btn btn-primary" :disabled="busy || dirty || !snapshot?.settings.enabled" @click="collect()">采集全部选中账号</button>
           </div>
@@ -453,7 +481,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td class="max-w-36 break-words text-xs tabular-nums">{{ account.httpStatuses }}</td>
               <td class="max-w-40 break-words text-xs tabular-nums">{{ account.stateLengths }}</td>
               <td class="whitespace-nowrap text-xs">{{ date(account.lastCollection) }}</td>
-              <td class="min-w-28 whitespace-nowrap text-xs tabular-nums" data-testid="account-success-age" :title="account.lastSuccessfulCollection ? date(account.lastSuccessfulCollection) : undefined">{{ minutesSinceSuccess(account.lastSuccessfulCollection) }}</td>
+              <td class="min-w-28 whitespace-nowrap text-xs tabular-nums" :class="successAgeClass(account.lastSuccessfulCollection)" data-testid="account-success-age" :title="account.lastSuccessfulCollection ? date(account.lastSuccessfulCollection) : undefined">{{ minutesSinceSuccess(account.lastSuccessfulCollection) }}</td>
               <td class="whitespace-nowrap tabular-nums">{{ account.attempts }} / {{ account.successes }} / {{ account.injections }}</td>
               <td><button class="whitespace-nowrap text-xs text-primary-600 disabled:opacity-40" :disabled="busy || dirty || account.account_unavailable || account.collecting || account.queued || !snapshot?.settings.enabled" @click="collect(account.account_id)">采集全部模型</button></td>
             </tr>
@@ -474,7 +502,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td class="tabular-nums">{{ row.http_status || '—' }}</td>
               <td class="tabular-nums">{{ row.turn_state_length || '—' }}</td>
               <td class="whitespace-nowrap text-xs">{{ date(row.last_collection_at || row.collected_at) }}<p v-if="row.next_retry_at" class="mt-1 text-amber-600">重试 {{ date(row.next_retry_at) }}</p><p v-else-if="row.next_attempt_at" class="mt-1 text-gray-500">下次 {{ date(row.next_attempt_at) }}</p><p v-if="row.collection_proxy_id" class="mt-1 max-w-40 whitespace-normal break-words text-gray-500">{{ proxyName(row.collection_proxy_id) }} · {{ row.proxy_attempt || 1 }}/{{ row.proxy_count || 1 }}</p></td>
-              <td class="min-w-28 whitespace-nowrap text-xs tabular-nums" data-testid="model-success-age" :title="row.collected_at ? date(row.collected_at) : undefined">{{ minutesSinceSuccess(row.collected_at) }}</td>
+              <td class="min-w-28 whitespace-nowrap text-xs tabular-nums" :class="successAgeClass(row.collected_at)" data-testid="model-success-age" :title="row.collected_at ? date(row.collected_at) : undefined">{{ minutesSinceSuccess(row.collected_at) }}</td>
               <td class="whitespace-nowrap tabular-nums">{{ row.attempts }} / {{ row.successes }} / {{ row.injections }}<p class="mt-1 text-xs text-gray-500">本轮已请求 {{ row.round_attempts || 0 }} 次</p><p class="mt-1 text-xs text-gray-500">重试 {{ row.retry_attempt || 0 }} / {{ row.retry_limit || 0 }}</p><p class="mt-1 text-xs text-gray-500">账号本小时 {{ row.hourly_requests || 0 }} / {{ snapshot?.settings.account_hourly_limit }}</p><p v-if="row.effective_concurrency" class="mt-1 text-xs text-gray-500">当前账号并发上限 {{ row.effective_concurrency }}</p></td>
               <td><div class="flex flex-col items-start gap-2 whitespace-nowrap">
                 <button class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-40" :disabled="!row.has_details" @click="openDetail(row.account_id, 'header', row.model)"><Icon name="eye" size="sm" />详情</button>

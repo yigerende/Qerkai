@@ -9,16 +9,37 @@ import (
 	"time"
 )
 
-// All models share the account's start rate, hourly budget and 429 backoff.
+// All models share the account's start rate, collection budgets and 429 backoff.
 // Snapshots are stored with model runtimes; restore takes the newest snapshot.
 type openAIStateCollectionLimit struct {
-	UpdatedAt       time.Time `json:"updated_at"`
-	NextStartAt     time.Time `json:"next_start_at"`
-	CooldownUntil   time.Time `json:"cooldown_until"`
-	CooldownReason  string    `json:"cooldown_reason"`
-	RateLimitStreak int       `json:"rate_limit_streak"`
-	WindowStartedAt time.Time `json:"window_started_at"`
-	WindowRequests  int       `json:"window_requests"`
+	UpdatedAt       time.Time               `json:"updated_at"`
+	NextStartAt     time.Time               `json:"next_start_at"`
+	CooldownUntil   time.Time               `json:"cooldown_until"`
+	CooldownReason  string                  `json:"cooldown_reason"`
+	RateLimitStreak int                     `json:"rate_limit_streak"`
+	WindowStartedAt time.Time               `json:"window_started_at"`
+	WindowRequests  int                     `json:"window_requests"`
+	FiveMinute      openAIStateBudgetWindow `json:"five_minute"`
+	TenMinute       openAIStateBudgetWindow `json:"ten_minute"`
+}
+
+type openAIStateBudgetWindow struct {
+	StartedAt time.Time `json:"started_at"`
+	Requests  int       `json:"requests"`
+}
+
+func (w openAIStateBudgetWindow) count(now time.Time, duration time.Duration) int {
+	if w.StartedAt.Add(duration).After(now) {
+		return w.Requests
+	}
+	return 0
+}
+
+func (w *openAIStateBudgetWindow) reserve(now time.Time, duration time.Duration) {
+	if !w.StartedAt.Add(duration).After(now) {
+		w.StartedAt, w.Requests = now, 0
+	}
+	w.Requests++
 }
 
 func (s *OpenAIStateKeeperService) collectionLimitLocked(id int64) *openAIStateCollectionLimit {
@@ -64,11 +85,25 @@ func keeperRetryAfter(header string, now time.Time) time.Duration {
 
 func (s *OpenAIStateKeeperService) accountCollectionWaitLocked(id int64, cfg *openAIStateKeeperConfig, now time.Time) (time.Time, string) {
 	limit := s.collectionLimitLocked(id)
+	return limit.wait(cfg.OpenAIStateKeeperSettings, now)
+}
+
+func (limit *openAIStateCollectionLimit) wait(cfg OpenAIStateKeeperSettings, now time.Time) (time.Time, string) {
 	until, reason := limit.CooldownUntil, limit.CooldownReason
-	if limit.WindowRequests >= cfg.AccountHourlyLimit && cfg.AccountHourlyLimit > 0 {
-		end := limit.WindowStartedAt.Add(time.Hour)
-		if end.After(until) {
-			until, reason = end, "已达单账号每小时采集上限，等待自动恢复"
+	for _, budget := range []struct {
+		window   openAIStateBudgetWindow
+		maximum  int
+		duration time.Duration
+		reason   string
+	}{
+		{limit.FiveMinute, cfg.AccountFiveMinuteLimit, 5 * time.Minute, "已达单账号每 5 分钟采集上限，等待自动恢复"},
+		{limit.TenMinute, cfg.AccountTenMinuteLimit, 10 * time.Minute, "已达单账号每 10 分钟采集上限，等待自动恢复"},
+		{openAIStateBudgetWindow{limit.WindowStartedAt, limit.WindowRequests}, cfg.AccountHourlyLimit, time.Hour, "已达单账号每小时采集上限，等待自动恢复"},
+	} {
+		if budget.maximum > 0 && budget.window.Requests >= budget.maximum {
+			if end := budget.window.StartedAt.Add(budget.duration); end.After(until) {
+				until, reason = end, budget.reason
+			}
 		}
 	}
 	if until.After(now) {
@@ -104,7 +139,8 @@ func (s *OpenAIStateKeeperService) noteCollectionRateLimitLocked(id int64, q Ope
 }
 
 func (s *OpenAIStateKeeperService) decorateCollectionLimitLocked(row *OpenAIStateKeeperRow, now time.Time) {
-	row.EffectiveConcurrency = s.config.Load().AccountConcurrency
+	cfg := s.config.Load()
+	row.EffectiveConcurrency = cfg.AccountConcurrency
 	if limit := s.collectionLimits[row.AccountID]; limit != nil {
 		if limit.RateLimitStreak > 0 {
 			row.EffectiveConcurrency = 1
@@ -112,10 +148,9 @@ func (s *OpenAIStateKeeperService) decorateCollectionLimitLocked(row *OpenAIStat
 		if limit.WindowStartedAt.Add(time.Hour).After(now) {
 			row.HourlyRequests = limit.WindowRequests
 		}
-		until, reason := limit.CooldownUntil, limit.CooldownReason
-		if row.HourlyRequests >= s.config.Load().AccountHourlyLimit && limit.WindowStartedAt.Add(time.Hour).After(until) {
-			until, reason = limit.WindowStartedAt.Add(time.Hour), "已达单账号每小时采集上限，等待自动恢复"
-		}
+		row.FiveMinuteRequests = limit.FiveMinute.count(now, 5*time.Minute)
+		row.TenMinuteRequests = limit.TenMinute.count(now, 10*time.Minute)
+		until, reason := limit.wait(cfg.OpenAIStateKeeperSettings, now)
 		if until.After(now) && !row.Paused && !row.AccountUnavailable {
 			row.CooldownUntil = &until
 			if row.AutoRetryPending && (row.NextRetryAt == nil || until.After(*row.NextRetryAt)) {
@@ -159,6 +194,8 @@ func (s *OpenAIStateKeeperService) acquireStateProbe(ctx context.Context, cfg *o
 			limit.WindowStartedAt, limit.WindowRequests = now, 0
 		}
 		limit.WindowRequests++
+		limit.FiveMinute.reserve(now, 5*time.Minute)
+		limit.TenMinute.reserve(now, 10*time.Minute)
 		limit.UpdatedAt = now
 		limit.NextStartAt = now.Add(keeperJitter(time.Duration(cfg.RequestIntervalSeconds) * time.Second))
 		s.activeProbes++

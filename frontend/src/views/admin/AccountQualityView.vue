@@ -13,7 +13,7 @@ const progress = ref<QualityProgress | null>(null)
 const groups = ref<AdminGroup[]>([])
 const groupsError = ref(''), groupsLoading = ref(false)
 const missingGroups = computed(() => (form.value?.group_ids || []).filter(id => !groups.value.some(group => group.id === id)))
-const normalizeSettings = (settings: QualitySettings): QualitySettings => ({ ...settings, all_groups: settings.all_groups ?? true, group_ids: settings.group_ids || [], degradation_mode: settings.degradation_mode || 'any', degradation_conditions: settings.degradation_conditions ?? ([settings.question_enabled ? 'question' : '', settings.model_audit_enabled ? 'model' : ''].filter(Boolean) as ('question' | 'model')[]) })
+const normalizeSettings = (settings: QualitySettings): QualitySettings => ({ ...settings, pause_on_degradation: settings.pause_on_degradation ?? false, all_groups: settings.all_groups ?? true, group_ids: settings.group_ids || [], degradation_mode: settings.degradation_mode || 'any', degradation_conditions: settings.degradation_conditions ?? ([settings.question_enabled ? 'question' : '', settings.model_audit_enabled ? 'model' : ''].filter(Boolean) as ('question' | 'model')[]) })
 async function loadGroups() {
  if (groupsLoading.value) return
  groupsLoading.value = true; groupsError.value = ''
@@ -101,6 +101,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); progressController?.a
      <fieldset class="space-y-2 md:col-span-2"><legend class="mb-2 font-medium">综合降智判断</legend>
       <div class="flex flex-wrap gap-5"><label class="check"><input v-model="form.degradation_conditions" type="checkbox" value="question">答题异常</label><label class="check"><input v-model="form.degradation_conditions" type="checkbox" value="model">模型不一致</label></div>
       <div class="flex flex-wrap gap-5"><label class="check"><input v-model="form.degradation_mode" type="radio" value="any">任一勾选条件满足</label><label class="check"><input v-model="form.degradation_mode" type="radio" value="all">全部勾选条件满足</label></div>
+      <label class="check"><input v-model="form.pause_on_degradation" type="checkbox" name="pause_on_degradation">综合降智时暂停账号调度，复检恢复后自动解除</label>
      </fieldset>
      <label>并发数<input v-model.number="form.concurrency" class="input" type="number" min="1" max="8" required></label>
      <label>请求超时（秒）<input v-model.number="form.timeout_seconds" class="input" type="number" min="5" max="300" required></label>

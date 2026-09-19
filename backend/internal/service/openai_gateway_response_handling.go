@@ -119,7 +119,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
 	var firstTokenMs *int
-	ttftMode := s.openAITTFTMode(ctx)
+	ttftMode := s.openAIStreamTTFTMode(ctx, account)
 	firstOutputProgressObserved := false
 	bufferedWriter := bufio.NewWriterSize(w, 4*1024)
 	var firstOutputStage *openAIFirstOutputStage
@@ -664,10 +664,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
 			startsVisibleOutput := openAIStreamDataStartsVisibleOutput(data, eventType)
 			startsTTFTOutput := openAIStreamDataStartsTTFT(data, eventType, forceFlushFailedEvent, ttftMode)
+			networkFrame := ttftMode == OpenAITTFTModeNetwork && startsTTFTOutput
 			if stageFirstOutput {
-				eventStartsClientOutput = eventStartsClientOutput || startsClientOutput
+				eventStartsClientOutput = eventStartsClientOutput || startsClientOutput || networkFrame
 				eventStartsTTFTOutput = eventStartsTTFTOutput || startsTTFTOutput
-				if startsClientOutput {
+				if startsClientOutput || networkFrame {
 					firstOutputScanGuard.Store(false)
 				}
 			}
@@ -690,7 +691,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			// 写入客户端（客户端断开后继续 drain 上游）
 			if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
 				shouldFlush := queueDrained && (clientOutputStarted || startsClientOutput)
-				if firstTokenMs == nil && startsVisibleOutput {
+				if networkFrame || (firstTokenMs == nil && startsVisibleOutput) {
 					// 保证首个 token 事件尽快出站，避免影响 TTFT。
 					shouldFlush = true
 				}
@@ -705,7 +706,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 
 			// Record first token time
-			if !guardFirstOutput && firstTokenMs == nil && startsTTFTOutput {
+			// Network mode commits and timestamps complete SSE events, including preamble.
+			if !guardFirstOutput && ttftMode != OpenAITTFTModeNetwork && firstTokenMs == nil && startsTTFTOutput {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 				stopFirstOutputTimer()

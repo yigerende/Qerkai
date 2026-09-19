@@ -72,6 +72,7 @@ type AccountTestOptions struct {
 	AudioDataURL    string
 	ReasoningEffort string
 	stateKeeper     *OpenAIStateKeeperService
+	qualityModel    *upstreamResponseModelObserver
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -852,7 +853,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 
 	// Process SSE stream
-	return s.processOpenAIStream(c, resp.Body)
+	return s.processOpenAIStream(c, resp.Body, firstAccountTestOptions(opts).qualityModel)
 }
 
 // testGrokAccountConnection routes Grok admin connectivity tests by explicit mode first,
@@ -2817,7 +2818,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 }
 
 // processOpenAIStream processes the SSE stream from OpenAI Responses API
-func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader) error {
+func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader, observers ...*upstreamResponseModelObserver) error {
 	reader := bufio.NewReader(body)
 	seenCompleted := false
 
@@ -2854,6 +2855,11 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 		}
 
 		eventType, _ := data["type"].(string)
+		for _, observer := range observers {
+			if observer != nil {
+				observer.ObserveOpenAI([]byte(jsonStr), eventType)
+			}
+		}
 
 		switch eventType {
 		case "response.output_text.delta":

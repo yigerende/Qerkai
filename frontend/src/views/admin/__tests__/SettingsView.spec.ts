@@ -1382,10 +1382,11 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload.grok_cross_client_model_map_enabled).toBe(false);
   });
 
-  it("loads and saves the OpenAI Responses first-token metric mode", async () => {
+  it.each(["semantic", "network"])("saves the OpenAI first-token mode %s independently of forced WS", async (mode) => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
       openai_ttft_mode: "visible",
+      force_openai_upstream_ws: false,
     });
     const wrapper = mountView();
 
@@ -1395,12 +1396,14 @@ describe("admin SettingsView payment visible method controls", () => {
     const modeSelect = wrapper.get('[data-testid="openai-ttft-mode"]');
     expect((modeSelect.element as HTMLSelectElement).value).toBe("visible");
 
-    await modeSelect.setValue("semantic");
+    expect(modeSelect.attributes("disabled")).toBeUndefined();
+    await modeSelect.setValue(mode);
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
 
     const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    expect(payload.openai_ttft_mode).toBe("semantic");
+    expect(payload.openai_ttft_mode).toBe(mode);
+    expect(payload.force_openai_upstream_ws).toBe(false);
   });
 
   it("loads fail-safe-off Ollama Cloud usage refresh settings and saves an explicit opt-in", async () => {

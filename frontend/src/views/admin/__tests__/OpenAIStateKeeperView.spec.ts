@@ -12,7 +12,7 @@ vi.mock('@/composables/useClipboard', async () => {
 
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 
-vi.mock('@/api/admin/openaiStateKeeper', () => ({ stateKeeperAPI: { get: vi.fn(), detail: vi.fn(), fileDetail: vi.fn(), save: vi.fn(), collect: vi.fn(), collectPaused: vi.fn() } }))
+vi.mock('@/api/admin/openaiStateKeeper', () => ({ stateKeeperAPI: { get: vi.fn(), detail: vi.fn(), fileDetail: vi.fn(), save: vi.fn(), collect: vi.fn(), collectPaused: vi.fn(), collectCooling: vi.fn() } }))
 vi.mock('@/api/admin/accounts', () => ({ list: vi.fn().mockResolvedValue({ items: [{ id: 1, name: '测试账号' }], total: 1 }) }))
 vi.mock('@/api/admin/groups', () => ({ getAll: vi.fn().mockResolvedValue([{ id: 11, name: '测试分组' }]) }))
 vi.mock('@/api/admin/proxies', () => ({ getAll: vi.fn().mockResolvedValue([{ id: 1, name: '采集出口', host: '127.0.0.1', port: 8888 }, { id: 2, name: '备用出口', host: '127.0.0.2', port: 8888 }, { id: 3, name: '第三出口', host: '127.0.0.3', port: 8888 }]), create: vi.fn() }))
@@ -20,7 +20,7 @@ vi.mock('@/api/admin/proxies', () => ({ getAll: vi.fn().mockResolvedValue([{ id:
 const initial = (): StateKeeperSnapshot => ({
   collection_path: '/v1/chat/completions',
   collection_endpoint: 'https://chatgpt.com/backend-api/codex/responses',
-  settings: { enabled: true, injection_enabled: false, response_refresh_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, degradation_scan_enabled: false, degradation_scan_interval_seconds: 60, concurrency: 50, account_concurrency: 1, max_attempts: 3, retry_count: 0, retry_interval_seconds: 5, request_interval_seconds: 1, proxy_failure_threshold: 2, cooldown_seconds: 30, max_cooldown_seconds: 900, account_hourly_limit: 120, allowed_state_lengths: [], degraded_state_lengths: [], account_ids: [1], collection_group_ids: [], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', revision: 'one' },
+  settings: { enabled: true, injection_enabled: false, response_refresh_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, degradation_scan_enabled: false, degradation_scan_interval_seconds: 60, concurrency: 50, account_concurrency: 1, max_attempts: 3, retry_count: 0, retry_interval_seconds: 5, request_interval_seconds: 1, proxy_failure_threshold: 2, cooldown_seconds: 30, max_cooldown_seconds: 900, account_hourly_limit: 120, account_five_minute_limit: 0, account_ten_minute_limit: 0, allowed_state_lengths: [], degraded_state_lengths: [], account_ids: [1], collection_group_ids: [], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', revision: 'one' },
   rows: [{ account_id: 1, model: 'test-model', status: 'ready', queued: false, collecting: false, http_status: 200, turn_state_length: 356, message: '已取得 x-codex-turn-state 响应头，已写入账号独立 State 文件', has_codex_turn_state: true, has_details: true, state_file_saved: true, fingerprint: 'stored-state', attempts: 1, successes: 1, injections: 0, paused: false, pause_reason: '', round_id: 'round1', round_attempts: 1, round_source: 'manual', quality_status: 'degraded', quality_reason: '答题异常' }],
   events: [{ at: new Date().toISOString(), account_id: 1, model: 'test-model', http_status: 200, turn_state_length: 356, result: 'collected', message: '已取得 x-codex-turn-state 响应头', kind: 'collection', source: 'manual', attempt: 1 }], server_time: new Date().toISOString(),
 })
@@ -77,20 +77,104 @@ describe('Upstream state management', () => {
     w.unmount()
   })
 
+  it('colors successful State ages at each threshold and updates as time passes', async () => {
+    const now = new Date('2026-09-19T08:00:00Z')
+    vi.setSystemTime(now)
+    const data = initial()
+    data.rows = [undefined, 40, 41, 50, 60, 61].map((minutes, index) => ({
+      ...data.rows[0], account_id: index + 1,
+      collected_at: minutes == null ? undefined : new Date(now.getTime() - minutes * 60000).toISOString(),
+    }))
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
+    const w = render(); await flushPromises(); await showModelRows(w)
+    const colors = ['', '', 'bg-sky-50', 'bg-yellow-50', 'bg-yellow-50', 'bg-red-50']
+    for (const testid of ['account-success-age', 'model-success-age']) {
+      const cells = w.findAll(`[data-testid="${testid}"]`)
+      cells.forEach((cell, index) => {
+        expect(cell.classes().filter(c => /^bg-(sky|yellow|red)-50$/.test(c))).toEqual(colors[index] ? [colors[index]] : [])
+      })
+    }
+    await vi.advanceTimersByTimeAsync(60000); await flushPromises()
+    expect(w.findAll('[data-testid="model-success-age"]')[1].classes()).toContain('bg-sky-50')
+    expect(w.findAll('[data-testid="model-success-age"]')[4].classes()).toContain('bg-red-50')
+    expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('retries only eligible cooling models through the dedicated bulk action', async () => {
+    vi.setSystemTime(new Date('2026-09-19T08:00:00Z'))
+    const data = initial()
+    data.rows[0].models = [
+      { ...data.rows[0], model: 'pending', auto_retry_pending: true },
+      { ...data.rows[0], model: 'limited', cooldown_until: '2026-09-19T09:00:00Z' },
+      { ...data.rows[0], model: 'paused', paused: true, auto_retry_pending: true },
+      { ...data.rows[0], model: 'running', collecting: true, auto_retry_pending: true },
+      { ...data.rows[0], model: 'queued', queued: true, auto_retry_pending: true },
+      { ...data.rows[0], model: 'expired', cooldown_until: '2026-09-19T07:00:00Z' },
+      { ...data.rows[0], model: 'unavailable', account_unavailable: true, auto_retry_pending: true },
+    ]
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
+    vi.mocked(stateKeeperAPI.collectCooling).mockResolvedValue({ scheduled: true, scheduled_count: 2 })
+    const w = render(); await flushPromises(); await showModelRows(w)
+    const button = w.findAll('button').find(b => b.text().startsWith('一键重试冷却中'))!
+    expect(button.text()).toContain('(2)')
+    await button.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.collectCooling).toHaveBeenCalledTimes(1)
+    expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    expect(stateKeeperAPI.collectPaused).not.toHaveBeenCalled()
+    expect(w.text()).toContain('已排队 2 个冷却中的账号模型')
+    w.unmount()
+  })
+
+  it.each(['empty', 'disabled', 'dirty'] as const)('disables bulk cooling retry when %s', async mode => {
+    const data = initial()
+    data.rows[0].auto_retry_pending = mode !== 'empty'
+    data.settings.enabled = mode !== 'disabled'
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
+    const w = render(); await flushPromises()
+    if (mode === 'dirty') await w.get('textarea[aria-label="采集模型（每行一个）"]').setValue('changed-model')
+    await showModelRows(w)
+    const button = w.findAll('button').find(b => b.text().startsWith('一键重试冷却中'))!
+    expect(button.attributes('disabled')).toBeDefined()
+    await button.trigger('click')
+    expect(stateKeeperAPI.collectCooling).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
   it('saves pacing, proxy rotation, cooldown and account budgets without changing injection', async () => {
     vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...initial(), settings }))
     const w = render(); await flushPromises()
     for (const [label, value] of [
       ['单账号请求间隔（s）', 2], ['切换代理失败次数', 3],
       ['自动冷却起始时间（s）', 45], ['自动冷却上限（s）', 600], ['每账号每小时采集上限', 180],
+      ['每账号每 5 分钟采集上限', 20], ['每账号每 10 分钟采集上限', 40],
     ] as const) await w.get(`input[aria-label="${label}"]`).setValue(value)
     await vi.advanceTimersByTimeAsync(5000); await flushPromises()
     await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
     expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({
       request_interval_seconds: 2, proxy_failure_threshold: 3, cooldown_seconds: 45,
       max_cooldown_seconds: 600, account_hourly_limit: 180, injection_enabled: false,
+      account_five_minute_limit: 20, account_ten_minute_limit: 40,
     }))
     expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('keeps proxy lifetime successes tied to proxy IDs when reordering and accounts disappear', async () => {
+    const data = initial()
+    data.settings.proxy_ids = [1, 2]
+    data.proxy_successes = { 1: 1234, 2: 56 }
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
+    const w = render(); await flushPromises()
+    const items = () => w.findAll('ol[aria-label="代理优先级"] li').map(row => row.text())
+    expect(items()[0]).toContain('采集出口成功 1234 次')
+    expect(items()[1]).toContain('备用出口成功 56 次')
+    await w.get('button[aria-label="提高 备用出口 优先级"]').trigger('click')
+    expect(items()[0]).toContain('备用出口成功 56 次')
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue({ ...data, rows: [], proxy_stats_error: '统计文件暂时无法写入' })
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises()
+    expect(items()[1]).toContain('采集出口成功 1234 次')
+    expect(w.text()).toContain('统计文件暂时无法写入')
     w.unmount()
   })
 
@@ -305,7 +389,7 @@ describe('Upstream state management', () => {
     await w.findAll('label').find(label => label.text().startsWith('第三出口'))!.get('input').setValue(true)
     await w.get('button[aria-label="提高 备用出口 优先级"]').trigger('click')
     await vi.advanceTimersByTimeAsync(5000); await flushPromises()
-    expect(w.get('ol[aria-label="代理优先级"]').findAll('li').map(li => li.text())).toEqual(['1备用出口', '2采集出口', '3第三出口'])
+    expect(w.get('ol[aria-label="代理优先级"]').findAll('li').map(li => li.text())).toEqual(['1备用出口成功 0 次', '2采集出口成功 0 次', '3第三出口成功 0 次'])
     await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
     expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({ proxy_id: 2, proxy_ids: [2, 1, 3], injection_enabled: false }))
     w.unmount()
@@ -323,7 +407,7 @@ describe('Upstream state management', () => {
     updated.settings.revision = 'proxy-removed'
     vi.mocked(stateKeeperAPI.get).mockResolvedValue(updated)
     await vi.advanceTimersByTimeAsync(5000); await flushPromises()
-    expect(w.get('ol[aria-label="代理优先级"]').findAll('li').map(li => li.text())).toEqual(['1备用出口'])
+    expect(w.get('ol[aria-label="代理优先级"]').findAll('li').map(li => li.text())).toEqual(['1备用出口成功 0 次'])
     expect((w.get('textarea[aria-label="采集模型（每行一个）"]').element as HTMLTextAreaElement).value).toBe(draft ? 'unsaved-model' : 'test-model')
     if (!draft) expect(w.findAll('button').find(b => b.text() === '立即采集')!.attributes('disabled')).toBeUndefined()
     w.unmount()
