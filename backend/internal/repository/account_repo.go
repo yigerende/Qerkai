@@ -1007,6 +1007,33 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
 	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)
+	return r.listAccountPage(ctx, params, q)
+}
+
+func (r *accountRepository) ListWithQualityFilter(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode, qualityStatus string, policy service.AccountQualitySettings) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)
+	q = q.Where(dbaccount.PlatformEQ(service.PlatformOpenAI), accountQualityPredicate(qualityStatus, policy))
+	return r.listAccountPage(ctx, params, q)
+}
+
+func accountQualityPredicate(status string, policy service.AccountQualitySettings) dbpredicate.Account {
+	condition := service.AccountQualityStatusSQL(policy, status)
+	if status == "pending" {
+		condition = "(" + service.AccountQualityStatusSQL(policy, "degraded") + " OR " + service.AccountQualityStatusSQL(policy, "normal") + ")"
+	}
+	return func(s *entsql.Selector) {
+		s.Where(entsql.P(func(b *entsql.Builder) {
+			if status == "pending" {
+				b.WriteString("NOT ")
+			}
+			b.WriteString("EXISTS (SELECT 1 FROM account_quality_states s WHERE s.account_id = ").Ident(s.C(dbaccount.FieldID)).
+				WriteString(" AND COALESCE(s.payload->>'revision','') = ").Arg(policy.Revision).
+				WriteString(" AND ").WriteString(condition).WriteByte(')')
+		}))
+	}
+}
+
+func (r *accountRepository) listAccountPage(ctx context.Context, params pagination.PaginationParams, q *dbent.AccountQuery) ([]service.Account, *pagination.PaginationResult, error) {
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo

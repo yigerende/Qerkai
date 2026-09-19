@@ -113,10 +113,22 @@ func evaluateQualityOverall(q AccountQualitySettings, result AccountQualityResul
 }
 
 func qualityOverallDegradedSQL(q AccountQualitySettings) string {
+	return AccountQualityStatusSQL(q, "degraded")
+}
+
+// AccountQualityStatusSQL matches the in-memory verdict for the state alias s.
+// Callers must exclude snapshots from older policy revisions separately.
+func AccountQualityStatusSQL(q AccountQualitySettings, status string) string {
 	conditions := []string{}
 	for _, kind := range q.overallConditions() {
 		if (kind == "question" && q.QuestionEnabled) || (kind == "model" && q.ModelAuditEnabled) {
-			conditions = append(conditions, "(s.payload->'"+kind+"'->>'degraded'='true' AND s.payload->'"+kind+"'->>'checked_at' IS NOT NULL AND COALESCE(s.payload->'"+kind+"'->>'error','')='' AND COALESCE(s.payload->'"+kind+"'->>'status','') NOT IN ('','error','no_samples'))")
+			path := "s.payload->'" + kind + "'"
+			evidence := path + "->>'checked_at' IS NOT NULL AND COALESCE(" + path + "->>'error','')=''"
+			if status == "normal" {
+				conditions = append(conditions, "("+evidence+" AND COALESCE("+path+"->>'degraded','false')<>'true' AND "+path+"->>'status' IN ('normal','variant'))")
+			} else {
+				conditions = append(conditions, "("+evidence+" AND "+path+"->>'degraded'='true' AND COALESCE("+path+"->>'status','') NOT IN ('','error','no_samples'))")
+			}
 		} else {
 			conditions = append(conditions, "FALSE")
 		}
@@ -127,6 +139,13 @@ func qualityOverallDegradedSQL(q AccountQualitySettings) string {
 	join := " OR "
 	if q.DegradationMode == "all" {
 		join = " AND "
+	}
+	if status == "normal" {
+		if join == " AND " {
+			join = " OR "
+		} else {
+			join = " AND "
+		}
 	}
 	return "(" + strings.Join(conditions, join) + ")"
 }

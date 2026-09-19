@@ -85,6 +85,12 @@ export default {
       allPlatforms: '全部平台',
       allTypes: '全部类型',
       allStatus: '全部状态',
+      qualityFilter: {
+        all: '全部智商情况',
+        degraded: '降智',
+        normal: '无降智',
+        pending: '未检测'
+      },
       allGroups: '全部分组',
       ungroupedGroup: '未分配分组',
       oauthType: 'OAuth',

@@ -591,6 +591,7 @@ type AccountBulkEditTarget =
         group?: string
         search?: string
         privacy_mode?: string
+        quality_status?: string
         sort_by?: string
         sort_order?: AccountSortOrder
       }
@@ -1115,6 +1116,7 @@ const {
     type: '',
     status: '',
     privacy_mode: '',
+    quality_status: '',
     group: '',
     search: '',
     lite: '1',
@@ -1243,6 +1245,7 @@ const buildUpstreamBillingRateFilters = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    quality_status: typeof rawParams.quality_status === 'string' ? rawParams.quality_status : '',
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
   }
@@ -1511,6 +1514,7 @@ const refreshAccountsIncrementally = async () => {
         type?: string
         status?: string
         privacy_mode?: string
+        quality_status?: string
         group?: string
         search?: string
         sort_by?: string
@@ -2162,6 +2166,7 @@ const buildBulkEditFilterSnapshot = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    quality_status: typeof rawParams.quality_status === 'string' ? rawParams.quality_status : '',
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
   }
@@ -2238,6 +2243,7 @@ const buildAccountQueryFilters = () => ({
   status: params.status || '',
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
+  quality_status: params.quality_status || '',
   search: params.search || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order

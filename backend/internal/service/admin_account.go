@@ -20,8 +20,27 @@ import (
 )
 
 // Account management implementations
-func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error) {
+func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder, qualityStatus string) ([]Account, int64, error) {
+	qualityStatus = strings.TrimSpace(qualityStatus)
+	if err := validateAccountQualityFilter(qualityStatus); err != nil {
+		return nil, 0, err
+	}
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
+	if qualityStatus != "" {
+		repo, ok := s.accountRepo.(AccountQualityListRepository)
+		if !ok || s.settingService == nil {
+			return nil, 0, errors.New("account quality filtering unavailable")
+		}
+		q, err := loadAccountQualitySettings(ctx, s.settingService)
+		if err != nil {
+			return nil, 0, err
+		}
+		accounts, result, err := repo.ListWithQualityFilter(ctx, params, platform, accountType, status, search, groupID, privacyMode, qualityStatus, q)
+		if err != nil {
+			return nil, 0, err
+		}
+		return accounts, result.Total, nil
+	}
 	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode)
 	if err != nil {
 		return nil, 0, err
@@ -1210,6 +1229,7 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 			filters.PrivacyMode,
 			"",
 			"",
+			filters.QualityStatus,
 		)
 		if err != nil {
 			return nil, err

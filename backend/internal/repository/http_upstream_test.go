@@ -894,6 +894,13 @@ func (s *HTTPUpstreamSuite) TestStateCollectionDoesNotReconfigureBusinessPool() 
 	require.Same(s.T(), business, again, "background collection must not replace the account's business client")
 	require.Equal(s.T(), 4, collection.client.Transport.(*http.Transport).MaxConnsPerHost)
 	require.Equal(s.T(), 50, business.client.Transport.(*http.Transport).MaxConnsPerHost)
+	require.True(s.T(), collection.client.Transport.(*http.Transport).DisableKeepAlives)
+	require.False(s.T(), collection.client.Transport.(*http.Transport).ForceAttemptHTTP2)
+	require.False(s.T(), business.client.Transport.(*http.Transport).DisableKeepAlives)
+	settings := svc.applyProfilePoolSettings(poolSettings{}, service.HTTPUpstreamProfileOpenAIStateCollection)
+	tlsTransport, err := buildUpstreamTransportWithTLSFingerprint(settings, nil, &tlsfingerprint.Profile{Name: "test"})
+	require.NoError(s.T(), err)
+	require.True(s.T(), tlsTransport.DisableKeepAlives)
 }
 
 // TestAccountConcurrencyFallbackToDefault 测试账户并发数为 0 时回退到默认配置

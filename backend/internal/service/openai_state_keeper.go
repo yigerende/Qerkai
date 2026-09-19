@@ -35,6 +35,11 @@ type OpenAIStateKeeperSettings struct {
 	MaxAttempts                    int      `json:"max_attempts"`
 	RetryCount                     int      `json:"retry_count"`
 	RetryIntervalSeconds           int      `json:"retry_interval_seconds"`
+	RequestIntervalSeconds         int      `json:"request_interval_seconds"`
+	ProxyFailureThreshold          int      `json:"proxy_failure_threshold"`
+	CooldownSeconds                int      `json:"cooldown_seconds"`
+	MaxCooldownSeconds             int      `json:"max_cooldown_seconds"`
+	AccountHourlyLimit             int      `json:"account_hourly_limit"`
 	AllowedStateLengths            []int    `json:"allowed_state_lengths"`
 	DegradedStateLengths           []int    `json:"degraded_state_lengths"`
 	AccountIDs                     []int64  `json:"account_ids"`
@@ -49,7 +54,7 @@ type OpenAIStateKeeperSettings struct {
 }
 
 func DefaultOpenAIStateKeeperSettings() OpenAIStateKeeperSettings {
-	return OpenAIStateKeeperSettings{AutoRefresh: true, DegradationScanIntervalSeconds: 60, Concurrency: openAIStateKeeperDefaultConcurrency, AccountConcurrency: 1, MaxAttempts: 3, RetryIntervalSeconds: 5, AllowedStateLengths: []int{}, DegradedStateLengths: []int{}, AccountIDs: []int64{}, GroupIDs: []int64{}, Model: "gpt-6-astra"}
+	return OpenAIStateKeeperSettings{AutoRefresh: true, DegradationScanIntervalSeconds: 60, Concurrency: openAIStateKeeperDefaultConcurrency, AccountConcurrency: 1, MaxAttempts: 3, RetryIntervalSeconds: 5, RequestIntervalSeconds: 1, ProxyFailureThreshold: 2, CooldownSeconds: 30, MaxCooldownSeconds: 900, AccountHourlyLimit: 120, AllowedStateLengths: []int{}, DegradedStateLengths: []int{}, AccountIDs: []int64{}, GroupIDs: []int64{}, Model: "gpt-6-astra"}
 }
 
 func (q OpenAIStateKeeperSettings) modelNames() []string {
@@ -88,6 +93,12 @@ func defaultStateKeeperModels() []string {
 }
 
 func (q OpenAIStateKeeperSettings) Validate() error {
+	if q.RequestIntervalSeconds < 0 || q.RequestIntervalSeconds > 300 || q.ProxyFailureThreshold < 1 || q.ProxyFailureThreshold > 100 {
+		return errors.New("单账号请求间隔须为 0–300 秒，切换代理失败次数须为 1–100")
+	}
+	if q.CooldownSeconds < 1 || q.MaxCooldownSeconds < q.CooldownSeconds || q.MaxCooldownSeconds > 86400 || q.AccountHourlyLimit < 1 || q.AccountHourlyLimit > 10000 {
+		return errors.New("自动冷却须为 1–86400 秒且上限不小于起始值，每账号每小时上限须为 1–10000")
+	}
 	if len(q.AccountIDs) > 500 || len(q.GroupIDs) > 500 || len(q.CollectionGroupIDs) > 500 {
 		return errors.New("最多选择 500 个账号或分组")
 	}
@@ -259,6 +270,12 @@ type OpenAIStateKeeperRow struct {
 	ProxyAttempt             int                    `json:"proxy_attempt"`
 	ProxyCount               int                    `json:"proxy_count"`
 	NextRetryAt              *time.Time             `json:"next_retry_at,omitempty"`
+	AutoRetryPending         bool                   `json:"auto_retry_pending"`
+	RetryReason              string                 `json:"retry_reason"`
+	FailureCycles            int                    `json:"failure_cycles"`
+	CooldownUntil            *time.Time             `json:"cooldown_until,omitempty"`
+	HourlyRequests           int                    `json:"hourly_requests"`
+	EffectiveConcurrency     int                    `json:"effective_concurrency"`
 	Models                   []OpenAIStateKeeperRow `json:"models,omitempty"`
 }
 
@@ -279,6 +296,7 @@ type openAIKeptState struct {
 	qualityAt              time.Time
 	collections            []OpenAIStateKeeperEvent
 	injections             []OpenAIStateKeeperEvent
+	nextProxyID            int64
 }
 
 type OpenAIStateKeeperEvent struct {
@@ -329,6 +347,9 @@ type openAIStateProbeResult struct {
 	turnStateLength    int
 	credentialStamp    string
 	accountUnavailable bool
+	retryAfter         time.Duration
+	permanentFailure   bool
+	proxyFailure       bool
 }
 
 type openAIStateKeeperJob struct {
@@ -363,6 +384,8 @@ type OpenAIStateKeeperService struct {
 	qualityPolicy       AccountQualitySettings
 	activeProbes        int
 	accountProbes       map[int64]int
+	collectionLimits    map[int64]*openAIStateCollectionLimit
+	collectionSaves     [64]sync.Mutex
 	observations        chan openAIStateObservation
 	pendingSignals      map[openAIStateKey]openAIStateObservation
 	signalWake          chan struct{}
@@ -387,6 +410,7 @@ func newOpenAIStateKeeper(settings SettingRepository, accounts AccountRepository
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &OpenAIStateKeeperService{settings: settings, accounts: accounts, proxies: proxies, gateway: gateway, rows: map[openAIStateKey]*openAIKeptState{}, events: []OpenAIStateKeeperEvent{}, queue: make(chan openAIStateKeeperJob, 10000), ctx: ctx, cancel: cancel, activeCancels: make(map[openAIStateKey]context.CancelFunc), accountProbes: make(map[int64]int)}
 	s.workerSlots = sync.NewCond(&s.mu)
+	s.collectionLimits = make(map[int64]*openAIStateCollectionLimit)
 	s.observations = make(chan openAIStateObservation, 4096)
 	s.pendingSignals = make(map[openAIStateKey]openAIStateObservation)
 	s.signalWake = make(chan struct{}, 1)
@@ -522,6 +546,8 @@ func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 				entry.row.RetryAttempt, entry.row.RetryLimit = old.row.RetryAttempt, old.row.RetryLimit
 				entry.row.CollectionProxyID, entry.row.ProxyAttempt, entry.row.ProxyCount = old.row.CollectionProxyID, old.row.ProxyAttempt, old.row.ProxyCount
 				entry.row.Attempts, entry.row.Successes, entry.row.Injections = old.row.Attempts, old.row.Successes, old.row.Injections
+				entry.row.AutoRetryPending, entry.row.NextRetryAt, entry.row.RetryReason = old.row.AutoRetryPending, old.row.NextRetryAt, old.row.RetryReason
+				entry.row.FailureCycles, entry.nextProxyID = old.row.FailureCycles, old.nextProxyID
 				entry.row.AccountStatus, entry.row.AccountUnavailable, entry.row.AccountUnavailableReason = old.row.AccountStatus, old.row.AccountUnavailable, old.row.AccountUnavailableReason
 				entry.blockedCredentialStamp = old.blockedCredentialStamp
 			}
@@ -532,7 +558,13 @@ func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 				entry.row.AccountUnavailable, entry.row.AccountUnavailableReason = true, blocked.row.AccountUnavailableReason
 				entry.row.Paused, entry.row.PauseReason = true, blocked.row.AccountUnavailableReason
 			}
-			entry.row.NextRetryAt = nil
+			if !entry.row.AutoRetryPending {
+				entry.row.NextRetryAt = nil
+			}
+			if entry.row.RoundSource == "response" && (!q.InjectionEnabled || !q.ResponseRefreshEnabled) {
+				entry.row.AutoRetryPending, entry.row.NextRetryAt, entry.row.RetryReason = false, nil, ""
+				entry.refreshVersion = ""
+			}
 			entry.row.NextAttemptAt = stateKeeperNextAttempt(q, entry)
 			s.rows[key] = entry
 		}
@@ -765,6 +797,7 @@ func (s *OpenAIStateKeeperService) Snapshot() OpenAIStateKeeperSnapshot {
 				continue
 			}
 			item := entry.row
+			s.decorateCollectionLimitLocked(&item, time.Now())
 			item.SavedStateLength = len(entry.value)
 			item.SavedProxyID = entry.proxyID
 			if entry.value != "" {
@@ -877,6 +910,9 @@ func (s *OpenAIStateKeeperService) enqueueSourceLocked(cfg *openAIStateKeeperCon
 			if entry.row.Queued || entry.row.Collecting || s.activeCancels[key] != nil {
 				continue
 			}
+			if source != "automatic_retry" && source != "manual" && entry.row.AutoRetryPending {
+				continue
+			}
 			select {
 			case s.queue <- openAIStateKeeperJob{accountID: id, model: model, revision: cfg.Revision, source: source, scopeID: entry.scopeID}:
 				entry.row.Queued = true
@@ -892,11 +928,20 @@ func (s *OpenAIStateKeeperService) scheduleDue(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg := s.config.Load()
-	if s.ctx.Err() != nil || !cfg.Enabled || !cfg.AutoRefresh || cfg.AutoCollectIntervalSeconds <= 0 {
+	if s.ctx.Err() != nil || !cfg.Enabled {
 		return
 	}
 	for key, entry := range s.rows {
 		r := entry.row
+		if r.AutoRetryPending {
+			if !r.Paused && !r.Queued && !r.Collecting && r.NextRetryAt != nil && !r.NextRetryAt.After(now) {
+				_ = s.enqueueSourceLocked(cfg, []int64{key.accountID}, "automatic_retry", key.model)
+			}
+			continue
+		}
+		if !cfg.AutoRefresh || cfg.AutoCollectIntervalSeconds <= 0 {
+			continue
+		}
 		if !r.Queued && !r.Collecting && (r.NextAttemptAt == nil || !r.NextAttemptAt.After(now)) {
 			_ = s.enqueueSourceLocked(cfg, []int64{key.accountID}, "timer", key.model)
 		}
@@ -904,6 +949,9 @@ func (s *OpenAIStateKeeperService) scheduleDue(now time.Time) {
 }
 
 func stateKeeperNextAttempt(q OpenAIStateKeeperSettings, entry *openAIKeptState) *time.Time {
+	if entry.row.AutoRetryPending && !entry.row.Paused && !entry.row.AccountUnavailable {
+		return entry.row.NextRetryAt
+	}
 	if entry.row.AccountUnavailable || entry.row.Paused || entry.lastFinishedAt.IsZero() || !q.AutoRefresh || q.AutoCollectIntervalSeconds <= 0 {
 		return nil
 	}

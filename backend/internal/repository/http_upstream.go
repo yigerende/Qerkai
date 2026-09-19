@@ -107,6 +107,7 @@ var errUpstreamClientLimitReached = errors.New("upstream client cache limit reac
 // poolSettings 连接池配置参数
 // 封装 Transport 所需的各项连接池参数
 type poolSettings struct {
+	disableKeepAlives     bool
 	maxIdleConns          int           // 最大空闲连接总数
 	maxIdleConnsPerHost   int           // 每主机最大空闲连接数
 	maxConnsPerHost       int           // 每主机最大连接数（含活跃）
@@ -921,6 +922,11 @@ func (s *httpUpstreamService) resolvePoolSettings(isolation string, accountConcu
 }
 
 func (s *httpUpstreamService) applyProfilePoolSettings(settings poolSettings, profile service.HTTPUpstreamProfile) poolSettings {
+	if profile == service.HTTPUpstreamProfileOpenAIStateCollection {
+		// Dynamic proxies can assign a new exit per TCP tunnel. Collection has
+		// its own client cache and must not pin retries to a pooled tunnel.
+		settings.disableKeepAlives = true
+	}
 	switch profile {
 	case service.HTTPUpstreamProfileOpenAI, service.HTTPUpstreamProfileOpenAIStateCollection:
 		settings.responseHeaderTimeout = 0
@@ -949,6 +955,9 @@ func buildPoolKey(settings poolSettings, protocolMode string) string {
 		settings.idleConnTimeout,
 		settings.responseHeaderTimeout,
 	)
+	if settings.disableKeepAlives {
+		base += "|fresh_connection"
+	}
 	if protocolMode == "" || protocolMode == upstreamProtocolModeDefault {
 		return base
 	}
@@ -1013,6 +1022,9 @@ func (s *httpUpstreamService) resolveOpenAIHTTP2Settings() openAIHTTP2Settings {
 }
 
 func (s *httpUpstreamService) resolveProtocolMode(profile service.HTTPUpstreamProfile, proxyKey string, parsedProxy *url.URL) string {
+	if profile == service.HTTPUpstreamProfileOpenAIStateCollection {
+		return upstreamProtocolModeOpenAIH1
+	}
 	if profile == service.HTTPUpstreamProfileGrok {
 		return upstreamProtocolModeGrok
 	}
@@ -1329,6 +1341,7 @@ func newUpstreamDialer() *net.Dialer {
 //   - ResponseHeaderTimeout: 等待响应头超时（不影响流式传输）
 func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMode string) (*http.Transport, error) {
 	transport := &http.Transport{
+		DisableKeepAlives:     settings.disableKeepAlives,
 		DialContext:           newUpstreamDialer().DialContext,
 		TLSHandshakeTimeout:   defaultUpstreamTLSHandshakeTimeout,
 		MaxIdleConns:          settings.maxIdleConns,
@@ -1393,6 +1406,7 @@ func enableOpenAIHTTP2KeepAlive(transport *http.Transport) (*http2.Transport, er
 //   - socks5: SOCKS5 代理，使用 SOCKS5ProxyDialer（SOCKS5 隧道 + utls 握手）
 func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *url.URL, profile *tlsfingerprint.Profile) (*http.Transport, error) {
 	transport := &http.Transport{
+		DisableKeepAlives:     settings.disableKeepAlives,
 		MaxIdleConns:          settings.maxIdleConns,
 		MaxIdleConnsPerHost:   settings.maxIdleConnsPerHost,
 		MaxConnsPerHost:       settings.maxConnsPerHost,

@@ -6,6 +6,8 @@ import { defineComponent } from 'vue'
 import AccountsView from '../AccountsView.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
+import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
+import BulkEditAccountModal from '@/components/account/BulkEditAccountModal.vue'
 import { qualityAPI } from '@/api/admin/accountQuality'
 
 vi.mock('@/api/admin/accountQuality', () => ({ qualityAPI: { runSelected: vi.fn(), results: vi.fn().mockResolvedValue({ accounts: [] }), history: vi.fn().mockResolvedValue({ items: [] }) }, qualityStatusLabel: () => '未检测', qualityExecutionLabel: () => '未检测' }))
@@ -188,6 +190,26 @@ describe('admin AccountsView lite account list', () => {
     wrapper.unmount()
   })
 
+  it.each(['degraded', 'normal', 'pending'])('preserves quality filter %s across reload, all-result selection and bulk edit', async (qualityStatus) => {
+    vi.useFakeTimers()
+    const wrapper = mountView()
+    await flushPromises()
+    const filters = wrapper.findComponent(AccountTableFilters)
+    filters.vm.$emit('update:filters', { quality_status: qualityStatus })
+    filters.vm.$emit('change')
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+    expect(listAccounts).toHaveBeenLastCalledWith(1, 20, expect.objectContaining({ quality_status: qualityStatus }), expect.any(Object))
+    wrapper.findComponent(AccountBulkActionsBar).vm.$emit('select-all-results')
+    await flushPromises()
+    expect(listAccounts).toHaveBeenLastCalledWith(1, 1000, expect.objectContaining({ quality_status: qualityStatus }))
+    wrapper.findComponent(AccountBulkActionsBar).vm.$emit('edit-filtered')
+    await flushPromises()
+    expect(wrapper.findComponent(BulkEditAccountModal).props('target')).toMatchObject({ filters: { quality_status: qualityStatus } })
+    expect(qualityAPI.runSelected).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('connects the bulk action to only the confirmed selection and exposes progress', async () => {
     listAccounts.mockResolvedValue({ items: [listRow, { ...listRow, id: 99 }], total: 2, page: 1, page_size: 20, pages: 1 })
     vi.mocked(qualityAPI.runSelected).mockResolvedValue({ revision: 'r1', question_enabled: true, model_audit_enabled: false, accounts: [{ account_id: 42, name: 'compact row', skip_reason: 'fixture skip' }] })
@@ -221,13 +243,14 @@ describe('admin AccountsView lite account list', () => {
     const wrapper = mountView()
     await flushPromises()
 
+    wrapper.findComponent(AccountTableFilters).vm.$emit('update:filters', { quality_status: 'normal' })
     await vi.advanceTimersByTimeAsync(6000)
     await flushPromises()
 
     expect(listWithEtag).toHaveBeenCalledWith(
       1,
       20,
-      expect.objectContaining({ lite: '1' }),
+      expect.objectContaining({ lite: '1', quality_status: 'normal' }),
       expect.objectContaining({ etag: null })
     )
     wrapper.unmount()

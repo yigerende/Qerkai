@@ -12,7 +12,7 @@ const lanes = computed(() => [
 ])
 const slots = (events: StateKeeperEvent[]) => [...Array<null>(10 - Math.min(10, events.length)).fill(null), ...events.slice(0, 10).reverse()]
 const resultName = (result: string) => ({ collected: '已保存', sent: '已携带发送', degraded_signal: '降智长度信号', filtered: '长度不符', failed: '失败', upstream_error: '上游错误', not_observed: '未取得响应头', cancelled: '已取消' }[result] || result)
-const sourceName = (source: string) => ({ manual: '手动', timer: '定时', degradation_scan: '降智扫描', response: '返回信号', http: 'HTTP', ws: 'WS', quality_http: '降智检测' }[source] || source)
+const sourceName = (source: string) => ({ manual: '手动', timer: '定时', degradation_scan: '降智扫描', response: '返回信号', automatic_retry: '自动恢复', http: 'HTTP', ws: 'WS', quality_http: '降智检测' }[source] || source)
 const describe = (event: StateKeeperEvent) => [formatDateTime(event.at), event.model, resultName(event.result), sourceName(event.source), event.attempt ? `本轮第 ${event.attempt} 次` : '', event.injected_length ? `注入长度 ${event.injected_length}` : '', `返回长度 ${event.turn_state_length || '-'}`, event.message].filter(Boolean).join(' | ')
 const color = (event: StateKeeperEvent | null) => !event ? 'bg-gray-200 dark:bg-dark-600' : event.result === 'collected' ? 'bg-emerald-500' : event.result === 'sent' ? 'bg-sky-500' : event.result === 'cancelled' ? 'bg-gray-400' : 'bg-red-500'
 </script>

@@ -32,7 +32,7 @@ func keeperDrainObservations(s *OpenAIStateKeeperService) {
 	}
 }
 
-func TestStateKeeperParallelRoundHardBudgetAndPersistentPause(t *testing.T) {
+func TestStateKeeperParallelRoundHardBudgetAndPersistentRecovery(t *testing.T) {
 	s, _, a := keeperTestService(t)
 	s.files = keeperTestFileStore(t)
 	q := s.config.Load().OpenAIStateKeeperSettings
@@ -52,11 +52,13 @@ func TestStateKeeperParallelRoundHardBudgetAndPersistentPause(t *testing.T) {
 	}
 	s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision, source: "manual"})
 	require.Equal(t, int64(7), calls.Load())
-	require.Equal(t, int64(3), peak.Load())
+	require.Greater(t, peak.Load(), int64(0))
+	require.LessOrEqual(t, peak.Load(), int64(3))
 	row := s.Snapshot().Rows[0]
 	require.Equal(t, 7, row.RoundAttempts)
-	require.True(t, row.Paused)
-	s.scheduleDue(time.Now().Add(time.Hour))
+	require.False(t, row.Paused)
+	require.True(t, row.AutoRetryPending)
+	s.scheduleDue(row.NextRetryAt.Add(-time.Nanosecond))
 	require.Empty(t, s.queue)
 
 	restarted := newOpenAIStateKeeper(s.settings, s.accounts, s.proxies, s.gateway)
@@ -64,16 +66,19 @@ func TestStateKeeperParallelRoundHardBudgetAndPersistentPause(t *testing.T) {
 	restarted.files = s.files
 	restarted.reload(context.Background())
 	keeperMarkDegraded(restarted, 1)
-	require.True(t, restarted.Snapshot().Rows[0].Paused)
-	restarted.scheduleDue(time.Now().Add(24 * time.Hour))
+	require.False(t, restarted.Snapshot().Rows[0].Paused)
+	require.True(t, restarted.Snapshot().Rows[0].AutoRetryPending)
+	restarted.scheduleDue(row.NextRetryAt.Add(-time.Nanosecond))
 	require.Empty(t, restarted.queue)
 	q = restarted.config.Load().OpenAIStateKeeperSettings
 	q.Enabled = false
 	require.NoError(t, restarted.Save(context.Background(), q))
 	q.Enabled = true
 	require.NoError(t, restarted.Save(context.Background(), q))
-	restarted.scheduleDue(time.Now().Add(24 * time.Hour))
-	require.Empty(t, restarted.queue, "configuration changes must not reset the paused budget")
+	restarted.scheduleDue(row.NextRetryAt.Add(-time.Nanosecond))
+	require.Empty(t, restarted.queue, "configuration changes must not bypass recovery delay")
+	restarted.scheduleDue(*row.NextRetryAt)
+	require.Len(t, restarted.queue, 1, "ordinary failures resume automatically")
 	restarted.probe = func(context.Context, OpenAIStateKeeperSettings, int64) openAIStateProbeResult {
 		return openAIStateProbeResult{status: 200, result: "collected", value: strings.Repeat("a", 332), credentialStamp: stateKeeperCredentialStamp(a)}
 	}
@@ -173,7 +178,7 @@ func TestStateKeeperConcurrentAccountsShareGlobalRequestLimit(t *testing.T) {
 	require.NoError(t, s.Schedule(nil))
 	require.Eventually(t, func() bool {
 		for _, row := range s.Snapshot().Rows {
-			if !row.Paused || row.Collecting || row.Queued {
+			if !row.AutoRetryPending || row.Paused || row.Collecting || row.Queued {
 				return false
 			}
 		}
@@ -396,7 +401,7 @@ func TestStateKeeperHTTPResponseQueuesRefreshWithoutReadingOrResendingBody(t *te
 	}
 }
 
-func TestStateKeeperInterruptedRoundStaysPausedAfterRestart(t *testing.T) {
+func TestStateKeeperInterruptedRoundResumesAfterCooldown(t *testing.T) {
 	s, _, _ := keeperTestService(t)
 	s.files = keeperTestFileStore(t)
 	q := s.config.Load().OpenAIStateKeeperSettings
@@ -410,8 +415,11 @@ func TestStateKeeperInterruptedRoundStaysPausedAfterRestart(t *testing.T) {
 	t.Cleanup(restarted.Stop)
 	restarted.files = s.files
 	restarted.reload(context.Background())
-	require.True(t, restarted.Snapshot().Rows[0].Paused)
-	require.Contains(t, restarted.Snapshot().Rows[0].PauseReason, "未完成")
+	row := restarted.Snapshot().Rows[0]
+	require.False(t, row.Paused)
+	require.True(t, row.AutoRetryPending)
+	require.Contains(t, row.RetryReason, "未完成")
+	require.True(t, row.NextRetryAt.After(time.Now()))
 }
 
 func BenchmarkStateKeeperDisabledRequest(b *testing.B) {

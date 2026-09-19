@@ -149,7 +149,7 @@ func TestStateKeeperProxySyncUsesLatestPersistedSettings(t *testing.T) {
 	require.Equal(t, 17, s.config.Load().RetryIntervalSeconds)
 }
 
-func TestStateKeeperProxyPriorityCompletesRetriesBeforeFailover(t *testing.T) {
+func TestStateKeeperProxyPriorityRotatesAfterShortBatch(t *testing.T) {
 	s, gateway, account := keeperTestService(t)
 	s.files = &openAIStateFileStore{dir: t.TempDir(), cipher: &liveAttestationAES{key: [32]byte{1}}}
 	q := s.config.Load().OpenAIStateKeeperSettings
@@ -169,9 +169,8 @@ func TestStateKeeperProxyPriorityCompletesRetriesBeforeFailover(t *testing.T) {
 	q.AllowedStateLengths = []int{332}
 	require.NoError(t, s.Save(context.Background(), q))
 	s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision})
-	require.Equal(t, []int64{3, 3, 3, 3, 2}, calls)
+	require.Equal(t, []int64{3, 3, 2}, calls)
 	require.GreaterOrEqual(t, at[2].Sub(at[1]), time.Second)
-	require.GreaterOrEqual(t, at[4].Sub(at[3]), time.Second)
 	row := s.Snapshot().Rows[0]
 	require.False(t, row.Paused)
 	require.Equal(t, 2, row.ProxyAttempt)
@@ -206,7 +205,8 @@ func TestStateKeeperProxyFailoverChangesOnlyCollectorTransport(t *testing.T) {
 		2: {ID: 2, Protocol: "http", Host: "second-proxy", Port: 8002, Status: StatusActive},
 	}}
 	q := s.config.Load().OpenAIStateKeeperSettings
-	q.ProxyIDs, q.MaxAttempts, q.RetryCount, q.RetryIntervalSeconds, q.AllowedStateLengths = []int64{1, 2}, 1, 0, 1, []int{332}
+	q.ProxyIDs, q.MaxAttempts, q.RetryCount, q.RetryIntervalSeconds, q.AllowedStateLengths = []int64{1, 2}, 2, 0, 1, []int{332}
+	q.ProxyFailureThreshold = 1
 	require.NoError(t, s.Save(context.Background(), q))
 	var exits []string
 	gateway.httpUpstream = &keeperHTTPStub{do: func(req *http.Request, proxy string, id int64, _ int) (*http.Response, error) {
@@ -231,7 +231,8 @@ func TestStateKeeperProxyFailoverChangesOnlyCollectorTransport(t *testing.T) {
 func TestStateKeeperExhaustsAllProxiesAndValidatesSelection(t *testing.T) {
 	s, _, _ := keeperTestService(t)
 	q := s.config.Load().OpenAIStateKeeperSettings
-	q.ProxyIDs, q.MaxAttempts, q.RetryCount, q.RetryIntervalSeconds = []int64{2, 1}, 1, 0, 1
+	q.ProxyIDs, q.MaxAttempts, q.RetryCount, q.RetryIntervalSeconds = []int64{2, 1}, 2, 0, 1
+	q.ProxyFailureThreshold = 1
 	require.NoError(t, s.Save(context.Background(), q))
 	var calls []int64
 	s.probe = func(_ context.Context, q OpenAIStateKeeperSettings, _ int64) openAIStateProbeResult {
@@ -240,7 +241,8 @@ func TestStateKeeperExhaustsAllProxiesAndValidatesSelection(t *testing.T) {
 	}
 	s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision})
 	require.Equal(t, []int64{2, 1}, calls)
-	require.True(t, s.Snapshot().Rows[0].Paused)
+	require.False(t, s.Snapshot().Rows[0].Paused)
+	require.True(t, s.Snapshot().Rows[0].AutoRetryPending)
 	for _, ids := range [][]int64{{}, {1, 1}, {-1}, {0}} {
 		q.ProxyIDs = ids
 		require.Error(t, q.Validate())

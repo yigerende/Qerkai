@@ -70,6 +70,7 @@ func (s *OpenAIStateKeeperService) setAccountUnavailableLocked(key openAIStateKe
 	e.row.AccountUnavailable, e.row.AccountUnavailableReason = reason != "", reason
 	if reason != "" {
 		e.row.Queued = false
+		e.row.AutoRetryPending, e.row.RetryReason = false, ""
 		e.row.NextAttemptAt, e.row.NextRetryAt = nil, nil
 		if cancel := s.activeCancels[key]; cancel != nil {
 			cancel()

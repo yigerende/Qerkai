@@ -31,7 +31,7 @@ func (w *openAIStateProbeWriter) Flush()                      {}
 func (s *OpenAIStateKeeperService) collect(ctx context.Context, q OpenAIStateKeeperSettings, id int64) openAIStateProbeResult {
 	ctx = WithHTTPUpstreamProfile(ctx, HTTPUpstreamProfileOpenAIStateCollection)
 	failure := func(message string) openAIStateProbeResult {
-		return openAIStateProbeResult{result: "failed", message: message}
+		return openAIStateProbeResult{result: "failed", message: message, proxyFailure: true}
 	}
 	account, err := s.accounts.GetByID(ctx, id)
 	if err != nil || account == nil {
@@ -84,6 +84,10 @@ func (s *OpenAIStateKeeperService) collect(ctx context.Context, q OpenAIStateKee
 func parseOpenAIStateProbeResponse(response *http.Response) openAIStateProbeResult {
 	value := response.Header.Get(openAICodexTurnStateHeader)
 	out := openAIStateProbeResult{status: response.StatusCode, result: "not_observed", hasCodexTurnState: value != "", turnStateLength: len(value)}
+	if response.StatusCode == http.StatusTooManyRequests {
+		out.retryAfter = keeperRetryAfter(response.Header.Get("Retry-After"), time.Now())
+	}
+	out.proxyFailure = response.StatusCode == http.StatusProxyAuthRequired || response.StatusCode == http.StatusForbidden || response.StatusCode >= 500
 	// Header acquisition completes independently of the model's response body.
 	if response.StatusCode == http.StatusOK && validCollectedState(value) {
 		out.result = "collected"
@@ -107,13 +111,19 @@ func parseOpenAIStateProbeResponse(response *http.Response) openAIStateProbeResu
 		// Only classify known errors. Upstream error text can contain credentials.
 		switch code {
 		case "billing_not_active":
+			out.permanentFailure = true
 			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：billing_not_active（API 计费未启用），未保存状态", response.StatusCode)
 		case "insufficient_quota":
+			out.permanentFailure = true
 			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：insufficient_quota（API 额度不足），未保存状态", response.StatusCode)
 		case "invalid_api_key":
 			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：invalid_api_key（当前凭据不被采集接口接受），未保存状态", response.StatusCode)
 		case "model_not_found":
+			out.permanentFailure = true
 			out.message = fmt.Sprintf("Chat Completions 返回 HTTP %d：model_not_found（当前凭据无法使用所选模型），未保存状态", response.StatusCode)
+		case "unsupported_model", "model_not_available", "invalid_model", "permission_denied":
+			out.permanentFailure = true
+			out.message = fmt.Sprintf("采集上游返回 HTTP %d：%s，请检查模型及权限", response.StatusCode, code)
 		}
 		return out
 	}

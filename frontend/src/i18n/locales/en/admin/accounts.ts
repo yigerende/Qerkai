@@ -85,6 +85,12 @@ export default {
       allPlatforms: 'All Platforms',
       allTypes: 'All Types',
       allStatus: 'All Status',
+      qualityFilter: {
+        all: 'All Quality Results',
+        degraded: 'Degraded',
+        normal: 'Not Degraded',
+        pending: 'Not Determined'
+      },
       allGroups: 'All Groups',
       ungroupedGroup: 'Ungrouped',
       oauthType: 'OAuth',

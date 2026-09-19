@@ -59,8 +59,12 @@ func ProvideAccountQualityService(db *sql.DB, settings *SettingService, tests *A
 }
 func (s *AccountQualityService) Stop() { s.cancel(); s.wg.Wait() }
 func (s *AccountQualityService) Settings(ctx context.Context) (AccountQualitySettings, error) {
+	return loadAccountQualitySettings(ctx, s.settings)
+}
+
+func loadAccountQualitySettings(ctx context.Context, settings *SettingService) (AccountQualitySettings, error) {
 	q := DefaultAccountQualitySettings()
-	raw, err := s.settings.settingRepo.GetValue(ctx, accountQualitySettingKey)
+	raw, err := settings.settingRepo.GetValue(ctx, accountQualitySettingKey)
 	if errors.Is(err, ErrSettingNotFound) {
 		normalizeQualityOverallPolicy(&q)
 		return q, nil

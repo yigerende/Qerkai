@@ -120,6 +120,17 @@ func setupAccountListRouter() (*gin.Engine, *stubAdminService) {
 	return router, adminSvc
 }
 
+func TestAccountHandlerListPassesQualityFilter(t *testing.T) {
+	for _, status := range []string{"degraded", "normal", "pending"} {
+		router, svc := setupAccountListRouter()
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?quality_status="+status, nil))
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, status, svc.lastListAccounts.qualityStatus)
+		require.Equal(t, status, toServiceBulkUpdateAccountFilters(&BulkUpdateAccountFilters{QualityStatus: status}).QualityStatus)
+	}
+}
+
 func TestAccountHandlerListIncludesCreatedAt(t *testing.T) {
 	router, adminSvc := setupAccountListRouter()
 

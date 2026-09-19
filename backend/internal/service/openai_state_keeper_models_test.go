@@ -147,12 +147,14 @@ func TestStateKeeperRetryExhaustionAndCancellation(t *testing.T) {
 	}
 	s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision})
 	require.Equal(t, int64(4), calls.Load())
-	require.True(t, s.Snapshot().Rows[0].Paused)
+	require.False(t, s.Snapshot().Rows[0].Paused)
+	require.True(t, s.Snapshot().Rows[0].AutoRetryPending)
 	restarted := newOpenAIStateKeeper(s.settings, s.accounts, s.proxies, s.gateway)
 	t.Cleanup(restarted.Stop)
 	restarted.files = s.files
 	restarted.reload(context.Background())
-	require.True(t, restarted.Snapshot().Rows[0].Paused)
+	require.False(t, restarted.Snapshot().Rows[0].Paused)
+	require.True(t, restarted.Snapshot().Rows[0].AutoRetryPending)
 	require.Equal(t, 1, restarted.Snapshot().Rows[0].RetryLimit)
 	q.RetryIntervalSeconds = 60
 	q.RetryCount = 2
@@ -160,7 +162,7 @@ func TestStateKeeperRetryExhaustionAndCancellation(t *testing.T) {
 	require.Equal(t, 1, s.Snapshot().Rows[0].RetryLimit, "editing policy cannot rewrite the completed round's limit")
 	done := make(chan struct{})
 	go func() { s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision}); close(done) }()
-	require.Eventually(t, func() bool { return s.Snapshot().Rows[0].NextRetryAt != nil }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { row := s.Snapshot().Rows[0]; return row.Collecting && row.NextRetryAt != nil }, time.Second, time.Millisecond)
 	q.Enabled = false
 	require.NoError(t, s.Save(context.Background(), q))
 	select {
@@ -207,7 +209,7 @@ func TestStateKeeperMultiModelConcurrentLoadKeepsAccountAndGlobalLimits(t *testi
 	require.Eventually(t, func() bool {
 		for _, account := range s.Snapshot().Rows {
 			for _, row := range account.Models {
-				if !row.Paused || row.Collecting || row.Queued {
+				if !row.AutoRetryPending || row.Paused || row.Collecting || row.Queued {
 					return false
 				}
 			}

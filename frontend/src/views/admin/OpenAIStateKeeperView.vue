@@ -103,6 +103,7 @@ const accountStates = computed(() => (snapshot.value?.rows || []).map(account =>
     savedCount: models.filter(row => row.state_file_saved).length,
     pausedCount: models.filter(row => !account.account_unavailable && !row.account_unavailable && row.paused && !row.queued && !row.collecting).length,
     activeCount: models.filter(row => row.queued || row.collecting).length,
+    coolingCount: models.filter(row => !row.paused && (row.auto_retry_pending || row.cooldown_until)).length,
     lastCollection: collectionTimes.sort().at(-1),
     httpStatuses: [...new Set(models.map(row => row.http_status).filter(Boolean))].join(' / ') || '—',
     stateLengths: [...new Set(models.map(row => row.turn_state_length).filter(Boolean))].join(' / ') || '—',
@@ -326,9 +327,14 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
           <div class="grid gap-4 md:grid-cols-3">
             <label class="state-label">采集总并发数<input v-model.number="form.concurrency" class="input" type="number" min="1" max="500" step="1"></label>
             <label class="state-label">单账号采集并发数<input v-model.number="form.account_concurrency" class="input" type="number" min="1" max="100" step="1"></label>
-            <label class="state-label">每轮最多请求次数（含首次）<input v-model.number="form.max_attempts" class="input" type="number" min="1" max="100" step="1"></label>
+            <label class="state-label">每轮请求上限（全部代理合计）<input v-model.number="form.max_attempts" class="input" type="number" min="1" max="100" step="1"></label>
             <label class="state-label">失败后重试轮数<input v-model.number="form.retry_count" class="input" type="number" min="0" max="100" step="1" aria-label="失败后重试轮数"></label>
             <label class="state-label">重试间隔（s）<input v-model.number="form.retry_interval_seconds" class="input" type="number" min="1" max="86400" step="1" aria-label="重试间隔（s）"></label>
+            <label class="state-label">单账号请求间隔（s）<input v-model.number="form.request_interval_seconds" class="input" type="number" min="0" max="300" step="1" aria-label="单账号请求间隔（s）"></label>
+            <label class="state-label">切换代理失败次数<input v-model.number="form.proxy_failure_threshold" class="input" type="number" min="1" max="100" step="1" aria-label="切换代理失败次数"></label>
+            <label class="state-label">自动冷却起始时间（s）<input v-model.number="form.cooldown_seconds" class="input" type="number" min="1" max="86400" step="1" aria-label="自动冷却起始时间（s）"></label>
+            <label class="state-label">自动冷却上限（s）<input v-model.number="form.max_cooldown_seconds" class="input" type="number" min="1" max="86400" step="1" aria-label="自动冷却上限（s）"></label>
+            <label class="state-label">每账号每小时采集上限<input v-model.number="form.account_hourly_limit" class="input" type="number" min="1" max="10000" step="1" aria-label="每账号每小时采集上限"></label>
           </div>
           <label class="state-label max-w-md">允许保存的响应头长度<input v-model="allowedLengthsInput" class="input" type="text" maxlength="2000" placeholder="292,332；留空不限制" aria-label="允许保存的响应头长度"></label>
           <label class="state-label max-w-md">降智响应头长度<input v-model="degradedLengthsInput" class="input" type="text" maxlength="2000" placeholder="356" aria-label="降智响应头长度"></label>
@@ -431,7 +437,8 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
                   <span v-if="account.account_unavailable" class="text-red-600 dark:text-red-300">账号不可用 · 停止采集</span>
                   <span v-else-if="account.pausedCount" class="text-amber-600">待人工 {{ account.pausedCount }}</span>
                   <span v-if="account.activeCount" class="text-primary-600">排队 / 采集中 {{ account.activeCount }}</span>
-                  <span v-if="!account.account_unavailable && !account.pausedCount && !account.activeCount" class="text-gray-500">{{ account.savedCount === account.models.length ? '已采集' : '待采集' }}</span>
+                  <span v-if="!account.account_unavailable && account.coolingCount" class="text-amber-600">自动冷却 {{ account.coolingCount }}</span>
+                  <span v-if="!account.account_unavailable && !account.pausedCount && !account.activeCount && !account.coolingCount" class="text-gray-500">{{ account.savedCount === account.models.length ? '已采集' : '待采集' }}</span>
                 </div>
               </td>
               <td class="whitespace-nowrap text-xs" :class="account.savedCount ? 'text-emerald-600' : 'text-gray-400'">已保存 {{ account.savedCount }} / {{ account.models.length }}</td>
@@ -447,8 +454,8 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td aria-hidden="true" class="bg-gray-50/30 dark:bg-dark-900/10"></td>
               <td class="min-w-44 max-w-60">
                 <div class="break-all font-medium">{{ row.model }}</div>
-                <span class="mt-1 inline-block rounded px-2 py-1 text-xs" :class="row.paused ? 'bg-amber-50 text-amber-700' : row.state_file_saved ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'">{{ row.next_retry_at ? '等待重试' : row.collecting ? '采集中' : row.queued ? '已排队' : row.paused ? '已暂停，待人工' : statusText[row.status] || row.status }}</span>
-                <p class="mt-1 max-w-60 break-words text-xs text-gray-500">{{ row.paused ? row.pause_reason : row.message }}</p>
+                <span class="mt-1 inline-block rounded px-2 py-1 text-xs" :class="account.account_unavailable || row.account_unavailable ? 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300' : row.paused || row.auto_retry_pending || row.cooldown_until ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300' : row.state_file_saved ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'">{{ account.account_unavailable || row.account_unavailable ? '账号不可用，停止采集' : row.paused ? '已暂停，待人工' : row.auto_retry_pending ? '冷却中，自动继续' : row.cooldown_until ? '账号冷却中' : row.next_retry_at ? '等待重试' : row.collecting ? '采集中' : row.queued ? '已排队' : statusText[row.status] || row.status }}</span>
+                <p class="mt-1 max-w-60 break-words text-xs text-gray-500">{{ account.account_unavailable || row.account_unavailable ? row.account_unavailable_reason || account.account_unavailable_reason : row.paused ? row.pause_reason : row.retry_reason || row.message }}</p>
               </td>
               <td class="min-w-44">
                 <button class="block max-w-48 text-left font-mono text-xs text-gray-800 disabled:cursor-default dark:text-gray-200" :disabled="!row.state_file_saved" title="查看此模型已保存的完整 State" @click="openDetail(row.account_id, 'file', row.model)">{{ row.state_preview || '—' }}</button>
@@ -458,7 +465,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td class="tabular-nums">{{ row.http_status || '—' }}</td>
               <td class="tabular-nums">{{ row.turn_state_length || '—' }}</td>
               <td class="whitespace-nowrap text-xs">{{ date(row.last_collection_at || row.collected_at) }}<p v-if="row.next_retry_at" class="mt-1 text-amber-600">重试 {{ date(row.next_retry_at) }}</p><p v-else-if="row.next_attempt_at" class="mt-1 text-gray-500">下次 {{ date(row.next_attempt_at) }}</p><p v-if="row.collection_proxy_id" class="mt-1 max-w-40 whitespace-normal break-words text-gray-500">{{ proxyName(row.collection_proxy_id) }} · {{ row.proxy_attempt || 1 }}/{{ row.proxy_count || 1 }}</p></td>
-              <td class="whitespace-nowrap tabular-nums">{{ row.attempts }} / {{ row.successes }} / {{ row.injections }}<p class="mt-1 text-xs text-gray-500">本轮已请求 {{ row.round_attempts || 0 }} 次</p><p class="mt-1 text-xs text-gray-500">重试 {{ row.retry_attempt || 0 }} / {{ row.retry_limit || 0 }}</p></td>
+              <td class="whitespace-nowrap tabular-nums">{{ row.attempts }} / {{ row.successes }} / {{ row.injections }}<p class="mt-1 text-xs text-gray-500">本轮已请求 {{ row.round_attempts || 0 }} 次</p><p class="mt-1 text-xs text-gray-500">重试 {{ row.retry_attempt || 0 }} / {{ row.retry_limit || 0 }}</p><p class="mt-1 text-xs text-gray-500">账号本小时 {{ row.hourly_requests || 0 }} / {{ snapshot?.settings.account_hourly_limit }}</p><p v-if="row.effective_concurrency" class="mt-1 text-xs text-gray-500">当前账号并发上限 {{ row.effective_concurrency }}</p></td>
               <td><div class="flex flex-col items-start gap-2 whitespace-nowrap">
                 <button class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-40" :disabled="!row.has_details" @click="openDetail(row.account_id, 'header', row.model)"><Icon name="eye" size="sm" />详情</button>
                 <button class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-40" :disabled="!row.state_file_saved" title="查看已写入的 State 文件" @click="openDetail(row.account_id, 'file', row.model)"><Icon name="eye" size="sm" />查看</button>

@@ -10,38 +10,65 @@ import (
 )
 
 type openAIStateRuntime struct {
-	AccountID              int64                    `json:"account_id"`
-	AccountStatus          string                   `json:"account_status,omitempty"`
-	BlockedCredentialStamp string                   `json:"blocked_credential_stamp,omitempty"`
-	Model                  string                   `json:"model"`
-	RetryAttempt           int                      `json:"retry_attempt"`
-	RetryLimit             int                      `json:"retry_limit"`
-	CollectionProxyID      int64                    `json:"collection_proxy_id"`
-	ProxyAttempt           int                      `json:"proxy_attempt"`
-	ProxyCount             int                      `json:"proxy_count"`
-	Paused                 bool                     `json:"paused"`
-	PauseReason            string                   `json:"pause_reason"`
-	InProgress             bool                     `json:"in_progress"`
-	RoundID                string                   `json:"round_id"`
-	RoundAttempts          int                      `json:"round_attempts"`
-	RoundSource            string                   `json:"round_source"`
-	Attempts               int64                    `json:"attempts"`
-	Successes              int64                    `json:"successes"`
-	Injections             int64                    `json:"injections"`
-	LastFinishedAt         time.Time                `json:"last_finished_at"`
-	RefreshVersion         string                   `json:"refresh_version"`
-	Collections            []OpenAIStateKeeperEvent `json:"collections"`
-	InjectionEvents        []OpenAIStateKeeperEvent `json:"injection_events"`
+	Version                int                        `json:"version"`
+	AutoRetryPending       bool                       `json:"auto_retry_pending"`
+	NextRetryAt            *time.Time                 `json:"next_retry_at,omitempty"`
+	RetryReason            string                     `json:"retry_reason"`
+	FailureCycles          int                        `json:"failure_cycles"`
+	NextProxyID            int64                      `json:"next_proxy_id"`
+	CollectionLimit        openAIStateCollectionLimit `json:"collection_limit"`
+	AccountID              int64                      `json:"account_id"`
+	AccountStatus          string                     `json:"account_status,omitempty"`
+	BlockedCredentialStamp string                     `json:"blocked_credential_stamp,omitempty"`
+	Model                  string                     `json:"model"`
+	RetryAttempt           int                        `json:"retry_attempt"`
+	RetryLimit             int                        `json:"retry_limit"`
+	CollectionProxyID      int64                      `json:"collection_proxy_id"`
+	ProxyAttempt           int                        `json:"proxy_attempt"`
+	ProxyCount             int                        `json:"proxy_count"`
+	Paused                 bool                       `json:"paused"`
+	PauseReason            string                     `json:"pause_reason"`
+	InProgress             bool                       `json:"in_progress"`
+	RoundID                string                     `json:"round_id"`
+	RoundAttempts          int                        `json:"round_attempts"`
+	RoundSource            string                     `json:"round_source"`
+	Attempts               int64                      `json:"attempts"`
+	Successes              int64                      `json:"successes"`
+	Injections             int64                      `json:"injections"`
+	LastFinishedAt         time.Time                  `json:"last_finished_at"`
+	RefreshVersion         string                     `json:"refresh_version"`
+	Collections            []OpenAIStateKeeperEvent   `json:"collections"`
+	InjectionEvents        []OpenAIStateKeeperEvent   `json:"injection_events"`
 }
 
 func (s *openAIStateFileStore) runtimePath(id int64, models ...string) string {
 	return filepath.Join(s.dir, stateKeeperFileStem(id, models...)+".runtime.json")
 }
 
+func (s *openAIStateFileStore) collectionLimitPath(id int64) string {
+	return filepath.Join(s.dir, stateKeeperFileStem(id)+".collection.json")
+}
+
 func (s *OpenAIStateKeeperService) persistRuntime(id int64, model ...string) error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	return s.persistRuntimeLocked(id, model...)
+}
+
+func (s *OpenAIStateKeeperService) persistCollectionLimit(id int64) error {
+	if s.files == nil {
+		return nil
+	}
+	lock := &s.collectionSaves[uint64(id)%uint64(len(s.collectionSaves))]
+	lock.Lock()
+	defer lock.Unlock()
+	s.mu.RLock()
+	var snapshot openAIStateCollectionLimit
+	if limit := s.collectionLimits[id]; limit != nil {
+		snapshot = *limit
+	}
+	s.mu.RUnlock()
+	return writeKeeperRuntime(s.files.collectionLimitPath(id), snapshot)
 }
 
 func (s *OpenAIStateKeeperService) persistRuntimeLocked(id int64, models ...string) error {
@@ -56,19 +83,30 @@ func (s *OpenAIStateKeeperService) persistRuntimeLocked(id int64, models ...stri
 		return nil
 	}
 	r := openAIStateRuntime{AccountID: id, Model: key.model, RetryAttempt: e.row.RetryAttempt, RetryLimit: e.row.RetryLimit, Paused: e.row.Paused, PauseReason: e.row.PauseReason, InProgress: e.row.Collecting || e.row.Queued,
+		Version: 2, AutoRetryPending: e.row.AutoRetryPending, NextRetryAt: e.row.NextRetryAt, RetryReason: e.row.RetryReason, FailureCycles: e.row.FailureCycles, NextProxyID: e.nextProxyID,
 		AccountStatus: e.row.AccountStatus, BlockedCredentialStamp: e.blockedCredentialStamp,
 		CollectionProxyID: e.row.CollectionProxyID, ProxyAttempt: e.row.ProxyAttempt, ProxyCount: e.row.ProxyCount,
 		RoundID: e.row.RoundID, RoundAttempts: e.row.RoundAttempts, RoundSource: e.row.RoundSource, Attempts: e.row.Attempts, Successes: e.row.Successes, Injections: e.row.Injections,
 		LastFinishedAt: e.lastFinishedAt, RefreshVersion: e.refreshVersion, Collections: append([]OpenAIStateKeeperEvent{}, e.collections...), InjectionEvents: append([]OpenAIStateKeeperEvent{}, e.injections...)}
+	if limit := s.collectionLimits[id]; limit != nil {
+		r.CollectionLimit = *limit
+	}
 	s.mu.RUnlock()
-	body, err := json.Marshal(r)
+	if err := s.persistCollectionLimit(id); err != nil {
+		return err
+	}
+	return writeKeeperRuntime(s.files.runtimePath(id, key.model), r)
+}
+
+func writeKeeperRuntime(path string, value any) error {
+	body, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(s.files.dir, 0700); err != nil {
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(s.files.dir, ".runtime-*.tmp")
+	f, err := os.CreateTemp(filepath.Dir(path), ".runtime-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -82,7 +120,7 @@ func (s *OpenAIStateKeeperService) persistRuntimeLocked(id int64, models ...stri
 	if err = f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), s.files.runtimePath(id, key.model))
+	return os.Rename(f.Name(), path)
 }
 
 // Called under saveMu, including when the feature is disabled. Pauses belong
@@ -93,6 +131,17 @@ func (s *OpenAIStateKeeperService) restoreRuntime() {
 	}
 	cfg := s.config.Load()
 	for _, id := range s.collectionAccountIDs() {
+		limitBody, limitErr := os.ReadFile(s.files.collectionLimitPath(id))
+		var savedLimit openAIStateCollectionLimit
+		if limitErr == nil {
+			limitErr = json.Unmarshal(limitBody, &savedLimit)
+		}
+		s.mu.Lock()
+		limit := s.collectionLimitLocked(id)
+		if limitErr == nil && savedLimit.UpdatedAt.After(limit.UpdatedAt) {
+			*limit = savedLimit
+		}
+		s.mu.Unlock()
 		for _, model := range cfg.modelNames() {
 			s.mu.RLock()
 			loaded := s.entryLocked(id, model).runtimeLoaded
@@ -129,10 +178,17 @@ func (s *OpenAIStateKeeperService) restoreRuntime() {
 					e.row.AccountUnavailable, e.row.AccountUnavailableReason = true, "采集收到 401 或账号失效错误，停止采集；请先修复账号凭据"
 				}
 				e.row.Paused, e.row.PauseReason = r.Paused, r.PauseReason
+				e.row.AutoRetryPending, e.row.NextRetryAt, e.row.RetryReason = r.AutoRetryPending, r.NextRetryAt, r.RetryReason
+				e.row.FailureCycles, e.nextProxyID = r.FailureCycles, r.NextProxyID
+				limit := s.collectionLimitLocked(id)
+				if r.CollectionLimit.UpdatedAt.After(limit.UpdatedAt) {
+					*limit = r.CollectionLimit
+				}
 				if e.row.AccountUnavailable {
 					e.row.Paused, e.row.PauseReason = true, e.row.AccountUnavailableReason
-				} else if r.InProgress {
-					e.row.Paused, e.row.PauseReason = true, "上次采集未完成，等待人工重试"
+					e.row.AutoRetryPending, e.row.NextRetryAt = false, nil
+				} else if (r.InProgress && !r.Paused) || (r.Version < 2 && r.Paused && keeperLegacyTransientPause(r.PauseReason)) {
+					s.deferCollectionLocked(e, time.Now().UTC().Add(keeperBackoff(cfg.OpenAIStateKeeperSettings, max(1, r.FailureCycles))), "上次采集未完成，冷却后自动继续")
 				}
 				e.row.RoundID, e.row.RoundAttempts, e.row.RoundSource = r.RoundID, r.RoundAttempts, r.RoundSource
 				e.row.RetryAttempt = r.RetryAttempt
@@ -147,6 +203,14 @@ func (s *OpenAIStateKeeperService) restoreRuntime() {
 				e.collections, e.injections = lastKeeperEvents(r.Collections, 10), lastKeeperEvents(r.InjectionEvents, 10)
 			} else if !errors.Is(err, os.ErrNotExist) {
 				e.row.Paused, e.row.PauseReason = true, "采集轮次文件无法读取，等待人工重试"
+			}
+			if limitErr != nil && !errors.Is(limitErr, os.ErrNotExist) {
+				e.row.Paused, e.row.PauseReason = true, "账号采集限速文件无法读取，请修复后人工重试"
+				e.row.AutoRetryPending, e.row.NextRetryAt = false, nil
+			}
+			if e.row.RoundSource == "response" && (!cfg.InjectionEnabled || !cfg.ResponseRefreshEnabled) {
+				e.row.AutoRetryPending, e.row.NextRetryAt, e.row.RetryReason = false, nil, ""
+				e.refreshVersion = ""
 			}
 			e.row.NextAttemptAt = stateKeeperNextAttempt(s.config.Load().OpenAIStateKeeperSettings, e)
 			s.mu.Unlock()

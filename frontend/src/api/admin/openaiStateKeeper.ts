@@ -13,6 +13,11 @@ export interface StateKeeperSettings {
   max_attempts: number
   retry_count: number
   retry_interval_seconds: number
+  request_interval_seconds: number
+  proxy_failure_threshold: number
+  cooldown_seconds: number
+  max_cooldown_seconds: number
+  account_hourly_limit: number
   allowed_state_lengths: number[]
   degraded_state_lengths: number[]
   account_ids: number[]
@@ -67,6 +72,12 @@ export interface StateKeeperRow {
   proxy_attempt?: number
   proxy_count?: number
   next_retry_at?: string
+  auto_retry_pending?: boolean
+  retry_reason?: string
+  failure_cycles?: number
+  cooldown_until?: string
+  hourly_requests?: number
+  effective_concurrency?: number
   models?: StateKeeperRow[]
 }
 

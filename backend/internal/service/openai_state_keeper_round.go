@@ -28,6 +28,10 @@ func (s *OpenAIStateKeeperService) run(job openAIStateKeeperJob) {
 		s.mu.Lock()
 		if entry := s.entryLocked(job.accountID, job.model); entry != nil {
 			entry.row.Queued = false
+			if !entry.row.Paused {
+				s.deferCollectionLocked(entry, time.Now().UTC().Add(keeperBackoff(s.config.Load().OpenAIStateKeeperSettings, 1)), "账号信息暂时读取失败，稍后自动重试")
+				s.dirtyRuntime[s.key(job.accountID, job.model)] = true
+			}
 		}
 		s.mu.Unlock()
 		return
@@ -55,29 +59,59 @@ func (s *OpenAIStateKeeperService) run(job openAIStateKeeperJob) {
 		return
 	}
 	entry.row.Queued = false
+	if job.source == "automatic_retry" && entry.row.RoundSource == "response" && (!cfg.InjectionEnabled || !cfg.ResponseRefreshEnabled) {
+		entry.row.AutoRetryPending, entry.row.NextRetryAt, entry.row.RetryReason = false, nil, ""
+		entry.refreshVersion = ""
+		entry.row.NextAttemptAt = stateKeeperNextAttempt(cfg.OpenAIStateKeeperSettings, entry)
+		s.dirtyRuntime[key] = true
+		s.mu.Unlock()
+		return
+	}
 	if entry.scopeLoading || !cfg.includesCollectionAccount(account) || entry.row.AccountUnavailable || (job.source != "manual" && entry.row.Paused) || (job.source == "degradation_scan" && !s.qualityEligibleLocked(entry)) || (job.source == "response" && (!cfg.InjectionEnabled || !cfg.ResponseRefreshEnabled)) {
 		s.mu.Unlock()
+		return
+	}
+	if until, reason := s.accountCollectionWaitLocked(job.accountID, cfg, time.Now()); !until.IsZero() {
+		if job.source != "automatic_retry" {
+			entry.row.RoundSource = job.source
+		}
+		s.deferCollectionLocked(entry, until, reason)
+		s.dirtyRuntime[key] = true
+		s.mu.Unlock()
+		_ = s.persistRuntime(job.accountID, job.model)
 		return
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
 	s.activeCancels[key] = cancel
 	entry.row.Collecting = true
 	entry.row.Paused, entry.row.PauseReason = false, ""
-	entry.row.RoundID, entry.row.RoundSource, entry.row.RoundAttempts = uuid.NewString(), job.source, 0
+	if job.source != "automatic_retry" {
+		entry.row.RoundSource = job.source
+	}
+	entry.row.RoundID, entry.row.RoundAttempts = uuid.NewString(), 0
+	entry.row.AutoRetryPending, entry.row.RetryReason = false, ""
 	entry.row.RetryAttempt, entry.row.NextRetryAt = 0, nil
 	entry.row.RetryLimit = cfg.RetryCount
 	entry.row.CollectionProxyID, entry.row.ProxyAttempt, entry.row.ProxyCount = cfg.proxyIDs()[0], 1, len(cfg.proxyIDs())
 	roundID := entry.row.RoundID
+	proxyIndex := 0
+	for i, id := range cfg.proxyIDs() {
+		if id == entry.nextProxyID {
+			proxyIndex = i
+			break
+		}
+	}
 	s.mu.Unlock()
 	defer cancel()
 	stopWake := context.AfterFunc(ctx, func() { s.mu.Lock(); s.workerSlots.Broadcast(); s.mu.Unlock() })
 	defer stopWake()
 
-	// Persist intent before sending anything. A crash cannot silently start a
-	// fresh budget for this account on the next process startup.
+	// Persist intent before sending; request reservations also persist the
+	// account budget so restarting cannot bypass its rate limit.
 	if err := s.persistRuntime(job.accountID, job.model); err != nil {
 		s.mu.Lock()
 		if e := s.rows[key]; e != nil {
+			e.row.Paused = true
 			e.row.Status, e.row.Message = "failed", "采集轮次文件保存失败，未发送采集请求"
 			if e.value != "" {
 				e.row.Status = "refresh_failed"
@@ -88,50 +122,59 @@ func (s *OpenAIStateKeeperService) run(job openAIStateKeeperJob) {
 		return
 	}
 	won := false
-	reason := "已用完采集和重试次数，等待人工重试"
-	if len(cfg.proxyIDs()) > 1 {
-		reason = "所有采集代理均已用完采集和重试次数，等待人工重试"
-	}
-proxiesLoop:
-	for proxyIndex, proxyID := range cfg.proxyIDs() {
-		for retry := 0; retry <= cfg.RetryCount && ctx.Err() == nil && s.config.Load() == cfg; retry++ {
-			if retry > 0 || proxyIndex > 0 {
-				next := time.Now().UTC().Add(time.Duration(cfg.RetryIntervalSeconds) * time.Second)
-				s.mu.Lock()
-				if e := s.rows[key]; e != nil {
-					e.row.NextRetryAt = &next
-				}
-				s.mu.Unlock()
-				timer := time.NewTimer(time.Until(next))
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-				case <-timer.C:
-				}
-				if ctx.Err() != nil || s.config.Load() != cfg {
-					break proxiesLoop
-				}
-				s.mu.Lock()
-				if e := s.rows[key]; e != nil {
-					e.row.NextRetryAt = nil
-					e.row.RetryAttempt = retry
-					e.row.CollectionProxyID, e.row.ProxyAttempt = proxyID, proxyIndex+1
-				}
-				s.mu.Unlock()
-				if err := s.persistRuntime(job.accountID, job.model); err != nil {
-					reason = "保存重试进度失败，等待人工重试"
-					break proxiesLoop
-				}
+	reason := "本轮未取得合格 State，冷却后自动继续"
+roundsLoop:
+	for retry := 0; retry <= cfg.RetryCount && ctx.Err() == nil && s.config.Load() == cfg; retry++ {
+		if retry > 0 {
+			next := time.Now().UTC().Add(keeperJitter(time.Duration(cfg.RetryIntervalSeconds) * time.Second))
+			s.mu.Lock()
+			if e := s.rows[key]; e != nil {
+				e.row.NextRetryAt, e.row.RetryReason = &next, "等待下一短轮采集"
 			}
-			budget := (proxyIndex*(cfg.RetryCount+1) + retry + 1) * cfg.MaxAttempts
-			won = s.runStateBatch(ctx, cfg, job, roundID, budget, proxyID)
+			s.mu.Unlock()
+			if !keeperWait(ctx, time.Until(next)) || s.config.Load() != cfg {
+				break
+			}
+		}
+		budget := (retry + 1) * cfg.MaxAttempts
+		for ctx.Err() == nil && s.config.Load() == cfg {
+			proxyID := cfg.proxyIDs()[proxyIndex]
+			s.mu.Lock()
+			e := s.rows[key]
+			if e == nil || e.row.Paused || e.row.AccountUnavailable {
+				s.mu.Unlock()
+				break roundsLoop
+			}
+			if until, _ := s.accountCollectionWaitLocked(job.accountID, cfg, time.Now()); !until.IsZero() {
+				s.mu.Unlock()
+				break roundsLoop
+			}
+			if e.row.RoundAttempts >= budget {
+				s.mu.Unlock()
+				break
+			}
+			batchBudget := budget
+			if len(cfg.proxyIDs()) > 1 {
+				batchBudget = min(budget, e.row.RoundAttempts+cfg.ProxyFailureThreshold)
+			}
+			e.row.NextRetryAt, e.row.RetryReason = nil, ""
+			e.row.RetryAttempt = retry
+			e.row.CollectionProxyID, e.row.ProxyAttempt = proxyID, proxyIndex+1
+			s.mu.Unlock()
+			won = s.runStateBatch(ctx, cfg, job, roundID, batchBudget, proxyID)
 			if won {
-				break proxiesLoop
+				break roundsLoop
 			}
+			proxyIndex = (proxyIndex + 1) % len(cfg.proxyIDs())
+			s.mu.Lock()
+			if e := s.rows[key]; e != nil {
+				e.nextProxyID = cfg.proxyIDs()[proxyIndex]
+			}
+			s.mu.Unlock()
 		}
 	}
 	if !won && ctx.Err() != nil {
-		reason = "采集被中断，等待人工重试"
+		reason = "采集被中断，稍后自动继续"
 	}
 	s.finishRound(job, roundID, won, reason)
 }
@@ -141,7 +184,6 @@ func (s *OpenAIStateKeeperService) runStateBatch(parent context.Context, cfg *op
 	defer cancel()
 	stopWake := context.AfterFunc(ctx, func() { s.mu.Lock(); s.workerSlots.Broadcast(); s.mu.Unlock() })
 	defer stopWake()
-	key := s.key(job.accountID, job.model)
 	parallel := min(cfg.AccountConcurrency, cfg.Concurrency, cfg.MaxAttempts)
 	results := make(chan openAIStateAttempt, parallel)
 	var siblings sync.WaitGroup
@@ -150,29 +192,29 @@ func (s *OpenAIStateKeeperService) runStateBatch(parent context.Context, cfg *op
 		go func() {
 			defer siblings.Done()
 			for {
-				s.mu.Lock()
-				for ctx.Err() == nil && s.config.Load() == cfg && (s.activeProbes >= cfg.Concurrency || s.accountProbes[job.accountID] >= cfg.AccountConcurrency) {
-					s.workerSlots.Wait()
-				}
-				current := s.rows[key]
-				if ctx.Err() != nil || s.config.Load() != cfg || current == nil || current.row.AccountUnavailable || current.row.RoundAttempts >= budget {
-					s.mu.Unlock()
+				number, ok := s.acquireStateProbe(ctx, cfg, job, budget)
+				if !ok {
 					return
 				}
-				s.activeProbes++
-				s.accountProbes[job.accountID]++
-				current.row.RoundAttempts++
-				current.row.Attempts++
-				number := current.row.RoundAttempts
-				now := time.Now().UTC()
-				current.row.LastAttemptAt = &now
-				s.mu.Unlock()
-				probeCtx, probeCancel := context.WithTimeout(ctx, 45*time.Second)
-				probeSettings := cfg.forModel(job.model)
-				probeSettings.ProxyID = proxyID
-				result := s.probe(probeCtx, probeSettings, job.accountID)
-				probeCancel()
+				var result openAIStateProbeResult
+				if err := s.persistCollectionLimit(job.accountID); err != nil {
+					result = openAIStateProbeResult{result: "failed", permanentFailure: true, message: "采集进度保存失败，未发送请求；请检查文件权限"}
+				} else if ctx.Err() == nil {
+					s.mu.Lock()
+					cooling := s.collectionLimitLocked(job.accountID).CooldownUntil.After(time.Now())
+					s.mu.Unlock()
+					if !cooling {
+						probeCtx, probeCancel := context.WithTimeout(ctx, 45*time.Second)
+						probeSettings := cfg.forModel(job.model)
+						probeSettings.ProxyID = proxyID
+						result = s.probe(probeCtx, probeSettings, job.accountID)
+						probeCancel()
+					} else {
+						result = openAIStateProbeResult{result: "cancelled", message: "账号进入冷却，本次预留请求未发送"}
+					}
+				}
 				s.mu.Lock()
+				s.noteCollectionRateLimitLocked(job.accountID, cfg.OpenAIStateKeeperSettings, result, time.Now().UTC())
 				s.activeProbes--
 				s.accountProbes[job.accountID]--
 				s.workerSlots.Broadcast()
@@ -205,6 +247,9 @@ func (s *OpenAIStateKeeperService) runStateBatch(parent context.Context, cfg *op
 				}
 			}
 			if won {
+				cancel()
+			}
+			if attempt.result.status == http.StatusTooManyRequests || attempt.result.permanentFailure || attempt.result.proxyFailure {
 				cancel()
 			}
 		} else {
@@ -240,6 +285,7 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 			err := s.files.save(openAIStateFileRecord{AccountID: job.accountID, Model: job.model, ProxyID: attempt.proxyID, Endpoint: openAIStateKeeperCollectionURL, HeaderName: openAICodexTurnStateHeader, CredentialStamp: r.credentialStamp, Value: r.value, CollectedAt: now, Version: roundID})
 			if err != nil {
 				r.result, r.message = "failed", "响应头已取得，但 State 文件保存失败"
+				r.permanentFailure = true
 			} else {
 				saved = true
 			}
@@ -257,6 +303,9 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 	if r.accountUnavailable || r.status == http.StatusUnauthorized {
 		s.blockAccountLocked(job.accountID, r.credentialStamp, "采集收到 401 或账号失效错误，停止采集；请先修复账号凭据")
 	}
+	if r.permanentFailure {
+		entry.row.Paused, entry.row.PauseReason = true, r.message+"；等待人工处理"
+	}
 	if won {
 		entry.value, entry.credentialStamp, entry.version = r.value, r.credentialStamp, roundID
 		entry.proxyID = attempt.proxyID
@@ -266,6 +315,11 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 		sum := sha256.Sum256([]byte(r.value))
 		entry.row.Fingerprint = fmt.Sprintf("%x", sum[:])
 		entry.row.Successes++
+		entry.nextProxyID = 0
+		limit := s.collectionLimitLocked(job.accountID)
+		if !limit.CooldownUntil.After(now) {
+			limit.RateLimitStreak, limit.UpdatedAt = 0, time.Now().UTC()
+		}
 	} else if r.result != "filtered" && entry.value != "" {
 		entry.row.Status = "refresh_failed"
 	}
@@ -291,11 +345,26 @@ func (s *OpenAIStateKeeperService) finishRound(job openAIStateKeeperJob, roundID
 	if entry != nil && entry.row.RoundID == roundID {
 		entry.row.Collecting = false
 		entry.row.NextRetryAt = nil
-		entry.row.Paused = !won || entry.row.AccountUnavailable
+		entry.row.Paused = entry.row.Paused || entry.row.AccountUnavailable
 		if entry.row.AccountUnavailable {
 			entry.row.PauseReason = entry.row.AccountUnavailableReason
-		} else if !won {
+		} else if entry.row.Paused && entry.row.PauseReason == "" {
 			entry.row.PauseReason = reason
+		}
+		entry.row.AutoRetryPending, entry.row.RetryReason = false, ""
+		if won {
+			entry.row.FailureCycles = 0
+		} else if !entry.row.Paused && !(entry.row.RoundSource == "response" && (!s.config.Load().InjectionEnabled || !s.config.Load().ResponseRefreshEnabled)) {
+			entry.row.FailureCycles = min(20, entry.row.FailureCycles+1)
+			now := time.Now().UTC()
+			next := now.Add(keeperBackoff(s.config.Load().OpenAIStateKeeperSettings, entry.row.FailureCycles))
+			if until, waitReason := s.accountCollectionWaitLocked(job.accountID, s.config.Load(), now); !until.IsZero() {
+				if until.After(next) {
+					next = until
+				}
+				reason = waitReason
+			}
+			s.deferCollectionLocked(entry, next, reason)
 		}
 		entry.lastFinishedAt = time.Now().UTC()
 		finished := entry.lastFinishedAt
@@ -305,8 +374,9 @@ func (s *OpenAIStateKeeperService) finishRound(job openAIStateKeeperJob, roundID
 	s.mu.Unlock()
 	err := s.persistRuntime(job.accountID, job.model)
 	s.mu.Lock()
-	if err != nil && entry != nil {
-		entry.row.Paused, entry.row.PauseReason, entry.row.NextAttemptAt = true, "保存轮次结果失败，等待人工重试", nil
+	if current := s.entryLocked(job.accountID, job.model); err != nil && current != nil && current.row.RoundID == roundID {
+		current.row.Paused, current.row.PauseReason, current.row.NextAttemptAt = true, "保存轮次结果失败，等待人工重试", nil
+		current.row.AutoRetryPending, current.row.NextRetryAt = false, nil
 	}
 	delete(s.activeCancels, s.key(job.accountID, job.model))
 	s.workerSlots.Broadcast()

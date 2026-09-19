@@ -20,7 +20,7 @@ vi.mock('@/api/admin/proxies', () => ({ getAll: vi.fn().mockResolvedValue([{ id:
 const initial = (): StateKeeperSnapshot => ({
   collection_path: '/v1/chat/completions',
   collection_endpoint: 'https://chatgpt.com/backend-api/codex/responses',
-  settings: { enabled: true, injection_enabled: false, response_refresh_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, degradation_scan_enabled: false, degradation_scan_interval_seconds: 60, concurrency: 50, account_concurrency: 1, max_attempts: 3, retry_count: 0, retry_interval_seconds: 5, allowed_state_lengths: [], degraded_state_lengths: [], account_ids: [1], collection_group_ids: [], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', revision: 'one' },
+  settings: { enabled: true, injection_enabled: false, response_refresh_enabled: false, auto_refresh: false, auto_collect_interval_seconds: 0, degradation_scan_enabled: false, degradation_scan_interval_seconds: 60, concurrency: 50, account_concurrency: 1, max_attempts: 3, retry_count: 0, retry_interval_seconds: 5, request_interval_seconds: 1, proxy_failure_threshold: 2, cooldown_seconds: 30, max_cooldown_seconds: 900, account_hourly_limit: 120, allowed_state_lengths: [], degraded_state_lengths: [], account_ids: [1], collection_group_ids: [], group_ids: [11], all_groups: false, proxy_id: 1, model: 'test-model', revision: 'one' },
   rows: [{ account_id: 1, model: 'test-model', status: 'ready', queued: false, collecting: false, http_status: 200, turn_state_length: 356, message: '已取得 x-codex-turn-state 响应头，已写入账号独立 State 文件', has_codex_turn_state: true, has_details: true, state_file_saved: true, fingerprint: 'stored-state', attempts: 1, successes: 1, injections: 0, paused: false, pause_reason: '', round_id: 'round1', round_attempts: 1, round_source: 'manual', quality_status: 'degraded', quality_reason: '答题异常' }],
   events: [{ at: new Date().toISOString(), account_id: 1, model: 'test-model', http_status: 200, turn_state_length: 356, result: 'collected', message: '已取得 x-codex-turn-state 响应头', kind: 'collection', source: 'manual', attempt: 1 }], server_time: new Date().toISOString(),
 })
@@ -57,6 +57,36 @@ async function showModelRows(wrapper: ReturnType<typeof render>) {
 describe('Upstream state management', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); vi.mocked(stateKeeperAPI.get).mockResolvedValue(initial()) })
   afterEach(() => vi.useRealTimers())
+
+  it('saves pacing, proxy rotation, cooldown and account budgets without changing injection', async () => {
+    vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...initial(), settings }))
+    const w = render(); await flushPromises()
+    for (const [label, value] of [
+      ['单账号请求间隔（s）', 2], ['切换代理失败次数', 3],
+      ['自动冷却起始时间（s）', 45], ['自动冷却上限（s）', 600], ['每账号每小时采集上限', 180],
+    ] as const) await w.get(`input[aria-label="${label}"]`).setValue(value)
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises()
+    await w.findAll('button').find(b => b.text() === '保存配置')!.trigger('click'); await flushPromises()
+    expect(stateKeeperAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      request_interval_seconds: 2, proxy_failure_threshold: 3, cooldown_seconds: 45,
+      max_cooldown_seconds: 600, account_hourly_limit: 180, injection_enabled: false,
+    }))
+    expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('shows automatic cooldown separately from a manual pause and keeps the saved State accessible', async () => {
+    const data = initial()
+    Object.assign(data.rows[0], { auto_retry_pending: true, next_retry_at: '2026-09-19T12:00:00Z', retry_reason: '上游 429，账号全部模型冷却后自动重试', hourly_requests: 12, effective_concurrency: 1 })
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
+    const w = render(); await flushPromises(); await showModelRows(w)
+    expect(w.text()).toContain('冷却中，自动继续')
+    expect(w.text()).toContain('上游 429')
+    expect(w.text()).toContain('账号本小时 12 / 120')
+    expect(w.text()).not.toContain('已暂停，待人工')
+    expect(w.findAll('button').find(b => b.text() === '查看')!.attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
 
   it('saves dynamic collection groups without turning members into explicit account selections', async () => {
     vi.mocked(accountsAPI.list).mockResolvedValueOnce({ items: [
@@ -360,7 +390,7 @@ describe('Upstream state management', () => {
     vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...initial(), settings }))
     const w = render(); await flushPromises()
     await w.findAll('label').find(label => label.text() === '单账号采集并发数')!.get('input').setValue(4)
-    await w.findAll('label').find(label => label.text() === '每轮最多请求次数（含首次）')!.get('input').setValue(9)
+    await w.findAll('label').find(label => label.text() === '每轮请求上限（全部代理合计）')!.get('input').setValue(9)
     await w.get('input[aria-label="允许保存的响应头长度"]').setValue('292,,332')
     await w.get('input[aria-label="降智响应头长度"]').setValue('356,356，376')
     await w.findAll('button').find(button => button.text() === '保存配置')!.trigger('click'); await flushPromises()

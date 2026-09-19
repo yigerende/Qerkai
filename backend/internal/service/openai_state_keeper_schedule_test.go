@@ -77,12 +77,12 @@ func TestStateKeeperFixedIntervalControlsSuccessAndFailure(t *testing.T) {
 			s.run(openAIStateKeeperJob{accountID: 1, revision: s.config.Load().Revision, source: "manual"})
 			row := s.Snapshot().Rows[0]
 			if result.result != "collected" {
-				require.True(t, row.Paused)
-				require.Nil(t, row.NextAttemptAt)
-				s.scheduleDue(time.Now().Add(time.Hour))
-				require.Empty(t, s.queue, "exhaustion must not restart on the timer")
-				require.NoError(t, s.Schedule([]int64{1}))
-				require.Len(t, s.queue, 1, "manual retry resumes the account")
+				require.False(t, row.Paused)
+				require.True(t, row.AutoRetryPending)
+				s.scheduleDue(row.NextRetryAt.Add(-time.Nanosecond))
+				require.Empty(t, s.queue)
+				s.scheduleDue(*row.NextRetryAt)
+				require.Len(t, s.queue, 1, "ordinary failures resume after cooldown")
 				return
 			}
 			require.Equal(t, s.entryLocked(1).lastFinishedAt.Add(90*time.Second), *row.NextAttemptAt)
@@ -346,6 +346,15 @@ func TestStateKeeperConcurrencyCanIncreaseAndDecreaseWithoutRestart(t *testing.T
 				t.Fatal("configured number of collectors did not start")
 			}
 		}
+		require.Eventually(t, func() bool {
+			queued := 0
+			for _, row := range s.Snapshot().Rows {
+				if row.Queued {
+					queued++
+				}
+			}
+			return queued == 6-phase.limit
+		}, time.Second, time.Millisecond)
 		collecting, queued := 0, 0
 		for _, row := range s.Snapshot().Rows {
 			if row.Collecting {

@@ -126,6 +126,7 @@ func keeperTestService(t *testing.T) (*OpenAIStateKeeperService, *OpenAIGatewayS
 	q.Enabled = true
 	q.InjectionEnabled = true
 	q.AutoRefresh = false
+	q.RequestIntervalSeconds = 0
 	q.MaxAttempts = 1
 	q.AccountIDs = []int64{1}
 	q.GroupIDs = []int64{11}
@@ -531,7 +532,7 @@ func TestStateKeeperDisableDiscardsInFlightCollection(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
-func TestStateKeeperDeduplicatesManualQueueWithoutImplicitRetries(t *testing.T) {
+func TestStateKeeperDeduplicatesManualQueueAndDefersOrdinaryFailures(t *testing.T) {
 	s, _, _ := keeperTestService(t)
 	require.NoError(t, s.Schedule([]int64{1, 1}))
 	require.NoError(t, s.Schedule([]int64{1}))
@@ -544,8 +545,9 @@ func TestStateKeeperDeduplicatesManualQueueWithoutImplicitRetries(t *testing.T) 
 	s.run(openAIStateKeeperJob{accountID: 1, revision: "test", source: "manual"})
 	second := s.Snapshot().Rows[0]
 	require.Equal(t, "refresh_failed", first.Status)
-	require.Nil(t, first.NextAttemptAt)
-	require.Nil(t, second.NextAttemptAt)
+	require.NotNil(t, first.NextAttemptAt)
+	require.NotNil(t, second.NextAttemptAt)
+	require.True(t, second.NextAttemptAt.After(*first.NextAttemptAt), "repeated failures increase the recovery delay")
 	require.NoError(t, s.config.Load().Validate())
 }
 
