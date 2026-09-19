@@ -173,6 +173,8 @@ type AccountQualityResult struct {
 
 type QualityScheduling struct {
 	Paused        bool              `json:"paused"`
+	StateRequired bool              `json:"state_required,omitempty"`
+	QualityPaused bool              `json:"quality_paused,omitempty"`
 	Since         *time.Time        `json:"since,omitempty"`
 	NextAt        *time.Time        `json:"next_at,omitempty"`
 	Successes     int               `json:"successes"`

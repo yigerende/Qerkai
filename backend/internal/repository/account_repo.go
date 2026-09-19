@@ -136,6 +136,9 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
+	if err := applyStateSchedulingWrite(ctx, client, account, false); err != nil {
+		return err
+	}
 
 	builder := client.Account.Create().
 		SetName(account.Name).
@@ -520,6 +523,10 @@ func (r *accountRepository) updateLockedAccount(
 		return nil, err
 	}
 	account.Extra = extra
+	if err := applyStateSchedulingWrite(ctx, client, account, true); err != nil {
+		return nil, err
+	}
+	extra = account.Extra
 
 	schedulable := account.Schedulable
 	if account.Status == service.StatusError {
@@ -811,7 +818,9 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		UPDATE accounts
 		SET
 			credentials = $1::jsonb,
+			schedulable = CASE WHEN `+stateSchedulingCredentialChangeSQL("$1::jsonb")+` THEN FALSE ELSE schedulable END,
 			extra = CASE
+				WHEN `+stateSchedulingCredentialChangeSQL("$1::jsonb")+` THEN `+stateSchedulingPendingExtraSQL("COALESCE(extra,'{}'::jsonb)")+`
 				-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
 				-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
 				WHEN platform IN (`+ollamaCloudUsagePlatformsSQL+`)
@@ -2523,11 +2532,17 @@ func (r *accountRepository) UpdateSessionWindowEnd(ctx context.Context, id int64
 
 func (r *accountRepository) SetSchedulable(ctx context.Context, id int64, schedulable bool) error {
 	// An explicit operator action takes ownership of this switch.
-	_, err := r.client.ExecContext(ctx, `UPDATE accounts SET schedulable=$2,
- extra=COALESCE(extra,'{}'::jsonb)-'quality_schedulable_restore',updated_at=NOW()
- WHERE id=$1 AND deleted_at IS NULL`, id, schedulable)
+	result, err := r.client.ExecContext(ctx, `UPDATE accounts SET schedulable=$2,
+ extra=(COALESCE(extra,'{}'::jsonb)-'quality_schedulable_restore'-'state_scheduling_manual') ||
+ CASE WHEN NOT $2 AND platform='openai' AND type='oauth' THEN '{"state_scheduling_manual":true}'::jsonb ELSE '{}'::jsonb END,updated_at=NOW()
+ WHERE id=$1 AND deleted_at IS NULL AND (NOT $2 OR `+stateSchedulingEnableAllowedSQL+`)`, id, schedulable)
 	if err != nil {
 		return err
+	}
+	if count, err := result.RowsAffected(); err != nil {
+		return err
+	} else if schedulable && count == 0 {
+		return errStateSchedulingEnable
 	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue schedulable change failed: account=%d err=%v", id, err)
@@ -2580,7 +2595,7 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 }
 
 func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
-	updates = stripCodexFingerprintSeedFromExtraUpdate(updates)
+	updates = stripStateSchedulingExtra(stripCodexFingerprintSeedFromExtraUpdate(updates))
 	if len(updates) == 0 {
 		return nil
 	}
@@ -2857,7 +2872,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	updates.Extra = stripCodexFingerprintSeedFromExtraUpdate(updates.Extra)
+	updates.Extra = stripStateSchedulingExtra(stripCodexFingerprintSeedFromExtraUpdate(updates.Extra))
 
 	setClauses := make([]string, 0, 8)
 	args := make([]any, 0, 8)
@@ -2945,7 +2960,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 				" AND "+ollamaCloudBaseURLMatchesSQL(credentialPlaceholder+"::jsonb ->> 'base_url'")+")")
 	}
 
-	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed || updates.Schedulable != nil {
+	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed || updates.Schedulable != nil || credentialPlaceholder != "" {
 		extraExpression := "COALESCE(extra, '{}'::jsonb)"
 		if len(updates.Extra) > 0 {
 			payload, err := json.Marshal(updates.Extra)
@@ -2988,7 +3003,28 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
 		}
 		if updates.Schedulable != nil {
-			extraExpression = "(" + extraExpression + ") - 'quality_schedulable_restore'"
+			extraExpression = "(" + extraExpression + ") - 'quality_schedulable_restore' - 'state_scheduling_manual'"
+			if !*updates.Schedulable {
+				extraExpression = "(" + extraExpression + `) || CASE WHEN platform='openai' AND type='oauth' THEN '{"state_scheduling_manual":true}'::jsonb ELSE '{}'::jsonb END`
+			}
+		}
+		if credentialPlaceholder != "" {
+			changed := stateSchedulingCredentialChangeSQL("COALESCE(credentials,'{}'::jsonb) || " + credentialPlaceholder + "::jsonb")
+			pendingExtra := stateSchedulingPendingExtraSQL(extraExpression)
+			if updates.Schedulable != nil && !*updates.Schedulable {
+				pendingExtra = "(" + extraExpression + `) || '{"state_scheduling_pending":true}'::jsonb`
+			}
+			extraExpression = "CASE WHEN " + changed + " THEN " + pendingExtra + " ELSE " + extraExpression + " END"
+			found := false
+			for i, clause := range setClauses {
+				if strings.HasPrefix(clause, "schedulable = ") {
+					setClauses[i] = "schedulable = CASE WHEN " + changed + " THEN FALSE ELSE " + strings.TrimPrefix(clause, "schedulable = ") + " END"
+					found = true
+				}
+			}
+			if !found {
+				setClauses = append(setClauses, "schedulable = CASE WHEN "+changed+" THEN FALSE ELSE schedulable END")
+			}
 		}
 		setClauses = append(setClauses, "extra = "+extraExpression)
 	}
@@ -3027,6 +3063,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 	}
 
+	if updates.Schedulable != nil && *updates.Schedulable {
+		if err := checkStateSchedulingEnable(ctx, clientFromContext(ctx, r.client), ids); err != nil {
+			return 0, err
+		}
+	}
 	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err
@@ -3065,7 +3106,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		if updates.Status != nil && (*updates.Status == service.StatusError || *updates.Status == service.StatusDisabled) {
 			shouldSync = true
 		}
-		if updates.Schedulable != nil && !*updates.Schedulable {
+		if (updates.Schedulable != nil && !*updates.Schedulable) || len(updates.Credentials) > 0 {
 			shouldSync = true
 		}
 		if shouldSync {

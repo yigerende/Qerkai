@@ -357,6 +357,14 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
             <label class="state-check"><input v-model="form.response_refresh_enabled" type="checkbox" aria-label="请求响应触发采集">请求响应触发采集</label>
             <label class="state-check"><input v-model="form.suspend_old_state_on_reauth" type="checkbox" aria-label="新采集成功前停用旧 State">重授权后，新采集成功前停用旧 State</label>
           </div>
+          <div class="space-y-3 border-t border-gray-200 pt-4 dark:border-dark-700">
+            <label class="state-check"><input v-model="form.require_valid_state" type="checkbox" aria-label="调度必须有有效 State">调度必须有有效 State</label>
+            <p class="text-xs leading-5 text-gray-500">仅适用于 OpenAI OAuth。由“降智检测”的模型一致性定时任务、立即检测及后台复检检查指定模型的 State 有效期，并控制原调度按钮。到期后在下一轮检查时暂停；恢复必须同时满足降智恢复规则和 State 有效条件。采集成功不会直接开启调度，新增账号默认暂停，人工关闭不会自动恢复。开启前须启用采集、注入、降智检测及模型一致性检测，并将检测范围设为全部分组。未纳入采集的账号会保持暂停。</p>
+            <div v-if="form.require_valid_state" class="grid gap-4 md:grid-cols-2">
+              <label class="state-label">调度检查模型<input v-model="form.scheduling_state_model" class="input" type="text" maxlength="200" aria-label="调度检查模型" placeholder="gpt-6-astra"></label>
+              <label class="state-label">State 调度有效期（分钟）<input v-model.number="form.scheduling_state_minutes" class="input" type="number" min="1" max="1440" step="1" aria-label="State 调度有效期（分钟）"></label>
+            </div>
+          </div>
           <div class="grid gap-4 md:grid-cols-3">
             <label class="state-label">采集总并发数<input v-model.number="form.concurrency" class="input" type="number" min="1" max="500" step="1"></label>
             <label class="state-label">单账号采集并发数<input v-model.number="form.account_concurrency" class="input" type="number" min="1" max="100" step="1"></label>

@@ -168,7 +168,7 @@ func TestAccountQualityReadOnlyResultsRevisionAndBounds(t *testing.T) {
 	out, err = s.Results(context.Background(), []int64{7})
 	require.NoError(t, err)
 	require.Empty(t, out.Accounts[0].Version)
-	require.Equal(t, "queued", out.Accounts[0].QuestionExecution)
+	require.Equal(t, "idle", out.Accounts[0].QuestionExecution, "saving a new revision preserves the scheduled deadline")
 	for _, ids := range [][]int64{nil, {0}, {1, 1}, make([]int64, 101)} {
 		_, err = s.Results(context.Background(), ids)
 		require.Error(t, err)

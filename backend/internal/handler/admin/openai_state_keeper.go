@@ -45,7 +45,12 @@ func (h *OpenAIStateKeeperHandler) Recent(c *gin.Context) {
 		seen[id] = true
 	}
 	c.Header("Cache-Control", "no-store")
-	response.Success(c, gin.H{"accounts": h.svc.Recent(input.AccountIDs)})
+	items, err := h.svc.RecentWithState(c.Request.Context(), input.AccountIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"accounts": items})
 }
 
 func (h *OpenAIStateKeeperHandler) Detail(c *gin.Context) {

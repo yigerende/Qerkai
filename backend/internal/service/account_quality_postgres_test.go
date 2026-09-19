@@ -155,7 +155,12 @@ func TestAccountQualityPostgresPersistenceConcurrencyAndMigration(t *testing.T) 
 	history, err := svc.History(context.Background(), 1, 100)
 	require.NoError(t, err)
 	require.Len(t, history, 3)
-	newer, err := svc.SaveSettings(context.Background(), q)
+	unchanged, err := svc.SaveSettings(context.Background(), q)
+	require.NoError(t, err)
+	require.Equal(t, q.Revision, unchanged.Revision)
+	changed := q
+	changed.IntervalSeconds++
+	newer, err := svc.SaveSettings(context.Background(), changed)
 	require.NoError(t, err)
 	require.NotEqual(t, q.Revision, newer.Revision)
 	require.NoError(t, svc.saveResult(context.Background(), q, a, 0))

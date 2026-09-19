@@ -6,6 +6,14 @@ import { formatDateTime } from '@/utils/format'
 
 const props = defineProps<{ accountId: number; recent?: StateKeeperRecent; loading?: boolean; error?: boolean }>()
 const opened = ref(false)
+const validity = computed(() => props.recent?.scheduling_state)
+const validityText = computed(() => {
+  const state = validity.value
+  if (!state) return ''
+  if (state.status !== 'valid') return ({ missing: '未采集', expired: '已过期', unavailable: '不可用' })[state.status]
+  const minutes = Math.max(0, Math.ceil((Date.parse(state.expires_at!) - Date.parse(state.checked_at)) / 60000))
+  return `有效，剩余 ${minutes} 分钟`
+})
 const lanes = computed(() => [
   { key: 'collection', label: '采集', events: props.recent?.collections || [] },
   { key: 'injection', label: '注入', events: props.recent?.injections || [] },
@@ -19,8 +27,9 @@ const color = (event: StateKeeperEvent | null) => !event ? 'bg-gray-200 dark:bg-
 
 <template>
   <span v-if="error" class="text-xs text-gray-400">状态读取失败</span>
-  <div v-else class="w-40 space-y-1" :aria-busy="loading">
+  <div v-else class="space-y-1" :class="validity ? 'w-64' : 'w-40'" :aria-busy="loading">
     <div v-for="lane in lanes" :key="lane.key">
+      <div v-if="lane.key === 'collection' && validity" class="break-words text-[11px] leading-4 [overflow-wrap:anywhere]" :class="validity.status === 'valid' ? 'text-emerald-600' : 'text-amber-600'" :title="validity.reason">{{ validity.model }}：{{ validityText }}</div>
       <div class="flex h-4 items-center gap-1 whitespace-nowrap text-[11px] text-gray-500"><span>{{ lane.label }}</span><span>{{ lane.events[0] ? formatDateTime(lane.events[0].at).slice(5) : loading ? '读取中' : '-' }}</span></div>
       <button type="button" class="flex h-4 items-center gap-1" :aria-label="`查看最近${lane.label}记录`" @click="opened = true">
         <span v-for="(event, index) in slots(lane.events)" :key="index" class="h-3 w-1.5 shrink-0 rounded-sm" :class="color(event)" :data-state-result="event?.result || 'empty'" :title="event ? describe(event) : '暂无记录'" />

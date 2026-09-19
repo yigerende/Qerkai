@@ -3,6 +3,9 @@ import apiClient from '../client'
 export interface StateKeeperSettings {
   enabled: boolean
   injection_enabled: boolean
+  require_valid_state?: boolean
+  scheduling_state_model?: string
+  scheduling_state_minutes?: number
   suspend_old_state_on_reauth: boolean
   response_refresh_enabled: boolean
   auto_refresh: boolean
@@ -109,6 +112,7 @@ export interface StateKeeperRecent {
   pause_reason: string
   collections: StateKeeperEvent[]
   injections: StateKeeperEvent[]
+  scheduling_state?: { model: string; status: 'valid' | 'missing' | 'expired' | 'unavailable'; reason: string; collected_at?: string; expires_at?: string; checked_at: string }
 }
 
 export interface StateKeeperSnapshot {

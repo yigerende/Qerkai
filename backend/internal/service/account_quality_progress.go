@@ -119,10 +119,10 @@ func (s *AccountQualityService) Progress(ctx context.Context, q AccountQualitySe
 		args := []any{q.Revision, pq.Array(running)}
 		scope := qualityGroupScope(q, &args)
 		err := s.db.QueryRowContext(ctx, `SELECT COUNT(*),
-   COUNT(*) FILTER (WHERE s.payload->'`+key+`'->>'checked_at' IS NOT NULL),
+   COUNT(*) FILTER (WHERE s.revision=$1 AND s.payload->'`+key+`'->>'checked_at' IS NOT NULL),
    COUNT(*) FILTER (WHERE (s.account_id IS NULL OR s.`+column+`<=NOW()) AND a.id<>ALL($2::bigint[])),
    MIN(s.`+column+`) FILTER (WHERE s.`+column+`>NOW())
-   FROM accounts a LEFT JOIN account_quality_states s ON s.account_id=a.id AND s.revision=$1
+   FROM accounts a LEFT JOIN account_quality_states s ON s.account_id=a.id
    WHERE a.deleted_at IS NULL AND a.platform='openai' AND `+scope, args...).Scan(&target.Total, &target.Checked, &target.Pending, &next)
 		if err != nil {
 			return p, err

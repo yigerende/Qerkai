@@ -6,6 +6,17 @@ import type { StateKeeperEvent } from '@/api/admin/openaiStateKeeper'
 const event = (kind: string, result: string): StateKeeperEvent => ({ kind, result, account_id: 1, at: '2026-09-18T08:00:00Z', model: 'test', http_status: 200, turn_state_length: 332, attempt: 3, source: 'manual', message: '已保存', injected_length: kind === 'injection' ? 332 : 0 })
 
 describe('account collection and injection history', () => {
+  it('shows required-model validity and remaining time from each refreshed server snapshot', async () => {
+    const recent = { account_id: 1, paused: false, pause_reason: '', collections: [], injections: [], scheduling_state: { model: 'gpt-6-astra', status: 'valid' as const, reason: '有效', checked_at: '2026-09-19T08:45:00Z', expires_at: '2026-09-19T08:55:00Z' } }
+    const w = mount(Cell, { props: { accountId: 1, recent }, global: { stubs: { BaseDialog: true } } })
+    expect(w.text()).toContain('gpt-6-astra：有效，剩余 10 分钟')
+    expect(w.findAll('[data-state-result]')).toHaveLength(20)
+    await w.setProps({ recent: { ...recent, scheduling_state: { ...recent.scheduling_state, status: 'expired', checked_at: '2026-09-19T08:56:00Z' } } })
+    expect(w.text()).toContain('gpt-6-astra：已过期')
+    await w.setProps({ recent: { ...recent, scheduling_state: undefined } })
+    expect(w.text()).not.toContain('gpt-6-astra')
+    w.unmount()
+  })
   it('keeps ten stable bars per lane and exposes result details', async () => {
     const w = mount(Cell, { props: { accountId: 1, recent: { account_id: 1, paused: true, pause_reason: '等待人工重试', collections: [event('collection', 'collected')], injections: [{ ...event('injection', 'sent'), message: '已携带 State 发送，恢复情况以降智检测为准' }] } }, global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show" role="dialog"><slot /></div>' } } } })
     expect(w.findAll('[data-state-result]')).toHaveLength(20)

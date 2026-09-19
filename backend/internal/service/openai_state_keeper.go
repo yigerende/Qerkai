@@ -27,6 +27,9 @@ const openAIStateKeeperDefaultConcurrency = 50
 type OpenAIStateKeeperSettings struct {
 	Enabled                        bool     `json:"enabled"`
 	InjectionEnabled               bool     `json:"injection_enabled"`
+	RequireValidState              bool     `json:"require_valid_state"`
+	SchedulingStateModel           string   `json:"scheduling_state_model"`
+	SchedulingStateMinutes         int      `json:"scheduling_state_minutes"`
 	SuspendOldStateOnReauth        bool     `json:"suspend_old_state_on_reauth"`
 	ResponseRefreshEnabled         bool     `json:"response_refresh_enabled"`
 	AutoRefresh                    bool     `json:"auto_refresh"`
@@ -59,7 +62,7 @@ type OpenAIStateKeeperSettings struct {
 }
 
 func DefaultOpenAIStateKeeperSettings() OpenAIStateKeeperSettings {
-	return OpenAIStateKeeperSettings{SuspendOldStateOnReauth: true, AutoRefresh: true, DegradationScanIntervalSeconds: 60, Concurrency: openAIStateKeeperDefaultConcurrency, AccountConcurrency: 1, MaxAttempts: 3, RetryIntervalSeconds: 5, RequestIntervalSeconds: 1, ProxyFailureThreshold: 2, CooldownSeconds: 30, MaxCooldownSeconds: 900, AccountHourlyLimit: 120, AllowedStateLengths: []int{}, DegradedStateLengths: []int{}, AccountIDs: []int64{}, GroupIDs: []int64{}, Model: "gpt-6-astra"}
+	return OpenAIStateKeeperSettings{SchedulingStateModel: "gpt-6-astra", SchedulingStateMinutes: 55, SuspendOldStateOnReauth: true, AutoRefresh: true, DegradationScanIntervalSeconds: 60, Concurrency: openAIStateKeeperDefaultConcurrency, AccountConcurrency: 1, MaxAttempts: 3, RetryIntervalSeconds: 5, RequestIntervalSeconds: 1, ProxyFailureThreshold: 2, CooldownSeconds: 30, MaxCooldownSeconds: 900, AccountHourlyLimit: 120, AllowedStateLengths: []int{}, DegradedStateLengths: []int{}, AccountIDs: []int64{}, GroupIDs: []int64{}, Model: "gpt-6-astra"}
 }
 
 func (q OpenAIStateKeeperSettings) modelNames() []string {
@@ -131,6 +134,9 @@ func (q OpenAIStateKeeperSettings) Validate() error {
 		seenModels[model] = true
 	}
 	proxies := q.proxyIDs()
+	if q.RequireValidState && (!q.Enabled || !q.InjectionEnabled || !seenModels[q.SchedulingStateModel] || q.SchedulingStateMinutes < 1 || q.SchedulingStateMinutes > 1440) {
+		return errors.New("调度有效 State 要求启用采集及注入、选择已配置的采集模型，有效期须为 1–1440 分钟")
+	}
 	if len(proxies) > 20 {
 		return errors.New("最多选择 20 个采集代理")
 	}
@@ -668,6 +674,7 @@ func sameStateKeeperSettings(a, b OpenAIStateKeeperSettings) bool {
 }
 
 func (s *OpenAIStateKeeperService) Save(ctx context.Context, q OpenAIStateKeeperSettings) error {
+	q.SchedulingStateModel = strings.TrimSpace(q.SchedulingStateModel)
 	q.Model = strings.TrimSpace(q.Model)
 	if q.Models != nil {
 		q.Models = append([]string{}, q.Models...)
@@ -677,6 +684,15 @@ func (s *OpenAIStateKeeperService) Save(ctx context.Context, q OpenAIStateKeeper
 	}
 	if err := q.Validate(); err != nil {
 		return err
+	}
+	if q.RequireValidState {
+		policy, err := loadAccountQualitySettings(ctx, &SettingService{settingRepo: s.settings})
+		if err != nil {
+			return err
+		}
+		if err = validateStateSchedulingQuality(policy); err != nil {
+			return err
+		}
 	}
 	var selectedAccounts []*Account
 	if q.Enabled {
@@ -736,6 +752,11 @@ func (s *OpenAIStateKeeperService) Save(ctx context.Context, q OpenAIStateKeeper
 	for _, key := range blockedKeys {
 		if err := s.persistRuntimeLocked(key.accountID, key.model); err != nil {
 			return errors.New("配置已保存，但账号停止采集标记写入失败，请检查文件权限")
+		}
+	}
+	if s.quality != nil {
+		if err := s.quality.syncQualityScheduling(ctx, AccountQualitySettings{}); err != nil {
+			return err
 		}
 	}
 	return nil

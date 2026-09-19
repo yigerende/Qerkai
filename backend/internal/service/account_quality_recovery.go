@@ -68,7 +68,7 @@ func (s *AccountQualityService) runQualityRecovery(ctx context.Context) error {
 	if err = s.syncQualityScheduling(ctx, q); err != nil {
 		return err
 	}
-	if !q.Enabled || !q.PauseOnDegradation {
+	if !q.Enabled || !s.schedulingEnabled(q) {
 		s.recoveryMu.Lock()
 		s.collectedAccounts = nil
 		s.recoveryMu.Unlock()
@@ -113,7 +113,7 @@ func (s *AccountQualityService) runQualityRecovery(ctx context.Context) error {
 		}
 		if v.Revision != q.Revision {
 			v = AccountQualityResult{AccountID: v.AccountID, Revision: q.Revision, Scheduling: v.Scheduling}
-			v.Scheduling.Successes, v.Scheduling.NextAt = 0, nil
+			v.Scheduling.Successes = 0
 		}
 		if !collected[v.AccountID] && v.Scheduling.NextAt != nil && v.Scheduling.NextAt.After(time.Now()) {
 			continue
@@ -177,6 +177,12 @@ func (s *AccountQualityService) qualityRecoveryVersions(ctx context.Context, q A
 	}
 	versions := map[string]string{"credentials": stateKeeperCredentialStamp(a)}
 	keeper := s.stateKeeper.Load()
+	if state := keeper.schedulingValidity(a, time.Now().UTC()); state != nil {
+		if state.Status != "valid" {
+			return versions, errors.New(state.Reason)
+		}
+		versions["required_state"] = state.Version
+	}
 	for _, model := range qualityRecoveryModels(q) {
 		versions["model:"+model] = ""
 		if ticket := keeper.prepareQualityState(a, model, http.Header{}); ticket != nil {
@@ -194,7 +200,7 @@ func (s *AccountQualityService) qualityRecoveryStateCurrent(ctx context.Context,
 
 func (s *AccountQualityService) probeQualityRecovery(ctx context.Context, q AccountQualitySettings, v AccountQualityResult) error {
 	current, err := s.Settings(ctx)
-	if err != nil || current.Revision != q.Revision || !current.Enabled || !current.PauseOnDegradation {
+	if err != nil || current.Revision != q.Revision || !current.Enabled || !s.schedulingEnabled(current) {
 		return err
 	}
 	versions, err := s.qualityRecoveryVersions(ctx, q, v.AccountID)
@@ -266,6 +272,9 @@ func (s *AccountQualityService) probeQualityRecovery(ctx context.Context, q Acco
 		v.Scheduling.Successes = 0
 	}
 	v.Scheduling.Paused = v.Scheduling.Successes < q.RecoveryLimit
+	if !v.Scheduling.Paused {
+		v.Scheduling.QualityPaused, v.Scheduling.StateRequired = false, false
+	}
 	next := time.Now().UTC().Add(time.Duration(q.RetrySeconds) * time.Second)
 	v.Scheduling.NextAt = &next
 	return s.saveResult(ctx, q, v, accountQualityRecovery)

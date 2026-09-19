@@ -13,7 +13,7 @@ export interface QualityVerdict { status?: string; degraded: boolean; failures: 
 export interface QualityResult {
  overall?: { status: 'degraded' | 'pending' | 'normal'; reason: string; conditions: { kind: string; status: string }[] };
  detection_kind?: 'question' | 'model' | 'state_refresh' | 'recovery'; recorded_at?: string;
- scheduling?: { paused: boolean; since?: string; next_at?: string; successes: number; error?: string }
+ scheduling?: { paused: boolean; state_required?: boolean; quality_paused?: boolean; since?: string; next_at?: string; successes: number; error?: string }
  question_execution?: string; model_execution?: string;
  account_id: number; revision: string; version: string;
  question: QualityVerdict & { question_name?: string; answer?: string; reason?: string; duration_ms: number };

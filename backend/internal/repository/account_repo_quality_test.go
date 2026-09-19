@@ -39,14 +39,14 @@ func qualityRepositoryDB(t *testing.T) (*sql.DB, *accountRepository) {
 	db, err := sql.Open("postgres", u.String())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	_, err = db.Exec(`CREATE TABLE accounts(id BIGINT PRIMARY KEY,platform TEXT,status TEXT,schedulable BOOLEAN,extra JSONB,deleted_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,auto_pause_on_expired BOOLEAN NOT NULL DEFAULT true,expires_at TIMESTAMPTZ);
+	_, err = db.Exec(`CREATE TABLE accounts(id BIGINT PRIMARY KEY,platform TEXT,type TEXT NOT NULL DEFAULT 'oauth',credentials JSONB NOT NULL DEFAULT '{}',status TEXT,schedulable BOOLEAN,extra JSONB,deleted_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,auto_pause_on_expired BOOLEAN NOT NULL DEFAULT true,expires_at TIMESTAMPTZ);
  CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT);
- CREATE TABLE account_quality_states(account_id BIGINT PRIMARY KEY,payload JSONB);
+ CREATE TABLE account_quality_states(account_id BIGINT PRIMARY KEY,revision TEXT NOT NULL DEFAULT '',version TEXT NOT NULL DEFAULT '',payload JSONB);
  CREATE TABLE scheduler_outbox(id BIGSERIAL PRIMARY KEY,event_type TEXT,account_id BIGINT,group_id BIGINT,payload JSONB,dedup_key TEXT);
  CREATE UNIQUE INDEX scheduler_outbox_dedup ON scheduler_outbox(dedup_key) WHERE dedup_key IS NOT NULL;
  INSERT INTO settings VALUES('account_quality_detection_v1','{"enabled":true,"pause_on_degradation":true}');
  INSERT INTO accounts(id,platform,status,schedulable,extra) VALUES(1,'openai','active',true,'{"other":123}'),(2,'openai','active',false,'{}'),(3,'openai','error',true,'{}');
- INSERT INTO account_quality_states SELECT id,'{"scheduling":{"paused":true}}'::jsonb FROM accounts`)
+ INSERT INTO account_quality_states(account_id,payload) SELECT id,'{"scheduling":{"paused":true}}'::jsonb FROM accounts`)
 	require.NoError(t, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 	return db, newAccountRepositoryWithSQL(client, db, nil)

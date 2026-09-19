@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -253,11 +254,32 @@ func (s *OpenAIStateKeeperService) appendEventLocked(e *openAIKeptState, event O
 }
 
 type OpenAIStateKeeperRecent struct {
-	AccountID   int64                    `json:"account_id"`
-	Paused      bool                     `json:"paused"`
-	PauseReason string                   `json:"pause_reason"`
-	Collections []OpenAIStateKeeperEvent `json:"collections"`
-	Injections  []OpenAIStateKeeperEvent `json:"injections"`
+	AccountID       int64                    `json:"account_id"`
+	Paused          bool                     `json:"paused"`
+	PauseReason     string                   `json:"pause_reason"`
+	Collections     []OpenAIStateKeeperEvent `json:"collections"`
+	Injections      []OpenAIStateKeeperEvent `json:"injections"`
+	SchedulingState *StateSchedulingValidity `json:"scheduling_state,omitempty"`
+}
+
+func (s *OpenAIStateKeeperService) RecentWithState(ctx context.Context, ids []int64) ([]OpenAIStateKeeperRecent, error) {
+	out := s.Recent(ids)
+	if !s.stateSchedulingEnabled() {
+		return out, nil
+	}
+	accounts, err := s.accounts.GetByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]*Account, len(accounts))
+	for _, a := range accounts {
+		byID[a.ID] = a
+	}
+	now := time.Now().UTC()
+	for i := range out {
+		out[i].SchedulingState = s.schedulingValidity(byID[out[i].AccountID], now)
+	}
+	return out, nil
 }
 
 func (s *OpenAIStateKeeperService) Recent(ids []int64) []OpenAIStateKeeperRecent {

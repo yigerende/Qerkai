@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -85,6 +86,21 @@ func (s *AccountQualityService) SaveSettings(ctx context.Context, q AccountQuali
 	normalizeQualityOverallPolicy(&q)
 	if err := q.Validate(); err != nil {
 		return q, err
+	}
+	if s.stateKeeper.Load().stateSchedulingEnabled() {
+		if err := validateStateSchedulingQuality(q); err != nil {
+			return q, err
+		}
+	}
+	previous, err := s.Settings(ctx)
+	if err != nil {
+		return q, err
+	}
+	a, b := previous, q
+	a.Revision, b.Revision = "", ""
+	a.UpdatedAt, b.UpdatedAt = time.Time{}, time.Time{}
+	if previous.Revision != "" && reflect.DeepEqual(a, b) {
+		return previous, nil
 	}
 	q.Revision = uuid.NewString()
 	q.UpdatedAt = time.Now().UTC()
@@ -189,9 +205,9 @@ func (s *AccountQualityService) Results(ctx context.Context, ids []int64) (Accou
 				return out, err
 			}
 		}
-		if v.Revision != q.Revision {
+		staleRevision := v.Revision != q.Revision
+		if staleRevision {
 			v = AccountQualityResult{AccountID: id, Revision: q.Revision, Scheduling: v.Scheduling}
-			questionDue, modelDue = sql.NullTime{}, sql.NullTime{}
 		}
 		if eligible.Valid {
 			v.QuestionExecution = qualityExecution(id, q.Enabled && q.QuestionEnabled, questionDue, runtimes[0], out.ServerNow)
@@ -207,9 +223,12 @@ func (s *AccountQualityService) Results(ctx context.Context, ids []int64) (Accou
 		}
 		if eligible.Valid {
 			v.stateRefreshPending = s.reconcileCollectedModelState(q, &v)
+			if staleRevision && v.stateRefreshPending && v.Model.StateCollectedAt.Before(q.UpdatedAt) {
+				v.Model, v.stateRefreshPending = QualityModelResult{}, false
+			}
 		}
 		v.Overall = evaluateQualityOverall(q, v)
-		if !q.Enabled || !q.PauseOnDegradation {
+		if !q.Enabled || !s.schedulingEnabled(q) {
 			v.Scheduling = QualityScheduling{}
 		}
 		out.Accounts = append(out.Accounts, v)
@@ -286,7 +305,7 @@ func (s *AccountQualityService) Schedule(ctx context.Context, ids []int64) error
 	scope := qualityGroupScope(q, &args)
 	query := `UPDATE account_quality_states s SET next_at=LEAST(s.next_at,NOW()), question_next_at=LEAST(s.question_next_at,NOW()), model_next_at=LEAST(s.model_next_at,NOW()), payload=s.payload #- '{question,next_at}' #- '{model,next_at}' FROM accounts a WHERE s.account_id=a.id AND a.deleted_at IS NULL AND a.platform='openai' AND ` + scope
 	_, err = s.db.ExecContext(ctx, query, args...)
-	if err == nil && q.PauseOnDegradation {
+	if err == nil && s.schedulingEnabled(q) {
 		_, err = s.db.ExecContext(ctx, `UPDATE account_quality_states s SET payload=s.payload #- '{scheduling,next_at}' FROM accounts a WHERE s.account_id=a.id AND a.deleted_at IS NULL AND a.platform='openai' AND s.payload->'scheduling'->>'paused'='true' AND `+scope, args...)
 		select {
 		case s.recoveryWake <- struct{}{}:
@@ -343,14 +362,14 @@ func (s *AccountQualityService) runDue(ctx context.Context, kind int) error {
 	scope := qualityGroupScope(q, &args)
 	manual := qualityManualScope(kind, "$1")
 	pauseFilter := ""
-	if q.PauseOnDegradation {
+	if s.schedulingEnabled(q) {
 		pauseFilter = " AND COALESCE(s.payload->'scheduling'->>'paused','false') <> 'true'"
 	}
 	batchSize := max(32, q.Concurrency)
 	args = append(args, batchSize)
 	limitParam := fmt.Sprintf("$%d", len(args))
 	rows, err := s.db.QueryContext(queryCtx, `SELECT a.id,s.payload FROM accounts a LEFT JOIN account_quality_states s ON s.account_id=a.id
- WHERE a.deleted_at IS NULL AND a.platform='openai' AND (`+scope+` OR `+manual+`)`+pauseFilter+` AND (s.account_id IS NULL OR s.revision<>$1 OR s.`+dueColumn+`<=NOW())
+ WHERE a.deleted_at IS NULL AND a.platform='openai' AND (`+scope+` OR `+manual+`)`+pauseFilter+` AND (s.account_id IS NULL OR s.`+dueColumn+`<=NOW())
  ORDER BY CASE WHEN `+manual+` THEN 0 ELSE 1 END,
  CASE WHEN s.revision=$1 AND s.payload->'`+verdict+`'->>'checked_at' IS NOT NULL THEN 1 ELSE 0 END,
  COALESCE(s.`+dueColumn+`,'epoch'::timestamptz),a.id LIMIT `+limitParam, args...)
@@ -373,7 +392,7 @@ func (s *AccountQualityService) runDue(ctx context.Context, kind int) error {
 			}
 		}
 		if v.Revision != q.Revision {
-			v = AccountQualityResult{AccountID: id, Revision: q.Revision}
+			v = AccountQualityResult{AccountID: id, Revision: q.Revision, Scheduling: v.Scheduling}
 		}
 		// The SQL due column is authoritative, including manual scheduling.
 		if kind == 0 {
@@ -443,6 +462,10 @@ func (s *AccountQualityService) probe(ctx context.Context, q AccountQualitySetti
 	now := time.Now().UTC()
 	changed := false
 	if kind == 1 && q.ModelAuditEnabled && (v.Model.NextAt == nil || !now.Before(*v.Model.NextAt)) {
+		state, stateErr := s.schedulingState(ctx, v.AccountID)
+		if stateErr != nil || (state != nil && state.Status != "valid") {
+			return s.saveResult(ctx, q, v, kind)
+		}
 		s.reconcileCollectedModelState(q, &v)
 		s.checkQualityModel(ctx, q, &v)
 		changed = true
@@ -505,24 +528,41 @@ func (s *AccountQualityService) saveResult(ctx context.Context, q AccountQuality
 	if err = json.Unmarshal(previous, &saved); err != nil {
 		return err
 	}
-	if saved.Revision != q.Revision {
+	if saved.Scheduling.Paused && !saved.Scheduling.StateRequired {
+		saved.Scheduling.QualityPaused = true
+	}
+	staleRevision := saved.Revision != q.Revision
+	if staleRevision {
 		saved = AccountQualityResult{AccountID: v.AccountID, Revision: q.Revision, Scheduling: saved.Scheduling}
 		saved.Scheduling.Successes = 0
-		questionNext, modelNext = time.Unix(0, 0).UTC(), time.Unix(0, 0).UTC()
 	}
-	if q.PauseOnDegradation && saved.Scheduling.Paused && (kind == 0 || kind == 1) {
+	if s.schedulingEnabled(q) && saved.Scheduling.Paused && (kind == 0 || kind == 1) {
 		return nil
 	}
 	stateChanged := s.reconcileCollectedModelState(q, &saved)
-	if stateChanged {
+	if stateChanged && (!staleRevision || !saved.Model.StateCollectedAt.Before(q.UpdatedAt)) {
 		modelNext = *saved.Model.NextAt
+	} else if stateChanged {
+		saved.Model.NextAt = &modelNext
 	}
 	if kind == accountQualityStateRefresh && !stateChanged {
 		return nil
 	}
 	if kind == accountQualityRecovery {
-		if !q.PauseOnDegradation || !saved.Scheduling.Paused || (v.Scheduling.Error == "" && !s.qualityRecoveryStateCurrent(ctx, q, v)) {
+		if !s.schedulingEnabled(q) || !saved.Scheduling.Paused {
 			return nil
+		}
+		if v.Scheduling.Error == "" && !s.qualityRecoveryStateCurrent(ctx, q, v) {
+			if !s.stateKeeper.Load().stateSchedulingEnabled() {
+				return nil
+			}
+			// A result for expired/replaced State cannot count toward recovery.
+			v.Question, v.Model = saved.Question, saved.Model
+			v.Scheduling = saved.Scheduling
+			v.Scheduling.Successes = 0
+			v.Scheduling.Error = "State 或账号凭证已变化，等待重新复检"
+			next := time.Now().UTC().Add(time.Duration(q.RetrySeconds) * time.Second)
+			v.Scheduling.NextAt = &next
 		}
 		saved.Question, saved.Model, saved.Scheduling = v.Question, v.Model, v.Scheduling
 		if v.Question.NextAt != nil {
@@ -545,11 +585,31 @@ func (s *AccountQualityService) saveResult(ctx context.Context, q AccountQuality
 	v = saved
 	v.Version = uuid.NewString()
 	v.Overall = evaluateQualityOverall(q, v)
-	if !q.PauseOnDegradation {
+	if !s.schedulingEnabled(q) {
 		v.Scheduling = QualityScheduling{}
-	} else if v.Overall.Status == "degraded" && !v.Scheduling.Paused {
-		now := time.Now().UTC()
-		v.Scheduling = QualityScheduling{Paused: true, Since: &now, NextAt: &now}
+	} else {
+		if q.PauseOnDegradation && v.Overall.Status == "degraded" {
+			v.Scheduling.QualityPaused = true
+			if !v.Scheduling.Paused {
+				now := time.Now().UTC()
+				v.Scheduling.Paused, v.Scheduling.Since, v.Scheduling.NextAt = true, &now, &now
+			}
+		}
+		if kind == 1 || kind == accountQualityRecovery {
+			state, stateErr := s.schedulingState(saveCtx, v.AccountID)
+			if stateErr != nil || (state != nil && state.Status != "valid") {
+				now := time.Now().UTC()
+				if !v.Scheduling.Paused {
+					v.Scheduling.Since, v.Scheduling.NextAt = &now, &now
+				}
+				v.Scheduling.Paused, v.Scheduling.StateRequired, v.Scheduling.Successes = true, true, 0
+				if stateErr != nil {
+					v.Scheduling.Error = "无法确认 State 有效性：" + stateErr.Error()
+				} else {
+					v.Scheduling.Error = state.Reason
+				}
+			}
+		}
 	}
 	next := questionNext
 	if modelNext.Before(next) {
@@ -594,7 +654,7 @@ func (s *AccountQualityService) saveResult(ctx context.Context, q AccountQuality
 	if keeper := s.stateKeeper.Load(); keeper != nil {
 		keeper.observeQualityResult(q, v)
 	}
-	if q.PauseOnDegradation {
+	if s.schedulingEnabled(q) {
 		return s.syncQualityScheduling(ctx, q)
 	}
 	return nil

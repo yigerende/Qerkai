@@ -263,6 +263,7 @@ func TestAccountQualitySchedulingCancellationRevisionAndTimeout(t *testing.T) {
 	u.started = make(chan int64, 128)
 	go func() { done <- svc.runDue(context.Background(), 0) }()
 	<-u.started
+	q.IntervalSeconds++
 	q, err = svc.SaveSettings(context.Background(), q)
 	require.NoError(t, err)
 	close(u.gate)
