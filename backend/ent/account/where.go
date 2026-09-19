@@ -150,6 +150,11 @@ func Schedulable(v bool) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldSchedulable, v))
 }
 
+// SchedulingPausedAt applies equality check predicate on the "scheduling_paused_at" field. It's identical to SchedulingPausedAtEQ.
+func SchedulingPausedAt(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldSchedulingPausedAt, v))
+}
+
 // RateLimitedAt applies equality check predicate on the "rate_limited_at" field. It's identical to RateLimitedAtEQ.
 func RateLimitedAt(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldRateLimitedAt, v))
@@ -1103,6 +1108,56 @@ func SchedulableEQ(v bool) predicate.Account {
 // SchedulableNEQ applies the NEQ predicate on the "schedulable" field.
 func SchedulableNEQ(v bool) predicate.Account {
 	return predicate.Account(sql.FieldNEQ(FieldSchedulable, v))
+}
+
+// SchedulingPausedAtEQ applies the EQ predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtEQ(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldSchedulingPausedAt, v))
+}
+
+// SchedulingPausedAtNEQ applies the NEQ predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtNEQ(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldSchedulingPausedAt, v))
+}
+
+// SchedulingPausedAtIn applies the In predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtIn(vs ...time.Time) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldSchedulingPausedAt, vs...))
+}
+
+// SchedulingPausedAtNotIn applies the NotIn predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtNotIn(vs ...time.Time) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldSchedulingPausedAt, vs...))
+}
+
+// SchedulingPausedAtGT applies the GT predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtGT(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldSchedulingPausedAt, v))
+}
+
+// SchedulingPausedAtGTE applies the GTE predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtGTE(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldSchedulingPausedAt, v))
+}
+
+// SchedulingPausedAtLT applies the LT predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtLT(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldSchedulingPausedAt, v))
+}
+
+// SchedulingPausedAtLTE applies the LTE predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtLTE(v time.Time) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldSchedulingPausedAt, v))
+}
+
+// SchedulingPausedAtIsNil applies the IsNil predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldSchedulingPausedAt))
+}
+
+// SchedulingPausedAtNotNil applies the NotNil predicate on the "scheduling_paused_at" field.
+func SchedulingPausedAtNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldSchedulingPausedAt))
 }
 
 // RateLimitedAtEQ applies the EQ predicate on the "rate_limited_at" field.

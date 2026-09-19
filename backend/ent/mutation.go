@@ -2310,6 +2310,7 @@ type AccountMutation struct {
 	expires_at                  *time.Time
 	auto_pause_on_expired       *bool
 	schedulable                 *bool
+	scheduling_paused_at        *time.Time
 	rate_limited_at             *time.Time
 	rate_limit_reset_at         *time.Time
 	overload_until              *time.Time
@@ -3398,6 +3399,55 @@ func (m *AccountMutation) ResetSchedulable() {
 	m.schedulable = nil
 }
 
+// SetSchedulingPausedAt sets the "scheduling_paused_at" field.
+func (m *AccountMutation) SetSchedulingPausedAt(t time.Time) {
+	m.scheduling_paused_at = &t
+}
+
+// SchedulingPausedAt returns the value of the "scheduling_paused_at" field in the mutation.
+func (m *AccountMutation) SchedulingPausedAt() (r time.Time, exists bool) {
+	v := m.scheduling_paused_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSchedulingPausedAt returns the old "scheduling_paused_at" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldSchedulingPausedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSchedulingPausedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSchedulingPausedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSchedulingPausedAt: %w", err)
+	}
+	return oldValue.SchedulingPausedAt, nil
+}
+
+// ClearSchedulingPausedAt clears the value of the "scheduling_paused_at" field.
+func (m *AccountMutation) ClearSchedulingPausedAt() {
+	m.scheduling_paused_at = nil
+	m.clearedFields[account.FieldSchedulingPausedAt] = struct{}{}
+}
+
+// SchedulingPausedAtCleared returns if the "scheduling_paused_at" field was cleared in this mutation.
+func (m *AccountMutation) SchedulingPausedAtCleared() bool {
+	_, ok := m.clearedFields[account.FieldSchedulingPausedAt]
+	return ok
+}
+
+// ResetSchedulingPausedAt resets all changes to the "scheduling_paused_at" field.
+func (m *AccountMutation) ResetSchedulingPausedAt() {
+	m.scheduling_paused_at = nil
+	delete(m.clearedFields, account.FieldSchedulingPausedAt)
+}
+
 // SetRateLimitedAt sets the "rate_limited_at" field.
 func (m *AccountMutation) SetRateLimitedAt(t time.Time) {
 	m.rate_limited_at = &t
@@ -4138,7 +4188,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 31)
+	fields := make([]string, 0, 32)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4201,6 +4251,9 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.schedulable != nil {
 		fields = append(fields, account.FieldSchedulable)
+	}
+	if m.scheduling_paused_at != nil {
+		fields = append(fields, account.FieldSchedulingPausedAt)
 	}
 	if m.rate_limited_at != nil {
 		fields = append(fields, account.FieldRateLimitedAt)
@@ -4282,6 +4335,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.AutoPauseOnExpired()
 	case account.FieldSchedulable:
 		return m.Schedulable()
+	case account.FieldSchedulingPausedAt:
+		return m.SchedulingPausedAt()
 	case account.FieldRateLimitedAt:
 		return m.RateLimitedAt()
 	case account.FieldRateLimitResetAt:
@@ -4353,6 +4408,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldAutoPauseOnExpired(ctx)
 	case account.FieldSchedulable:
 		return m.OldSchedulable(ctx)
+	case account.FieldSchedulingPausedAt:
+		return m.OldSchedulingPausedAt(ctx)
 	case account.FieldRateLimitedAt:
 		return m.OldRateLimitedAt(ctx)
 	case account.FieldRateLimitResetAt:
@@ -4528,6 +4585,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetSchedulable(v)
+		return nil
+	case account.FieldSchedulingPausedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSchedulingPausedAt(v)
 		return nil
 	case account.FieldRateLimitedAt:
 		v, ok := value.(time.Time)
@@ -4716,6 +4780,9 @@ func (m *AccountMutation) ClearedFields() []string {
 	if m.FieldCleared(account.FieldExpiresAt) {
 		fields = append(fields, account.FieldExpiresAt)
 	}
+	if m.FieldCleared(account.FieldSchedulingPausedAt) {
+		fields = append(fields, account.FieldSchedulingPausedAt)
+	}
 	if m.FieldCleared(account.FieldRateLimitedAt) {
 		fields = append(fields, account.FieldRateLimitedAt)
 	}
@@ -4780,6 +4847,9 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldExpiresAt:
 		m.ClearExpiresAt()
+		return nil
+	case account.FieldSchedulingPausedAt:
+		m.ClearSchedulingPausedAt()
 		return nil
 	case account.FieldRateLimitedAt:
 		m.ClearRateLimitedAt()
@@ -4878,6 +4948,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldSchedulable:
 		m.ResetSchedulable()
+		return nil
+	case account.FieldSchedulingPausedAt:
+		m.ResetSchedulingPausedAt()
 		return nil
 	case account.FieldRateLimitedAt:
 		m.ResetRateLimitedAt()

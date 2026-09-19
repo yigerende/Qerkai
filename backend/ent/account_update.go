@@ -370,6 +370,26 @@ func (_u *AccountUpdate) SetNillableSchedulable(v *bool) *AccountUpdate {
 	return _u
 }
 
+// SetSchedulingPausedAt sets the "scheduling_paused_at" field.
+func (_u *AccountUpdate) SetSchedulingPausedAt(v time.Time) *AccountUpdate {
+	_u.mutation.SetSchedulingPausedAt(v)
+	return _u
+}
+
+// SetNillableSchedulingPausedAt sets the "scheduling_paused_at" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableSchedulingPausedAt(v *time.Time) *AccountUpdate {
+	if v != nil {
+		_u.SetSchedulingPausedAt(*v)
+	}
+	return _u
+}
+
+// ClearSchedulingPausedAt clears the value of the "scheduling_paused_at" field.
+func (_u *AccountUpdate) ClearSchedulingPausedAt() *AccountUpdate {
+	_u.mutation.ClearSchedulingPausedAt()
+	return _u
+}
+
 // SetRateLimitedAt sets the "rate_limited_at" field.
 func (_u *AccountUpdate) SetRateLimitedAt(v time.Time) *AccountUpdate {
 	_u.mutation.SetRateLimitedAt(v)
@@ -894,6 +914,12 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Schedulable(); ok {
 		_spec.SetField(account.FieldSchedulable, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.SchedulingPausedAt(); ok {
+		_spec.SetField(account.FieldSchedulingPausedAt, field.TypeTime, value)
+	}
+	if _u.mutation.SchedulingPausedAtCleared() {
+		_spec.ClearField(account.FieldSchedulingPausedAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.RateLimitedAt(); ok {
 		_spec.SetField(account.FieldRateLimitedAt, field.TypeTime, value)
@@ -1510,6 +1536,26 @@ func (_u *AccountUpdateOne) SetNillableSchedulable(v *bool) *AccountUpdateOne {
 	return _u
 }
 
+// SetSchedulingPausedAt sets the "scheduling_paused_at" field.
+func (_u *AccountUpdateOne) SetSchedulingPausedAt(v time.Time) *AccountUpdateOne {
+	_u.mutation.SetSchedulingPausedAt(v)
+	return _u
+}
+
+// SetNillableSchedulingPausedAt sets the "scheduling_paused_at" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableSchedulingPausedAt(v *time.Time) *AccountUpdateOne {
+	if v != nil {
+		_u.SetSchedulingPausedAt(*v)
+	}
+	return _u
+}
+
+// ClearSchedulingPausedAt clears the value of the "scheduling_paused_at" field.
+func (_u *AccountUpdateOne) ClearSchedulingPausedAt() *AccountUpdateOne {
+	_u.mutation.ClearSchedulingPausedAt()
+	return _u
+}
+
 // SetRateLimitedAt sets the "rate_limited_at" field.
 func (_u *AccountUpdateOne) SetRateLimitedAt(v time.Time) *AccountUpdateOne {
 	_u.mutation.SetRateLimitedAt(v)
@@ -2064,6 +2110,12 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if value, ok := _u.mutation.Schedulable(); ok {
 		_spec.SetField(account.FieldSchedulable, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.SchedulingPausedAt(); ok {
+		_spec.SetField(account.FieldSchedulingPausedAt, field.TypeTime, value)
+	}
+	if _u.mutation.SchedulingPausedAtCleared() {
+		_spec.ClearField(account.FieldSchedulingPausedAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.RateLimitedAt(); ok {
 		_spec.SetField(account.FieldRateLimitedAt, field.TypeTime, value)

@@ -279,6 +279,20 @@ func (_c *AccountCreate) SetNillableSchedulable(v *bool) *AccountCreate {
 	return _c
 }
 
+// SetSchedulingPausedAt sets the "scheduling_paused_at" field.
+func (_c *AccountCreate) SetSchedulingPausedAt(v time.Time) *AccountCreate {
+	_c.mutation.SetSchedulingPausedAt(v)
+	return _c
+}
+
+// SetNillableSchedulingPausedAt sets the "scheduling_paused_at" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableSchedulingPausedAt(v *time.Time) *AccountCreate {
+	if v != nil {
+		_c.SetSchedulingPausedAt(*v)
+	}
+	return _c
+}
+
 // SetRateLimitedAt sets the "rate_limited_at" field.
 func (_c *AccountCreate) SetRateLimitedAt(v time.Time) *AccountCreate {
 	_c.mutation.SetRateLimitedAt(v)
@@ -764,6 +778,10 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Schedulable(); ok {
 		_spec.SetField(account.FieldSchedulable, field.TypeBool, value)
 		_node.Schedulable = value
+	}
+	if value, ok := _c.mutation.SchedulingPausedAt(); ok {
+		_spec.SetField(account.FieldSchedulingPausedAt, field.TypeTime, value)
+		_node.SchedulingPausedAt = &value
 	}
 	if value, ok := _c.mutation.RateLimitedAt(); ok {
 		_spec.SetField(account.FieldRateLimitedAt, field.TypeTime, value)
@@ -1254,6 +1272,24 @@ func (u *AccountUpsert) SetSchedulable(v bool) *AccountUpsert {
 // UpdateSchedulable sets the "schedulable" field to the value that was provided on create.
 func (u *AccountUpsert) UpdateSchedulable() *AccountUpsert {
 	u.SetExcluded(account.FieldSchedulable)
+	return u
+}
+
+// SetSchedulingPausedAt sets the "scheduling_paused_at" field.
+func (u *AccountUpsert) SetSchedulingPausedAt(v time.Time) *AccountUpsert {
+	u.Set(account.FieldSchedulingPausedAt, v)
+	return u
+}
+
+// UpdateSchedulingPausedAt sets the "scheduling_paused_at" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateSchedulingPausedAt() *AccountUpsert {
+	u.SetExcluded(account.FieldSchedulingPausedAt)
+	return u
+}
+
+// ClearSchedulingPausedAt clears the value of the "scheduling_paused_at" field.
+func (u *AccountUpsert) ClearSchedulingPausedAt() *AccountUpsert {
+	u.SetNull(account.FieldSchedulingPausedAt)
 	return u
 }
 
@@ -1844,6 +1880,27 @@ func (u *AccountUpsertOne) SetSchedulable(v bool) *AccountUpsertOne {
 func (u *AccountUpsertOne) UpdateSchedulable() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateSchedulable()
+	})
+}
+
+// SetSchedulingPausedAt sets the "scheduling_paused_at" field.
+func (u *AccountUpsertOne) SetSchedulingPausedAt(v time.Time) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetSchedulingPausedAt(v)
+	})
+}
+
+// UpdateSchedulingPausedAt sets the "scheduling_paused_at" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateSchedulingPausedAt() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateSchedulingPausedAt()
+	})
+}
+
+// ClearSchedulingPausedAt clears the value of the "scheduling_paused_at" field.
+func (u *AccountUpsertOne) ClearSchedulingPausedAt() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearSchedulingPausedAt()
 	})
 }
 
@@ -2629,6 +2686,27 @@ func (u *AccountUpsertBulk) SetSchedulable(v bool) *AccountUpsertBulk {
 func (u *AccountUpsertBulk) UpdateSchedulable() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateSchedulable()
+	})
+}
+
+// SetSchedulingPausedAt sets the "scheduling_paused_at" field.
+func (u *AccountUpsertBulk) SetSchedulingPausedAt(v time.Time) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetSchedulingPausedAt(v)
+	})
+}
+
+// UpdateSchedulingPausedAt sets the "scheduling_paused_at" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateSchedulingPausedAt() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateSchedulingPausedAt()
+	})
+}
+
+// ClearSchedulingPausedAt clears the value of the "scheduling_paused_at" field.
+func (u *AccountUpsertBulk) ClearSchedulingPausedAt() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearSchedulingPausedAt()
 	})
 }
 

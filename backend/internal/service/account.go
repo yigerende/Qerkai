@@ -45,7 +45,8 @@ type Account struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 
-	Schedulable bool
+	Schedulable        bool
+	SchedulingPausedAt *time.Time
 
 	RateLimitedAt    *time.Time
 	RateLimitResetAt *time.Time

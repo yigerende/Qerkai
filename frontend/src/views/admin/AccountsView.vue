@@ -296,9 +296,12 @@
             </div>
           </template>
           <template #cell-schedulable="{ row }">
-            <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
-              <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
-            </button>
+            <div class="flex flex-col items-start gap-1">
+              <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
+                <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
+              </button>
+              <time v-if="!row.schedulable && row.scheduling_paused_at" :datetime="row.scheduling_paused_at" class="whitespace-nowrap text-[10px] text-gray-500 dark:text-dark-400">{{ formatDateTime(row.scheduling_paused_at) }}</time>
+            </div>
           </template>
           <template #cell-today_stats="{ row }">
             <AccountTodayStatsCell
@@ -1454,6 +1457,7 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
     current.current_window_cost !== next.current_window_cost ||
     current.active_sessions !== next.active_sessions ||
     current.schedulable !== next.schedulable ||
+    current.scheduling_paused_at !== next.scheduling_paused_at ||
     current.status !== next.status ||
     current.rate_limit_reset_at !== next.rate_limit_reset_at ||
     current.overload_until !== next.overload_until ||
@@ -2057,7 +2061,7 @@ const handleBulkProbeUpstreamBilling = async () => {
 const updateSchedulableInList = (accountIds: number[], schedulable: boolean) => {
   if (accountIds.length === 0) return
   const idSet = new Set(accountIds)
-  accounts.value = accounts.value.map((account) => (idSet.has(account.id) ? { ...account, schedulable } : account))
+  accounts.value = accounts.value.map((account) => (idSet.has(account.id) ? { ...account, schedulable, scheduling_paused_at: schedulable ? null : account.scheduling_paused_at } : account))
 }
 const normalizeBulkSchedulableResult = (
   result: {
@@ -2134,6 +2138,7 @@ const handleBulkToggleSchedulable = async (schedulable: boolean) => {
     }
     if (successIds.length > 0) {
       updateSchedulableInList(successIds, schedulable)
+      await load()
     }
     if (successCount > 0 && failedCount === 0) {
       const message = schedulable
@@ -2567,7 +2572,7 @@ const handleToggleSchedulable = async (a: Account) => {
   togglingSchedulable.value = a.id
   try {
     const updated = await adminAPI.accounts.setSchedulable(a.id, nextSchedulable)
-    updateSchedulableInList([a.id], updated?.schedulable ?? nextSchedulable)
+    patchAccountInList(updated)
     enterAutoRefreshSilentWindow()
   } catch (error) {
     console.error('Failed to toggle schedulable:', error)

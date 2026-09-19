@@ -58,6 +58,8 @@ const (
 	FieldAutoPauseOnExpired = "auto_pause_on_expired"
 	// FieldSchedulable holds the string denoting the schedulable field in the database.
 	FieldSchedulable = "schedulable"
+	// FieldSchedulingPausedAt holds the string denoting the scheduling_paused_at field in the database.
+	FieldSchedulingPausedAt = "scheduling_paused_at"
 	// FieldRateLimitedAt holds the string denoting the rate_limited_at field in the database.
 	FieldRateLimitedAt = "rate_limited_at"
 	// FieldRateLimitResetAt holds the string denoting the rate_limit_reset_at field in the database.
@@ -152,6 +154,7 @@ var Columns = []string{
 	FieldExpiresAt,
 	FieldAutoPauseOnExpired,
 	FieldSchedulable,
+	FieldSchedulingPausedAt,
 	FieldRateLimitedAt,
 	FieldRateLimitResetAt,
 	FieldOverloadUntil,
@@ -349,6 +352,11 @@ func ByAutoPauseOnExpired(opts ...sql.OrderTermOption) OrderOption {
 // BySchedulable orders the results by the schedulable field.
 func BySchedulable(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSchedulable, opts...).ToFunc()
+}
+
+// BySchedulingPausedAt orders the results by the scheduling_paused_at field.
+func BySchedulingPausedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSchedulingPausedAt, opts...).ToFunc()
 }
 
 // ByRateLimitedAt orders the results by the rate_limited_at field.

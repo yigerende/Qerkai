@@ -14,6 +14,7 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -49,6 +50,10 @@ func qualityRepositoryDB(t *testing.T) (*sql.DB, *accountRepository) {
  INSERT INTO account_quality_states(account_id,payload) SELECT id,'{"scheduling":{"paused":true}}'::jsonb FROM accounts`)
 	require.NoError(t, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	pauseMigration, err := migrations.FS.ReadFile("240_account_scheduling_paused_at.sql")
+	require.NoError(t, err)
+	_, err = db.Exec(string(pauseMigration))
+	require.NoError(t, err)
 	return db, newAccountRepositoryWithSQL(client, db, nil)
 }
 
