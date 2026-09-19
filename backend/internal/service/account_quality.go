@@ -345,10 +345,7 @@ func (s *AccountQualityService) runDue(ctx context.Context, kind int) error {
 	if q.PauseOnDegradation {
 		pauseFilter = " AND COALESCE(s.payload->'scheduling'->>'paused','false') <> 'true'"
 	}
-	batchSize := 32
-	if kind == 0 {
-		batchSize = max(batchSize, q.Concurrency)
-	}
+	batchSize := max(32, q.Concurrency)
 	args = append(args, batchSize)
 	limitParam := fmt.Sprintf("$%d", len(args))
 	rows, err := s.db.QueryContext(queryCtx, `SELECT a.id,s.payload FROM accounts a LEFT JOIN account_quality_states s ON s.account_id=a.id
@@ -401,9 +398,6 @@ func (s *AccountQualityService) runDue(ctx context.Context, kind int) error {
 	queue := make(chan AccountQualityResult)
 	var wg sync.WaitGroup
 	workers := min(q.Concurrency, len(jobs))
-	if kind == 1 && workers > 2 {
-		workers = 2
-	}
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
@@ -449,20 +443,7 @@ func (s *AccountQualityService) probe(ctx context.Context, q AccountQualitySetti
 	changed := false
 	if kind == 1 && q.ModelAuditEnabled && (v.Model.NextAt == nil || !now.Before(*v.Model.NextAt)) {
 		s.reconcileCollectedModelState(q, &v)
-		results, e := s.usage.LatestModelAudit(ctx, ModelAuditInput{Model: q.ModelAuditModel, Accounts: []ModelAuditAccount{{AccountID: v.AccountID, Since: qualityModelSampleSince(q, v.Model)}}})
-		if e != nil {
-			v.Model.Status = "error"
-			v.Model.Error = e.Error()
-			v.Model.CheckedAt = &now
-			next := now.Add(time.Duration(q.RetrySeconds) * time.Second)
-			v.Model.NextAt = &next
-		} else {
-			logs := []ModelAuditLog{}
-			if len(results) > 0 {
-				logs = results[0].Logs
-			}
-			applyQualityModelLogs(&v.Model, q, logs, now)
-		}
+		s.checkQualityModel(ctx, q, &v)
 		changed = true
 	}
 	if kind == 0 && q.QuestionEnabled && (v.Question.NextAt == nil || !now.Before(*v.Question.NextAt)) {
@@ -638,6 +619,20 @@ func (w *qualityTestWriter) Write(b []byte) (int, error) {
 	return w.body.Write(b)
 }
 func (s *AccountQualityService) testAnswer(ctx context.Context, id int64, q AccountQualitySettings, question QualityQuestion, observers ...*upstreamResponseModelObserver) (string, int64, error) {
+	answer, duration, err := s.testQualityRequest(ctx, id, q, question.Prompt, observers...)
+	if err != nil {
+		return "", duration, err
+	}
+	if strings.TrimSpace(answer) == "" {
+		return "", duration, errors.New("测试响应不完整，未计入答题异常")
+	}
+	if len(answer) > 16384 {
+		return "", duration, errors.New("测试答案过长，未计入答题异常")
+	}
+	return answer, duration, nil
+}
+
+func (s *AccountQualityService) testQualityRequest(ctx context.Context, id int64, q AccountQualitySettings, prompt string, observers ...*upstreamResponseModelObserver) (string, int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(q.TimeoutSeconds)*time.Second)
 	defer cancel()
 	writer := &qualityTestWriter{header: make(http.Header), cancel: cancel}
@@ -648,7 +643,7 @@ func (s *AccountQualityService) testAnswer(ctx context.Context, id int64, q Acco
 	if len(observers) > 0 {
 		options.qualityModel = observers[0]
 	}
-	err := s.tests.TestAccountConnection(c, id, q.Model, question.Prompt, AccountTestModeDefault, options)
+	err := s.tests.TestAccountConnection(c, id, q.Model, prompt, AccountTestModeDefault, options)
 	duration := time.Since(started).Milliseconds()
 	answer, message := parseTestSSEOutput(writer.body.String())
 	if ctx.Err() != nil {
@@ -672,11 +667,8 @@ func (s *AccountQualityService) testAnswer(ctx context.Context, id int64, q Acco
 			}
 		}
 	}
-	if !complete || strings.TrimSpace(answer) == "" {
+	if !complete {
 		return "", duration, errors.New("测试响应不完整，未计入答题异常")
-	}
-	if len(answer) > 16384 {
-		return "", duration, errors.New("测试答案过长，未计入答题异常")
 	}
 	return answer, duration, nil
 }

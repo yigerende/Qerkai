@@ -260,6 +260,14 @@ func applyQualityAnswer(v *QualityQuestionResult, q AccountQualitySettings, ques
 		}
 	}
 }
+func qualityModelLogUsable(v QualityModelResult, q AccountQualitySettings, item ModelAuditLog) bool {
+	if item.CreatedAt.Before(q.UpdatedAt) || !strings.EqualFold(strings.TrimSpace(item.SentModel), strings.TrimSpace(q.ModelAuditModel)) || strings.TrimSpace(item.ResponseModel) == "" || item.Mismatch == nil {
+		return false
+	}
+	// Completion timestamps alone cannot validate State saved during a request.
+	return v.StateCollectedAt == nil || (item.RequestStartedAt != nil && item.RequestStartedAt.After(*v.StateCollectedAt))
+}
+
 func applyQualityModelLogs(v *QualityModelResult, q AccountQualitySettings, logs []ModelAuditLog, now time.Time) {
 	v.CheckedAt = &now
 	next := now.Add(time.Duration(q.ModelAuditIntervalSeconds) * time.Second)
@@ -277,12 +285,7 @@ func applyQualityModelLogs(v *QualityModelResult, q AccountQualitySettings, logs
 			continue
 		}
 		v.LatestID = item.ID
-		// Usage timestamps are completion times. An older in-flight request
-		// cannot validate a State collected while that request was running.
-		if v.StateCollectedAt != nil && (item.RequestStartedAt == nil || !item.RequestStartedAt.After(*v.StateCollectedAt)) {
-			continue
-		}
-		if !strings.EqualFold(strings.TrimSpace(item.SentModel), strings.TrimSpace(q.ModelAuditModel)) || strings.TrimSpace(item.ResponseModel) == "" || item.Mismatch == nil {
+		if !qualityModelLogUsable(*v, q, item) {
 			continue
 		}
 		v.NoNewSamples = false

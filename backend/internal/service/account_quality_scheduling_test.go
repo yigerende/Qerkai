@@ -99,7 +99,7 @@ func (u *qualitySchedulingUpstream) DoWithTLS(req *http.Request, _ string, id in
 	if id == 5 {
 		return nil, fmt.Errorf("fixture upstream unavailable")
 	}
-	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("data: {\"type\":\"response.output_text.delta\",\"delta\":\"21\"}\n\ndata: {\"type\":\"response.completed\"}\n\n"))}, nil
+	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("data: {\"type\":\"response.output_text.delta\",\"delta\":\"21\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-6-astra\"}}\n\n"))}, nil
 }
 func qualitySchedulingService(t *testing.T, db *sql.DB, u *qualitySchedulingUpstream) (*AccountQualityService, AccountQualitySettings) {
 	svc := &AccountQualityService{db: db, settings: &SettingService{settingRepo: &qualityPGSettings{db: db}}, usage: &UsageService{usageRepo: &qualityPGAudit{}}, tests: &AccountTestService{accountRepo: &qualitySchedulingAccounts{}, httpUpstream: u}}
@@ -114,47 +114,52 @@ func qualitySchedulingService(t *testing.T, db *sql.DB, u *qualitySchedulingUpst
 }
 
 func TestAccountQualitySchedulingConfiguredConcurrency(t *testing.T) {
-	for _, concurrency := range []int{12, 40, 1000} {
-		t.Run(fmt.Sprint(concurrency), func(t *testing.T) {
-			db := qualitySchedulingDB(t)
-			u := &qualitySchedulingUpstream{gate: make(chan struct{}), started: make(chan int64, 128), calls: map[int64]int{}}
-			svc, q := qualitySchedulingService(t, db, u)
-			_, err := db.Exec(`INSERT INTO groups(id) VALUES(10); INSERT INTO account_groups(account_id,group_id) SELECT id,10 FROM accounts`)
-			require.NoError(t, err)
-			q.Concurrency, q.AllGroups, q.GroupIDs = concurrency, false, []int64{10}
-			_, err = svc.SaveSettings(context.Background(), q)
-			require.NoError(t, err)
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			done := make(chan struct{})
-			var runErr error
-			go func() { runErr = svc.runDue(ctx, 0); close(done) }()
-			t.Cleanup(func() {
-				cancel()
+	for _, kind := range []int{0, 1} {
+		for _, concurrency := range []int{12, 40, 1000} {
+			t.Run(fmt.Sprintf("kind=%d/concurrency=%d", kind, concurrency), func(t *testing.T) {
+				db := qualitySchedulingDB(t)
+				u := &qualitySchedulingUpstream{gate: make(chan struct{}), started: make(chan int64, 128), calls: map[int64]int{}}
+				svc, q := qualitySchedulingService(t, db, u)
+				if kind == 1 {
+					svc.usage = &UsageService{usageRepo: &qualityModelAuditStub{}}
+				}
+				_, err := db.Exec(`INSERT INTO groups(id) VALUES(10); INSERT INTO account_groups(account_id,group_id) SELECT id,10 FROM accounts`)
+				require.NoError(t, err)
+				q.Concurrency, q.AllGroups, q.GroupIDs = concurrency, false, []int64{10}
+				_, err = svc.SaveSettings(context.Background(), q)
+				require.NoError(t, err)
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				done := make(chan struct{})
+				var runErr error
+				go func() { runErr = svc.runDue(ctx, kind); close(done) }()
+				t.Cleanup(func() {
+					cancel()
+					select {
+					case <-done:
+					case <-time.After(10 * time.Second):
+						t.Error("quality workers did not stop")
+					}
+				})
+				wantWorkers := min(concurrency, 62)
+				for i := 0; i < wantWorkers; i++ {
+					select {
+					case <-u.started:
+					case <-ctx.Done():
+						t.Fatal("configured concurrency was not reached")
+					}
+				}
+				require.EqualValues(t, wantWorkers, u.maximum.Load())
+				close(u.gate)
 				select {
 				case <-done:
-				case <-time.After(10 * time.Second):
-					t.Error("quality workers did not stop")
-				}
-			})
-			wantWorkers := min(concurrency, 62)
-			for i := 0; i < wantWorkers; i++ {
-				select {
-				case <-u.started:
 				case <-ctx.Done():
-					t.Fatal("configured concurrency was not reached")
+					t.Fatal("quality batch did not finish")
 				}
-			}
-			require.EqualValues(t, wantWorkers, u.maximum.Load())
-			close(u.gate)
-			select {
-			case <-done:
-			case <-ctx.Done():
-				t.Fatal("quality batch did not finish")
-			}
-			require.NoError(t, runErr)
-			require.Len(t, u.calls, min(max(32, concurrency), 62))
-			require.EqualValues(t, wantWorkers, u.maximum.Load())
-		})
+				require.NoError(t, runErr)
+				require.Len(t, u.calls, min(max(32, concurrency), 62))
+				require.EqualValues(t, wantWorkers, u.maximum.Load())
+			})
+		}
 	}
 }
 

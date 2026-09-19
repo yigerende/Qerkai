@@ -50,7 +50,7 @@ func (r *qualityPGAudit) LatestModelAudit(_ context.Context, input ModelAuditInp
 	now := time.Now().UTC()
 	mismatch := true
 	id := input.Accounts[0].AccountID
-	return []ModelAuditResult{{AccountID: id, Logs: []ModelAuditLog{{ID: id * 10, AccountID: id, CreatedAt: now, SentModel: input.Model, ResponseModel: "other-model", Mismatch: &mismatch}, {ID: id*10 + 1, AccountID: id, CreatedAt: now, SentModel: input.Model, ResponseModel: "other-model", Mismatch: &mismatch}}}}, nil
+	return []ModelAuditResult{{AccountID: id, Logs: []ModelAuditLog{{ID: id * 10, AccountID: id, CreatedAt: now, SentModel: input.Model, ResponseModel: "other-model", Mismatch: &mismatch}, {ID: id*10 + 1, AccountID: id, CreatedAt: now, SentModel: input.Model, ResponseModel: "other-model", Mismatch: &mismatch}, {ID: id*10 + 2, AccountID: id, CreatedAt: now, SentModel: input.Model, ResponseModel: "other-model", Mismatch: &mismatch}}}}, nil
 }
 func TestAccountQualityPostgresPersistenceConcurrencyAndMigration(t *testing.T) {
 	dsn := os.Getenv("QUALITY_TEST_PG_DSN")
@@ -112,7 +112,7 @@ func TestAccountQualityPostgresPersistenceConcurrencyAndMigration(t *testing.T) 
 	}
 	wg.Wait()
 	require.Equal(t, int32(32), audit.calls.Load())
-	require.LessOrEqual(t, audit.maximum.Load(), int32(2))
+	require.LessOrEqual(t, audit.maximum.Load(), int32(q.Concurrency))
 	ids := []int64{}
 	for i := int64(1); i <= 32; i++ {
 		ids = append(ids, i)
@@ -122,7 +122,7 @@ func TestAccountQualityPostgresPersistenceConcurrencyAndMigration(t *testing.T) 
 	require.Len(t, out.Accounts, 32)
 	for _, v := range out.Accounts {
 		require.True(t, v.Model.Degraded)
-		require.Equal(t, 2, v.Model.Failures)
+		require.Equal(t, 3, v.Model.Failures)
 		require.Equal(t, "degraded", v.Overall.Status)
 	}
 	aggregateSummary, err := svc.Summary(context.Background())
@@ -133,7 +133,7 @@ func TestAccountQualityPostgresPersistenceConcurrencyAndMigration(t *testing.T) 
 	require.NoError(t, svc.runDue(context.Background(), 1))
 	out, err = svc.Results(context.Background(), []int64{1})
 	require.NoError(t, err)
-	require.Equal(t, 2, out.Accounts[0].Model.Failures, "same log IDs must not count twice")
+	require.Equal(t, 3, out.Accounts[0].Model.Failures, "same log IDs must not count twice")
 	next := time.Now().Add(time.Minute)
 	a := AccountQualityResult{AccountID: 1, Revision: q.Revision, Question: QualityQuestionResult{QuestionID: "kept-question", QualityVerdict: QualityVerdict{Status: "normal", NextAt: &next}}}
 	b := AccountQualityResult{AccountID: 1, Revision: q.Revision, Model: QualityModelResult{ResponseModel: "kept-model", QualityVerdict: QualityVerdict{Status: "normal", NextAt: &next}}}
