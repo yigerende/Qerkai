@@ -62,6 +62,7 @@ func qualityRecoveryFixture(t *testing.T) (*AccountQualityService, *OpenAIStateK
 	}
 	require.NoError(t, svc.saveResult(context.Background(), q, v, 0))
 	require.True(t, readQualityRecovery(t, svc).Scheduling.Paused)
+	a.Schedulable = false
 	return svc, keeper, a, u, q
 }
 
@@ -180,14 +181,12 @@ func TestAccountQualityRecoveryDifferentModelsAndInjectionOff(t *testing.T) {
 	require.False(t, readQualityRecovery(t, s).Scheduling.Paused)
 }
 
-func TestAccountQualityPauseIsSeparateFromManualAndCredentialState(t *testing.T) {
+func TestAccountQualityUsesOriginalSchedulingSwitch(t *testing.T) {
 	for _, schedulable := range []bool{true, false} {
 		for _, status := range []string{StatusActive, StatusError, StatusDisabled} {
 			a := keeperTestAccount(1)
 			a.Schedulable, a.Status = schedulable, status
-			a.Extra = map[string]any{QualitySchedulingPausedExtraKey: true}
-			require.False(t, a.IsSchedulable())
-			a.Extra[QualitySchedulingPausedExtraKey] = false
+			a.Extra = map[string]any{"quality_scheduling_paused": true, "quality_schedulable_restore": true}
 			require.Equal(t, schedulable && status == StatusActive, a.IsSchedulable())
 		}
 	}
@@ -199,8 +198,8 @@ func TestAccountQualityPauseBlocksFreshAndStickyHTTPAndWSSelection(t *testing.T)
 			for _, sticky := range []string{"", "session", "response"} {
 				t.Run(fmt.Sprintf("%s/%s/%s", advanced, transport, sticky), func(t *testing.T) {
 					account := *keeperTestAccount(1)
-					account.Schedulable, account.GroupIDs = true, []int64{11}
-					account.Extra = map[string]any{"responses_websockets_v2_enabled": true, QualitySchedulingPausedExtraKey: true}
+					account.Schedulable, account.GroupIDs = false, []int64{11}
+					account.Extra = map[string]any{"responses_websockets_v2_enabled": true, "quality_schedulable_restore": true}
 					cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:paused-session": 1}}
 					gateway := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{account}}, cache: cache,
 						cfg: newSchedulerTestOpenAIWSV2Config(), rateLimitService: newOpenAIAdvancedSchedulerRateLimitService(advanced),
@@ -216,7 +215,8 @@ func TestAccountQualityPauseBlocksFreshAndStickyHTTPAndWSSelection(t *testing.T)
 					selection, _, err := gateway.SelectAccountWithScheduler(context.Background(), &group, previous, session, "gpt-6-astra", nil, transport, false)
 					require.Error(t, err)
 					require.Nil(t, selection)
-					account.Extra[QualitySchedulingPausedExtraKey] = false
+					account.Schedulable = true
+					gateway.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{account}}
 					selection, _, err = gateway.SelectAccountWithScheduler(context.Background(), &group, "", "", "gpt-6-astra", nil, transport, false)
 					require.NoError(t, err)
 					require.EqualValues(t, 1, selection.Account.ID)

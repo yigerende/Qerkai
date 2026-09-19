@@ -13,19 +13,10 @@ import (
 	"time"
 )
 
-const QualitySchedulingPausedExtraKey = "quality_scheduling_paused"
 const accountQualityRecovery = 3
 
-func (a *Account) IsQualitySchedulingPaused() bool {
-	if a == nil || a.Platform != PlatformOpenAI {
-		return false
-	}
-	paused, _ := a.Extra[QualitySchedulingPausedExtraKey].(bool)
-	return paused
-}
-
-// The repository derives the flag from committed policy/results, so an older
-// detector cannot overwrite a newer decision. Manual scheduling is independent.
+// Apply committed quality results through the account's existing scheduling
+// switch. The repository remembers which switches it may restore.
 func (s *AccountQualityService) syncQualityScheduling(ctx context.Context, _ AccountQualitySettings) error {
 	if s.tests == nil || s.tests.accountRepo == nil {
 		return nil

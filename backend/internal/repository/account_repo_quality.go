@@ -6,8 +6,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// Never change schedulable, status or authentication cooldowns. The separate
-// flag survives restarts and is removed when the administrator disables it.
+// Quality uses the same schedulable field as the existing account switch.
+// The restore marker is provenance only; no scheduler reads it.
 func (r *accountRepository) SyncQualityScheduling(ctx context.Context) error {
 	tx, err := r.client.Tx(ctx)
 	if err != nil {
@@ -22,13 +22,28 @@ func (r *accountRepository) SyncQualityScheduling(ctx context.Context) error {
 	if _, err = client.ExecContext(ctx, `UPDATE account_quality_states SET payload=payload-'scheduling' WHERE payload->'scheduling'->>'paused'='true' AND NOT (`+enabled+`)`); err != nil {
 		return err
 	}
-	rows, err := client.QueryContext(ctx, `WITH desired AS (
+	rows, err := client.QueryContext(ctx, `WITH desired AS MATERIALIZED (
  SELECT a.id, (`+enabled+` AND COALESCE(s.payload->'scheduling'->>'paused','false')='true') AS paused
  FROM accounts a LEFT JOIN account_quality_states s ON s.account_id=a.id
  WHERE a.deleted_at IS NULL AND a.platform='openai'
+ AND (a.extra ? 'quality_schedulable_restore' OR a.extra ? 'quality_scheduling_paused'
+   OR (a.schedulable AND `+enabled+` AND s.payload->'scheduling'->>'paused'='true'))
+ FOR UPDATE OF a
 ), changed AS (
- UPDATE accounts a SET extra=COALESCE(a.extra,'{}'::jsonb)||jsonb_build_object('quality_scheduling_paused',d.paused),updated_at=NOW()
- FROM desired d WHERE a.id=d.id AND COALESCE(a.extra->>'quality_scheduling_paused','false')<>d.paused::text RETURNING a.id
+ UPDATE accounts a SET
+ schedulable=CASE WHEN d.paused THEN FALSE
+   WHEN a.extra->>'quality_schedulable_restore'='true' AND a.status='active'
+     AND (NOT a.auto_pause_on_expired OR a.expires_at IS NULL OR a.expires_at>NOW()) THEN TRUE
+   ELSE a.schedulable END,
+ extra=(COALESCE(a.extra,'{}'::jsonb)-'quality_scheduling_paused'-'quality_schedulable_restore') ||
+   CASE WHEN d.paused AND (a.schedulable OR a.extra->>'quality_schedulable_restore'='true')
+     THEN '{"quality_schedulable_restore":true}'::jsonb ELSE '{}'::jsonb END,
+ updated_at=NOW()
+ FROM desired d WHERE a.id=d.id AND (
+   (d.paused AND a.schedulable) OR
+   (NOT d.paused AND a.extra ? 'quality_schedulable_restore') OR
+   a.extra ? 'quality_scheduling_paused'
+ ) RETURNING a.id
 ), notified AS (
  INSERT INTO scheduler_outbox(event_type,account_id,payload) SELECT $1,id,'{}'::jsonb FROM changed RETURNING account_id
 ) SELECT account_id FROM notified`, service.SchedulerOutboxEventAccountChanged)

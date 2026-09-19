@@ -58,7 +58,7 @@ describe('Upstream state management', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); vi.mocked(stateKeeperAPI.get).mockResolvedValue(initial()) })
   afterEach(() => vi.useRealTimers())
 
-  it('shows elapsed minutes since successful collection per account and model, ignoring failed attempts', async () => {
+  it('shows the longest successful collection age per account and individual model ages, ignoring failed attempts', async () => {
     vi.setSystemTime(new Date('2026-09-19T06:30:00Z'))
     const data = initial()
     data.rows[0].models = [
@@ -68,10 +68,10 @@ describe('Upstream state management', () => {
     ]
     vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
     const w = render(); await flushPromises(); await showModelRows(w)
-    expect(w.get('[data-testid="account-success-age"]').text()).toBe('5.0 分钟')
+    expect(w.get('[data-testid="account-success-age"]').text()).toBe('15.0 分钟')
     expect(w.findAll('[data-testid="model-success-age"]').map(cell => cell.text())).toEqual(['15.0 分钟', '5.0 分钟', '—'])
     await vi.advanceTimersByTimeAsync(60000); await flushPromises()
-    expect(w.get('[data-testid="account-success-age"]').text()).toBe('6.0 分钟')
+    expect(w.get('[data-testid="account-success-age"]').text()).toBe('16.0 分钟')
     expect(w.findAll('[data-testid="model-success-age"]').map(cell => cell.text())).toEqual(['16.0 分钟', '6.0 分钟', '—'])
     expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
     w.unmount()
@@ -188,6 +188,25 @@ describe('Upstream state management', () => {
     expect(w.text()).toContain('账号本小时 12 / 120')
     expect(w.text()).not.toContain('已暂停，待人工')
     expect(w.findAll('button').find(b => b.text() === '查看')!.attributes('disabled')).toBeUndefined()
+    w.unmount()
+  })
+
+  it('shows shared account collection usage for five and ten minute windows', async () => {
+    const data = initial()
+    data.settings.account_five_minute_limit = 40
+    data.settings.account_ten_minute_limit = 80
+    Object.assign(data.rows[0], { five_minute_requests: 17, ten_minute_requests: 29 })
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
+    const w = render(); await flushPromises(); await showModelRows(w)
+    expect(w.text()).toContain('账号 5 分钟 17 / 40')
+    expect(w.text()).toContain('账号 10 分钟 29 / 80')
+    w.unmount()
+  })
+
+  it('shows unlimited collection windows when the limit is zero', async () => {
+    const w = render(); await flushPromises(); await showModelRows(w)
+    expect(w.text()).toContain('账号 5 分钟 0 / 不限')
+    expect(w.text()).toContain('账号 10 分钟 0 / 不限')
     w.unmount()
   })
 

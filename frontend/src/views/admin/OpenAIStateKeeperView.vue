@@ -107,7 +107,7 @@ const accountStates = computed(() => (snapshot.value?.rows || []).map(account =>
     activeCount: models.filter(row => row.queued || row.collecting).length,
     coolingCount: models.filter(row => !account.account_unavailable && !row.account_unavailable && !row.paused && !row.queued && !row.collecting && (row.auto_retry_pending || (row.cooldown_until && Date.parse(row.cooldown_until) > currentTime.value))).length,
     lastCollection: collectionTimes.sort().at(-1),
-    lastSuccessfulCollection: successTimes.sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1),
+    oldestSuccessfulCollection: successTimes.sort((a, b) => Date.parse(a) - Date.parse(b)).at(0),
     httpStatuses: [...new Set(models.map(row => row.http_status).filter(Boolean))].join(' / ') || '—',
     stateLengths: [...new Set(models.map(row => row.turn_state_length).filter(Boolean))].join(' / ') || '—',
   }
@@ -481,7 +481,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td class="max-w-36 break-words text-xs tabular-nums">{{ account.httpStatuses }}</td>
               <td class="max-w-40 break-words text-xs tabular-nums">{{ account.stateLengths }}</td>
               <td class="whitespace-nowrap text-xs">{{ date(account.lastCollection) }}</td>
-              <td class="min-w-28 whitespace-nowrap text-xs tabular-nums" :class="successAgeClass(account.lastSuccessfulCollection)" data-testid="account-success-age" :title="account.lastSuccessfulCollection ? date(account.lastSuccessfulCollection) : undefined">{{ minutesSinceSuccess(account.lastSuccessfulCollection) }}</td>
+              <td class="min-w-28 whitespace-nowrap text-xs tabular-nums" :class="successAgeClass(account.oldestSuccessfulCollection)" data-testid="account-success-age" :title="account.oldestSuccessfulCollection ? date(account.oldestSuccessfulCollection) : undefined">{{ minutesSinceSuccess(account.oldestSuccessfulCollection) }}</td>
               <td class="whitespace-nowrap tabular-nums">{{ account.attempts }} / {{ account.successes }} / {{ account.injections }}</td>
               <td><button class="whitespace-nowrap text-xs text-primary-600 disabled:opacity-40" :disabled="busy || dirty || account.account_unavailable || account.collecting || account.queued || !snapshot?.settings.enabled" @click="collect(account.account_id)">采集全部模型</button></td>
             </tr>
@@ -503,7 +503,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td class="tabular-nums">{{ row.turn_state_length || '—' }}</td>
               <td class="whitespace-nowrap text-xs">{{ date(row.last_collection_at || row.collected_at) }}<p v-if="row.next_retry_at" class="mt-1 text-amber-600">重试 {{ date(row.next_retry_at) }}</p><p v-else-if="row.next_attempt_at" class="mt-1 text-gray-500">下次 {{ date(row.next_attempt_at) }}</p><p v-if="row.collection_proxy_id" class="mt-1 max-w-40 whitespace-normal break-words text-gray-500">{{ proxyName(row.collection_proxy_id) }} · {{ row.proxy_attempt || 1 }}/{{ row.proxy_count || 1 }}</p></td>
               <td class="min-w-28 whitespace-nowrap text-xs tabular-nums" :class="successAgeClass(row.collected_at)" data-testid="model-success-age" :title="row.collected_at ? date(row.collected_at) : undefined">{{ minutesSinceSuccess(row.collected_at) }}</td>
-              <td class="whitespace-nowrap tabular-nums">{{ row.attempts }} / {{ row.successes }} / {{ row.injections }}<p class="mt-1 text-xs text-gray-500">本轮已请求 {{ row.round_attempts || 0 }} 次</p><p class="mt-1 text-xs text-gray-500">重试 {{ row.retry_attempt || 0 }} / {{ row.retry_limit || 0 }}</p><p class="mt-1 text-xs text-gray-500">账号本小时 {{ row.hourly_requests || 0 }} / {{ snapshot?.settings.account_hourly_limit }}</p><p v-if="row.effective_concurrency" class="mt-1 text-xs text-gray-500">当前账号并发上限 {{ row.effective_concurrency }}</p></td>
+              <td class="whitespace-nowrap tabular-nums">{{ row.attempts }} / {{ row.successes }} / {{ row.injections }}<p class="mt-1 text-xs text-gray-500">本轮已请求 {{ row.round_attempts || 0 }} 次</p><p class="mt-1 text-xs text-gray-500">重试 {{ row.retry_attempt || 0 }} / {{ row.retry_limit || 0 }}</p><p class="mt-1 text-xs text-gray-500">账号 5 分钟 {{ row.five_minute_requests || 0 }} / {{ snapshot?.settings.account_five_minute_limit || '不限' }}</p><p class="mt-1 text-xs text-gray-500">账号 10 分钟 {{ row.ten_minute_requests || 0 }} / {{ snapshot?.settings.account_ten_minute_limit || '不限' }}</p><p class="mt-1 text-xs text-gray-500">账号本小时 {{ row.hourly_requests || 0 }} / {{ snapshot?.settings.account_hourly_limit }}</p><p v-if="row.effective_concurrency" class="mt-1 text-xs text-gray-500">当前账号并发上限 {{ row.effective_concurrency }}</p></td>
               <td><div class="flex flex-col items-start gap-2 whitespace-nowrap">
                 <button class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-40" :disabled="!row.has_details" @click="openDetail(row.account_id, 'header', row.model)"><Icon name="eye" size="sm" />详情</button>
                 <button class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-40" :disabled="!row.state_file_saved" title="查看已写入的 State 文件" @click="openDetail(row.account_id, 'file', row.model)"><Icon name="eye" size="sm" />查看</button>

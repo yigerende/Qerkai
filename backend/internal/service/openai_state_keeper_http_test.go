@@ -135,6 +135,7 @@ func TestStateKeeperHTTPWithForceWSDisabled(t *testing.T) {
 func TestStateKeeperHTTPCollectionPersistsWithoutForceWSOrInjection(t *testing.T) {
 	defer setForceUpstreamWSForTest(false)()
 	s, gateway, account := keeperTestService(t)
+	account.Schedulable = false
 	s.files = keeperTestFileStore(t)
 	q := s.config.Load().OpenAIStateKeeperSettings
 	q.InjectionEnabled = false
