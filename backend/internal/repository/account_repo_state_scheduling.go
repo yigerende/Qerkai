@@ -23,9 +23,7 @@ func stateSchedulingCredentialChangeSQL(incoming string) string {
 	return `(platform='openai' AND type='oauth' AND ` + stateSchedulingEnabledSQL + ` AND (
  COALESCE((` + incoming + `)->>'access_token','')='' OR
  (` + oldIdentity + ` IS NOT NULL AND ` + oldIdentity + ` IS DISTINCT FROM ` + newIdentity + `) OR
- (COALESCE(credentials->>'access_token','') IS DISTINCT FROM COALESCE((` + incoming + `)->>'access_token','') AND (
- NOT EXISTS(SELECT 1 FROM settings WHERE key='openai_state_keeper_v1' AND value::jsonb->>'suspend_old_state_on_reauth'='false') OR
- ` + oldIdentity + ` IS NULL OR ` + oldIdentity + ` IS DISTINCT FROM ` + newIdentity + `))))`
+ COALESCE(credentials->>'access_token','') IS DISTINCT FROM COALESCE((` + incoming + `)->>'access_token','')))`
 }
 
 func stateSchedulingPendingExtraSQL(extra string) string {
@@ -104,7 +102,7 @@ func applyStateSchedulingWrite(ctx context.Context, client *dbent.Client, a *ser
 				a.Extra[key] = value
 			}
 		}
-		changed = service.StateSchedulingCredentialsChanged(q, old, a)
+		changed = service.StateSchedulingCredentialsChanged(old, a)
 		restore = old.Extra["state_scheduling_manual"] != true && (old.Schedulable || old.Status == service.StatusError || old.Extra["quality_schedulable_restore"] == true)
 		if old.Extra["quality_schedulable_restore"] == true || old.Extra["state_scheduling_manual"] == true || old.Extra["state_scheduling_pending"] == true {
 			a.Schedulable = false

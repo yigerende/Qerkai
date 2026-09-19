@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -72,55 +73,88 @@ func TestAccountRepositoryStateSchedulingCreateAndRecovery(t *testing.T) {
 }
 
 func TestAccountRepositoryStateSchedulingReauthAllWritePaths(t *testing.T) {
-	for _, path := range []string{"update", "credentials", "bulk", "bulk-manual", "unchanged", "reuse", "different-user", "manual", "off", "apikey"} {
-		t.Run(path, func(t *testing.T) {
-			db, repo := stateSchedulingRepository(t)
-			ctx := context.Background()
-			if path == "manual" {
-				require.NoError(t, repo.SetSchedulable(ctx, 1, false))
-			}
-			if path == "off" || path == "reuse" || path == "different-user" {
-				_, err := db.Exec(`UPDATE settings SET value=$1 WHERE key='openai_state_keeper_v1'`, fmt.Sprintf(`{"require_valid_state":%t,"suspend_old_state_on_reauth":false}`, path != "off"))
-				require.NoError(t, err)
-			}
-			if path == "apikey" {
-				_, err := db.Exec(`UPDATE accounts SET type='apikey' WHERE id=1`)
-				require.NoError(t, err)
-			}
-			credentials := map[string]any{"access_token": "new", "chatgpt_account_id": "team", "chatgpt_user_id": "user"}
-			if path == "unchanged" {
-				credentials["access_token"] = "old"
-			}
-			if path == "different-user" {
-				credentials["chatgpt_user_id"] = "other-user"
-			}
-			switch path {
-			case "update":
-				a := &service.Account{ID: 1, Name: "updated", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, Credentials: credentials}
-				require.NoError(t, repo.Update(ctx, a))
-			case "bulk", "bulk-manual":
-				updates := service.AccountBulkUpdate{Credentials: credentials}
-				if path == "bulk-manual" {
-					value := false
-					updates.Schedulable = &value
+	for _, suspend := range []bool{true, false} {
+		for _, path := range []string{"update", "credentials", "bulk"} {
+			for _, mode := range []string{"changed", "unchanged", "different-user", "manual", "bulk-manual", "error", "off", "apikey", "other-platform"} {
+				if mode == "bulk-manual" && path != "bulk" {
+					continue
 				}
-				_, err := repo.BulkUpdate(ctx, []int64{1}, updates)
-				require.NoError(t, err)
-			default:
-				require.NoError(t, repo.UpdateCredentials(ctx, 1, credentials))
+				t.Run(fmt.Sprintf("%s/%s/suspend=%t", path, mode, suspend), func(t *testing.T) {
+					db, repo := stateSchedulingRepository(t)
+					ctx := context.Background()
+					_, err := db.Exec(`UPDATE settings SET value=$1 WHERE key='openai_state_keeper_v1'`, fmt.Sprintf(`{"require_valid_state":%t,"suspend_old_state_on_reauth":%t}`, mode != "off", suspend))
+					require.NoError(t, err)
+					platform, accountType, status := service.PlatformOpenAI, service.AccountTypeOAuth, service.StatusActive
+					if mode == "manual" {
+						require.NoError(t, repo.SetSchedulable(ctx, 1, false))
+					}
+					if mode == "error" {
+						status = service.StatusError
+					}
+					if mode == "apikey" {
+						accountType = service.AccountTypeAPIKey
+					}
+					if mode == "other-platform" {
+						platform = service.PlatformAnthropic
+					}
+					_, err = db.Exec(`UPDATE accounts SET platform=$1,type=$2,status=$3,schedulable=CASE WHEN $3='error' THEN false ELSE schedulable END WHERE id=1`, platform, accountType, status)
+					require.NoError(t, err)
+					credentials := map[string]any{"access_token": "new", "chatgpt_account_id": "team", "chatgpt_user_id": "user"}
+					if mode == "unchanged" {
+						credentials["access_token"] = "old"
+					}
+					if mode == "different-user" {
+						credentials["chatgpt_user_id"] = "other-user"
+					}
+					switch path {
+					case "update":
+						a := &service.Account{ID: 1, Name: "updated", Platform: platform, Type: accountType, Status: status, Schedulable: true, Credentials: credentials}
+						require.NoError(t, repo.Update(ctx, a))
+					case "bulk":
+						updates := service.AccountBulkUpdate{Credentials: credentials}
+						if mode == "manual" || mode == "bulk-manual" {
+							value := false
+							updates.Schedulable = &value
+						}
+						_, err := repo.BulkUpdate(ctx, []int64{1}, updates)
+						require.NoError(t, err)
+					default:
+						require.NoError(t, repo.UpdateCredentials(ctx, 1, credentials))
+					}
+					paused := mode != "unchanged" && mode != "off" && mode != "apikey" && mode != "other-platform"
+					owned := paused && mode != "manual" && mode != "bulk-manual"
+					assertStateSchedulingAccount(t, db, 1, !paused, owned, paused)
+					var pausedAt sql.NullTime
+					require.NoError(t, db.QueryRow(`SELECT scheduling_paused_at FROM accounts WHERE id=1`).Scan(&pausedAt))
+					require.Equal(t, paused, pausedAt.Valid, "the existing pause timestamp is written with the credentials")
+					if paused {
+						require.WithinDuration(t, time.Now(), pausedAt.Time, 10*time.Second)
+						require.ErrorIs(t, repo.SetSchedulable(ctx, 1, true), errStateSchedulingEnable)
+					}
+					require.NoError(t, repo.ClearError(ctx, 1))
+					require.NoError(t, repo.ClearTempUnschedulable(ctx, 1))
+					assertStateSchedulingAccount(t, db, 1, !paused, owned, paused)
+					require.NoError(t, repo.SyncQualityScheduling(ctx))
+					assertStateSchedulingAccount(t, db, 1, !paused, owned, false)
+					if paused {
+						require.Error(t, repo.SetSchedulable(ctx, 1, true))
+						yes := true
+						_, err := repo.BulkUpdate(ctx, []int64{1}, service.AccountBulkUpdate{Schedulable: &yes})
+						require.Error(t, err)
+						_, err = db.Exec(`UPDATE account_quality_states SET payload=jsonb_set(payload,'{scheduling,paused}','false'::jsonb) WHERE account_id=1`)
+						require.NoError(t, err)
+						require.NoError(t, repo.SyncQualityScheduling(ctx))
+						assertStateSchedulingAccount(t, db, 1, owned, false, false)
+						var afterRecovery sql.NullTime
+						require.NoError(t, db.QueryRow(`SELECT scheduling_paused_at FROM accounts WHERE id=1`).Scan(&afterRecovery))
+						require.Equal(t, !owned, afterRecovery.Valid, "only automatic recovery clears the pause timestamp")
+						if !owned {
+							require.True(t, pausedAt.Time.Equal(afterRecovery.Time), "manual pause keeps its original timestamp")
+						}
+					}
+				})
 			}
-			paused := path != "unchanged" && path != "reuse" && path != "off" && path != "apikey"
-			owned := paused && path != "manual" && path != "bulk-manual"
-			assertStateSchedulingAccount(t, db, 1, !paused, owned, paused)
-			require.NoError(t, repo.SyncQualityScheduling(ctx))
-			assertStateSchedulingAccount(t, db, 1, !paused, owned, false)
-			if paused {
-				require.Error(t, repo.SetSchedulable(ctx, 1, true))
-				yes := true
-				_, err := repo.BulkUpdate(ctx, []int64{1}, service.AccountBulkUpdate{Schedulable: &yes})
-				require.Error(t, err)
-			}
-		})
+		}
 	}
 }
 
@@ -144,6 +178,8 @@ func TestAccountRepositoryStateSchedulingDisableKeepsOtherCauses(t *testing.T) {
 func TestAccountRepositoryStateSchedulingConcurrentReauthAndSync(t *testing.T) {
 	db, repo := stateSchedulingRepository(t)
 	ctx := context.Background()
+	_, err := db.Exec(`UPDATE settings SET value='{"require_valid_state":true,"suspend_old_state_on_reauth":false}' WHERE key='openai_state_keeper_v1'`)
+	require.NoError(t, err)
 	var wg sync.WaitGroup
 	errs := make(chan error, 20)
 	for i := range 10 {
@@ -151,7 +187,7 @@ func TestAccountRepositoryStateSchedulingConcurrentReauthAndSync(t *testing.T) {
 		go func() { defer wg.Done(); errs <- repo.SyncQualityScheduling(ctx) }()
 		go func() {
 			defer wg.Done()
-			errs <- repo.UpdateCredentials(ctx, 1, map[string]any{"access_token": fmt.Sprint(i)})
+			errs <- repo.UpdateCredentials(ctx, 1, map[string]any{"access_token": fmt.Sprint(i), "chatgpt_account_id": "team", "chatgpt_user_id": "user"})
 		}()
 	}
 	wg.Wait()
@@ -173,7 +209,7 @@ func TestAccountRepositoryStateSchedulingConcurrentReauthAndSync(t *testing.T) {
 	assertStateSchedulingAccount(t, db, 1, false, false, false)
 }
 
-func TestAccountRepositoryStateSchedulingCredentialPolicyMatchesInjection(t *testing.T) {
+func TestAccountRepositoryStateSchedulingCredentialPolicyIndependentOfInjectionReuse(t *testing.T) {
 	db, _ := stateSchedulingRepository(t)
 	for _, suspend := range []bool{true, false} {
 		_, err := db.Exec(`UPDATE settings SET value=$1 WHERE key='openai_state_keeper_v1'`, fmt.Sprintf(`{"require_valid_state":true,"suspend_old_state_on_reauth":%t}`, suspend))
@@ -213,8 +249,9 @@ func TestAccountRepositoryStateSchedulingCredentialPolicyMatchesInjection(t *tes
 			require.NoError(t, err)
 			var changed bool
 			require.NoError(t, db.QueryRow(`SELECT `+stateSchedulingCredentialChangeSQL("$1::jsonb")+` FROM accounts WHERE id=1`, string(incoming)).Scan(&changed))
-			want := service.StateSchedulingCredentialsChanged(service.OpenAIStateKeeperSettings{SuspendOldStateOnReauth: suspend}, old, current)
+			want := mode != "same" && mode != "added-identity"
 			require.Equal(t, want, changed, "%s suspend=%t", mode, suspend)
+			require.Equal(t, want, service.StateSchedulingCredentialsChanged(old, current), "%s suspend=%t", mode, suspend)
 		}
 	}
 }

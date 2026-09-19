@@ -77,7 +77,8 @@ func (s *AccountQualityService) schedulingState(ctx context.Context, id int64) (
 	return keeper.schedulingValidity(a, time.Now().UTC()), nil
 }
 
-// Repository account writes use the same identity policy as State injection.
-func StateSchedulingCredentialsChanged(q OpenAIStateKeeperSettings, old, current *Account) bool {
-	return !stateKeeperStateMatchesAccount(q, stateKeeperCredentialStamp(old), stateKeeperIdentityStamp(old), current)
+// New credentials require scheduling revalidation even when injection may reuse
+// the previous State. Callers separately check whether State is required.
+func StateSchedulingCredentialsChanged(old, current *Account) bool {
+	return !stateKeeperStateMatchesAccount(OpenAIStateKeeperSettings{SuspendOldStateOnReauth: true}, stateKeeperCredentialStamp(old), stateKeeperIdentityStamp(old), current)
 }

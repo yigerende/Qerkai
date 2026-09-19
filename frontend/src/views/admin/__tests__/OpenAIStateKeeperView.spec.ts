@@ -68,6 +68,8 @@ describe('Upstream state management', () => {
     expect(toggle.element.checked).toBe(false)
     expect(w.text()).toContain('下一轮检查时暂停')
     expect(w.text()).toContain('恢复必须同时满足降智恢复规则和 State 有效条件')
+    expect(w.text()).toContain('重授权或重登更新凭据后立即暂停调度')
+    expect(w.text()).toContain('允许复用旧 State 也需重新通过复检')
     await toggle.setValue(true)
     expect(w.get<HTMLInputElement>('[aria-label="State 调度有效期（分钟）"]').element.value).toBe('55')
     await w.get('[aria-label="调度检查模型"]').setValue('test-model')
