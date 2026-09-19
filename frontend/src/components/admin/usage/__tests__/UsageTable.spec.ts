@@ -19,6 +19,8 @@ import { nextTick } from 'vue'
 import UsageTable from '../UsageTable.vue'
 
 const messages: Record<string, string> = {
+  'admin.usage.stateInjectedYes': 'Injected',
+  'admin.usage.stateInjectedNo': 'Not injected',
   'admin.usage.userDeletedBadge': 'Deleted',
   'usage.costDetails': 'Cost Breakdown',
   'admin.usage.inputCost': 'Input Cost',
@@ -94,6 +96,7 @@ const DataTableStub = {
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />
         <slot name="cell-openai_upstream_5xx_retry_count" :row="row" />
+        <slot name="cell-state_injected" :row="row" />
         <slot name="cell-request_id" :row="row" />
         <slot name="cell-upstream_request_id" :row="row" />
       </div>
@@ -130,6 +133,26 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
+  it('distinguishes actual State injection from disabled and historical rows', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [true, false, null, undefined].map((injected, index) => ({
+          ...baseImageRow,
+          request_id: `injection-${index}`,
+          state_injected: injected,
+        })),
+        columns: [],
+      },
+      global: {
+        stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true },
+      },
+    })
+    const cells = wrapper.findAll('[data-testid="state-injected"]')
+    expect(cells.map(cell => cell.text())).toEqual(['Injected', 'Not injected', '\u2014', '\u2014'])
+    expect(cells[0].classes()).toContain('text-emerald-600')
+    expect(cells[1].classes()).toContain('text-gray-500')
+  })
+
   it('shows retry counts including zero and keeps historical counts unknown', () => {
     const wrapper = mount(UsageTable, {
       props: {

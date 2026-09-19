@@ -1753,6 +1753,7 @@ export interface AdminUsageLog extends UsageLog {
   upstream_model_mismatch?: boolean | null
   model_mapping_chain?: string | null
   upstream_request_id?: string | null
+  state_injected?: boolean | null
   openai_upstream_5xx_retry_count?: number | null
 
   // 账号计费倍率（仅管理员可见）

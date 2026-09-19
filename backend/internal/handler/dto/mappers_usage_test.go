@@ -8,6 +8,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUsageLogFromServiceAdmin_StateInjectedIsAdminOnly(t *testing.T) {
+	no, yes := false, true
+	for _, injected := range []*bool{nil, &no, &yes} {
+		log := &service.UsageLog{StateInjected: injected}
+		admin := UsageLogFromServiceAdmin(log)
+		require.Equal(t, injected, admin.StateInjected)
+		payload, err := json.Marshal(admin)
+		require.NoError(t, err)
+		var fields map[string]any
+		require.NoError(t, json.Unmarshal(payload, &fields))
+		require.Contains(t, fields, "state_injected")
+		if injected == nil {
+			require.Nil(t, fields["state_injected"])
+		} else {
+			require.Equal(t, *injected, fields["state_injected"])
+		}
+		payload, err = json.Marshal(UsageLogFromService(log))
+		require.NoError(t, err)
+		require.NotContains(t, string(payload), "state_injected")
+	}
+}
+
 func TestUsageLogFromServiceAdmin_IncludesOpenAIUpstream5xxRetryCount(t *testing.T) {
 	zero, positive := 0, 3
 	for _, count := range []*int{nil, &zero, &positive} {

@@ -21,6 +21,7 @@ const proxyIDs = (settings: StateKeeperSettings) => settings.proxy_ids ?? (setti
 const defaultModels = ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-astra']
 const modelLines = (settings: StateKeeperSettings) => (settings.models ?? (settings.model ? [settings.model] : defaultModels)).join('\n')
 const snapshot = ref<StateKeeperSnapshot | null>(null)
+const currentTime = ref(Date.now())
 const accounts = ref<AccountListItem[]>([])
 const groups = ref<AdminGroup[]>([])
 const proxies = ref<Proxy[]>([])
@@ -97,6 +98,7 @@ const collectingCount = computed(() => snapshot.value?.rows.filter(r => r.collec
 const accountStates = computed(() => (snapshot.value?.rows || []).map(account => {
   const models = account.models || [account]
   const collectionTimes = models.map(row => row.last_collection_at || row.collected_at).filter((value): value is string => !!value)
+  const successTimes = models.map(row => row.collected_at).filter((value): value is string => !!value && Number.isFinite(Date.parse(value)))
   return {
     ...account,
     models,
@@ -105,6 +107,7 @@ const accountStates = computed(() => (snapshot.value?.rows || []).map(account =>
     activeCount: models.filter(row => row.queued || row.collecting).length,
     coolingCount: models.filter(row => !row.paused && (row.auto_retry_pending || row.cooldown_until)).length,
     lastCollection: collectionTimes.sort().at(-1),
+    lastSuccessfulCollection: successTimes.sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1),
     httpStatuses: [...new Set(models.map(row => row.http_status).filter(Boolean))].join(' / ') || '—',
     stateLengths: [...new Set(models.map(row => row.turn_state_length).filter(Boolean))].join(' / ') || '—',
   }
@@ -124,6 +127,10 @@ function moveProxy(index: number, offset: number) {
   selectedProxyIDs.value = ids
 }
 const date = (value?: string) => value ? new Date(value).toLocaleString() : '—'
+function minutesSinceSuccess(value?: string) {
+  const timestamp = value ? Date.parse(value) : NaN
+  return Number.isFinite(timestamp) ? `${Math.max(0, (currentTime.value - timestamp) / 60000).toFixed(1)} 分钟` : '—'
+}
 const errorText = (error: unknown) => {
   const e = error as { response?: { data?: { message?: string } }; message?: string }
   return e.response?.data?.message || e.message || '请求失败，请稍后重试'
@@ -283,6 +290,7 @@ async function createProxy() {
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 async function poll() {
+  currentTime.value = Date.now()
   await load()
   if (!disposed) timer = setTimeout(() => void poll(), 5000)
 }
@@ -419,7 +427,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
             <button class="btn btn-primary" :disabled="busy || dirty || !snapshot?.settings.enabled" @click="collect()">采集全部选中账号</button>
           </div>
         </div>
-        <div class="overflow-x-auto"><table class="state-table"><thead><tr><th>账号</th><th>模型 / 状态</th><th>状态值</th><th>返回码</th><th>响应头值长度</th><th>最近采集</th><th>采集 / 成功 / 注入</th><th>操作</th></tr></thead>
+        <div class="overflow-x-auto"><table class="state-table"><thead><tr><th>账号</th><th>模型 / 状态</th><th>状态值</th><th>返回码</th><th>响应头值长度</th><th>最近采集</th><th class="whitespace-nowrap">距上次成功</th><th>采集 / 成功 / 注入</th><th>操作</th></tr></thead>
           <template v-for="account in accountStates" :key="account.account_id">
           <tbody class="state-account-group">
             <tr class="state-account-summary" :class="account.account_unavailable ? 'state-account-unavailable' : 'bg-gray-50/60 dark:bg-dark-900/30'">
@@ -445,6 +453,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td class="max-w-36 break-words text-xs tabular-nums">{{ account.httpStatuses }}</td>
               <td class="max-w-40 break-words text-xs tabular-nums">{{ account.stateLengths }}</td>
               <td class="whitespace-nowrap text-xs">{{ date(account.lastCollection) }}</td>
+              <td class="min-w-28 whitespace-nowrap text-xs tabular-nums" data-testid="account-success-age" :title="account.lastSuccessfulCollection ? date(account.lastSuccessfulCollection) : undefined">{{ minutesSinceSuccess(account.lastSuccessfulCollection) }}</td>
               <td class="whitespace-nowrap tabular-nums">{{ account.attempts }} / {{ account.successes }} / {{ account.injections }}</td>
               <td><button class="whitespace-nowrap text-xs text-primary-600 disabled:opacity-40" :disabled="busy || dirty || account.account_unavailable || account.collecting || account.queued || !snapshot?.settings.enabled" @click="collect(account.account_id)">采集全部模型</button></td>
             </tr>
@@ -465,6 +474,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
               <td class="tabular-nums">{{ row.http_status || '—' }}</td>
               <td class="tabular-nums">{{ row.turn_state_length || '—' }}</td>
               <td class="whitespace-nowrap text-xs">{{ date(row.last_collection_at || row.collected_at) }}<p v-if="row.next_retry_at" class="mt-1 text-amber-600">重试 {{ date(row.next_retry_at) }}</p><p v-else-if="row.next_attempt_at" class="mt-1 text-gray-500">下次 {{ date(row.next_attempt_at) }}</p><p v-if="row.collection_proxy_id" class="mt-1 max-w-40 whitespace-normal break-words text-gray-500">{{ proxyName(row.collection_proxy_id) }} · {{ row.proxy_attempt || 1 }}/{{ row.proxy_count || 1 }}</p></td>
+              <td class="min-w-28 whitespace-nowrap text-xs tabular-nums" data-testid="model-success-age" :title="row.collected_at ? date(row.collected_at) : undefined">{{ minutesSinceSuccess(row.collected_at) }}</td>
               <td class="whitespace-nowrap tabular-nums">{{ row.attempts }} / {{ row.successes }} / {{ row.injections }}<p class="mt-1 text-xs text-gray-500">本轮已请求 {{ row.round_attempts || 0 }} 次</p><p class="mt-1 text-xs text-gray-500">重试 {{ row.retry_attempt || 0 }} / {{ row.retry_limit || 0 }}</p><p class="mt-1 text-xs text-gray-500">账号本小时 {{ row.hourly_requests || 0 }} / {{ snapshot?.settings.account_hourly_limit }}</p><p v-if="row.effective_concurrency" class="mt-1 text-xs text-gray-500">当前账号并发上限 {{ row.effective_concurrency }}</p></td>
               <td><div class="flex flex-col items-start gap-2 whitespace-nowrap">
                 <button class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-40" :disabled="!row.has_details" @click="openDetail(row.account_id, 'header', row.model)"><Icon name="eye" size="sm" />详情</button>
@@ -474,7 +484,7 @@ onUnmounted(() => { disposed = true; if (timer) clearTimeout(timer); closeDetail
             </tr>
           </tbody>
           </template>
-          <tbody v-if="!snapshot?.rows.length"><tr><td colspan="8" class="py-12 text-center text-gray-500">先在采集配置中选择账号并保存。</td></tr></tbody>
+          <tbody v-if="!snapshot?.rows.length"><tr><td colspan="9" class="py-12 text-center text-gray-500">先在采集配置中选择账号并保存。</td></tr></tbody>
         </table></div>
       </section>
 

@@ -71,7 +71,9 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
 	stateProbe *openAIStateProbeResult,
-) (*OpenAIForwardResult, error) {
+) (usageResult *OpenAIForwardResult, forwardErr error) {
+	resetOpenAIStateUsage(c)
+	defer func() { SnapshotOpenAIStateUsage(c, usageResult) }()
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {

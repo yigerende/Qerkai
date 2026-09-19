@@ -58,6 +58,25 @@ describe('Upstream state management', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); vi.mocked(stateKeeperAPI.get).mockResolvedValue(initial()) })
   afterEach(() => vi.useRealTimers())
 
+  it('shows elapsed minutes since successful collection per account and model, ignoring failed attempts', async () => {
+    vi.setSystemTime(new Date('2026-09-19T06:30:00Z'))
+    const data = initial()
+    data.rows[0].models = [
+      { ...data.rows[0], model: 'gpt-5.5', collected_at: '2026-09-19T06:15:00Z', last_collection_at: '2026-09-19T06:29:00Z', status: 'refresh_failed' },
+      { ...data.rows[0], model: 'gpt-6-astra', collected_at: '2026-09-19T06:25:00Z' },
+      { ...data.rows[0], model: 'gpt-5.6-sol', state_file_saved: false, successes: 0, status: 'empty' },
+    ]
+    vi.mocked(stateKeeperAPI.get).mockResolvedValue(data)
+    const w = render(); await flushPromises(); await showModelRows(w)
+    expect(w.get('[data-testid="account-success-age"]').text()).toBe('5.0 分钟')
+    expect(w.findAll('[data-testid="model-success-age"]').map(cell => cell.text())).toEqual(['15.0 分钟', '5.0 分钟', '—'])
+    await vi.advanceTimersByTimeAsync(60000); await flushPromises()
+    expect(w.get('[data-testid="account-success-age"]').text()).toBe('6.0 分钟')
+    expect(w.findAll('[data-testid="model-success-age"]').map(cell => cell.text())).toEqual(['16.0 分钟', '6.0 分钟', '—'])
+    expect(stateKeeperAPI.collect).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
   it('saves pacing, proxy rotation, cooldown and account budgets without changing injection', async () => {
     vi.mocked(stateKeeperAPI.save).mockImplementation(async settings => ({ ...initial(), settings }))
     const w = render(); await flushPromises()

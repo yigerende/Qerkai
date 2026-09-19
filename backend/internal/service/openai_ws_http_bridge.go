@@ -419,7 +419,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	grokCacheIdentity string,
 	turn int,
 	writeClientMessage func([]byte) error,
-) (*OpenAIForwardResult, error) {
+) (usageResult *OpenAIForwardResult, forwardErr error) {
+	resetOpenAIStateUsage(c)
+	defer func() { SnapshotOpenAIStateUsage(c, usageResult) }()
 	if s == nil {
 		return nil, errors.New("service is nil")
 	}

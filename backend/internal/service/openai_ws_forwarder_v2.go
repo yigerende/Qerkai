@@ -32,7 +32,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	attempt int,
 	lastFailureReason string,
 	agentTaskRecoveryTried *bool,
-) (*OpenAIForwardResult, error) {
+) (usageResult *OpenAIForwardResult, forwardErr error) {
+	resetOpenAIStateUsage(c)
+	defer func() { SnapshotOpenAIStateUsage(c, usageResult) }()
 	if s == nil || account == nil {
 		return nil, wrapOpenAIWSFallback("invalid_state", errors.New("service or account is nil"))
 	}

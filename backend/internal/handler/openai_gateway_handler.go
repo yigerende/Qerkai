@@ -4257,6 +4257,7 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 	sessionID := service.ExtractClientSessionID(c)
 	nativeCompactionV2 := service.IsOpenAINativeCompactionV2(c)
 	var retrySnapshot service.OpenAIForwardResult
+	service.SnapshotOpenAIStateUsage(c, &retrySnapshot)
 	service.SnapshotOpenAIUpstream5xxUsageRetries(c, &retrySnapshot, false)
 	apiKeyPrefix := ""
 	if apiKey != nil {
@@ -4326,6 +4327,7 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 				RequestPayloadHash:          requestPayloadHash,
 				APIKeyService:               apiKeySvc,
 				NativeCompactionV2:          nativeCompactionV2,
+				StateInjected:               retrySnapshot.StateInjected,
 				OpenAIUpstream5xxRetryCount: retrySnapshot.OpenAIUpstream5xxRetryCount,
 				ChannelUsageFields:          channelFields,
 			})

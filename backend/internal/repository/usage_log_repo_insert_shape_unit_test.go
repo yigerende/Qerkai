@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,6 +32,76 @@ func TestPrepareUsageLogInsert_OpenAIUpstream5xxRetryCount(t *testing.T) {
 		require.Equal(t, count != nil, arg.Valid)
 		if count != nil {
 			require.Equal(t, int64(*count), arg.Int64)
+		}
+	}
+}
+
+func TestPrepareUsageLogInsert_StateInjected(t *testing.T) {
+	no, yes := false, true
+	for _, injected := range []*bool{nil, &no, &yes} {
+		prepared := prepareUsageLogInsert(&service.UsageLog{StateInjected: injected})
+		idx := len(prepared.args) - 6
+		require.Equal(t, "boolean", usageLogInsertArgTypes[idx])
+		arg := prepared.args[idx].(sql.NullBool)
+		require.Equal(t, injected != nil, arg.Valid)
+		if injected != nil {
+			require.Equal(t, *injected, arg.Bool)
+		}
+	}
+}
+
+func TestScanUsageLog_StateInjected(t *testing.T) {
+	no, yes := false, true
+	for _, injected := range []*bool{nil, &no, &yes} {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = db.Close() })
+		prepared := prepareUsageLogInsert(&service.UsageLog{StateInjected: injected})
+		values := append([]driver.Value{int64(1)}, anySliceToDriverValues(prepared.args)...)
+		mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(strings.Split(usageLogSelectColumns, ", ")).AddRow(values...))
+		log, err := scanUsageLog(db.QueryRow("SELECT " + usageLogSelectColumns + " FROM usage_logs"))
+		require.NoError(t, err)
+		require.Equal(t, injected, log.StateInjected)
+		require.NoError(t, mock.ExpectationsWereMet())
+	}
+}
+
+func TestBuildUsageLogBatchInsert_StateInjected(t *testing.T) {
+	no, yes := false, true
+	var prepared []usageLogInsertPrepared
+	var keys []string
+	byKey := make(map[string]usageLogInsertPrepared)
+	for i, injected := range []*bool{nil, &no, &yes} {
+		key := strconv.Itoa(i)
+		item := prepareUsageLogInsert(&service.UsageLog{RequestID: key, APIKeyID: 1, StateInjected: injected})
+		prepared, keys, byKey[key] = append(prepared, item), append(keys, key), item
+	}
+	columns := func(s string) []string {
+		return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\t' || r == '\r' })
+	}
+	inputRE := regexp.MustCompile(`(?s)WITH input \((.*?)\) AS \(VALUES`)
+	insertRE := regexp.MustCompile(`(?s)INSERT INTO usage_logs \((.*?)\)\s+SELECT(.*?)FROM input`)
+	for _, bestEffort := range []bool{false, true} {
+		query, args := buildUsageLogBatchInsertQuery(keys, byKey)
+		if bestEffort {
+			query, args = buildUsageLogBestEffortInsertQuery(prepared)
+		}
+		input, insert := inputRE.FindStringSubmatch(query), insertRE.FindStringSubmatch(query)
+		require.Len(t, input, 2)
+		require.Len(t, insert, 3)
+		require.Equal(t, columns(insert[1]), columns(insert[2]))
+		inputColumns := columns(input[1])
+		offset := 1
+		if bestEffort {
+			offset = 0
+		}
+		require.Equal(t, columns(insert[1]), inputColumns[offset:])
+		require.Len(t, inputColumns, len(usageLogInsertArgTypes)+offset)
+		require.Len(t, args, len(prepared)*len(inputColumns))
+		for i, item := range prepared {
+			idx := len(item.args) - 6
+			require.Equal(t, "state_injected", inputColumns[idx+offset])
+			require.Equal(t, item.args[idx], args[i*len(inputColumns)+idx+offset])
 		}
 	}
 }

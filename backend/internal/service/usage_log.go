@@ -179,6 +179,7 @@ type UsageLog struct {
 	OpenAIWSMode       bool
 	NativeCompactionV2 bool
 	// Nil means the retry count was not recorded (including historical rows).
+	StateInjected               *bool
 	OpenAIUpstream5xxRetryCount *int
 	DurationMs                  *int
 	FirstTokenMs                *int

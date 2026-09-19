@@ -558,7 +558,7 @@ func (s *OpenAIStateKeeperService) install(q OpenAIStateKeeperSettings) {
 				entry.blockedCredentialStamp = blocked.blockedCredentialStamp
 				entry.row.AccountStatus = blocked.row.AccountStatus
 				entry.row.AccountUnavailable, entry.row.AccountUnavailableReason = true, blocked.row.AccountUnavailableReason
-				entry.row.Paused, entry.row.PauseReason = true, blocked.row.AccountUnavailableReason
+				pauseStateCollectionForAccount(entry, blocked.row.AccountUnavailableReason)
 			}
 			if !entry.row.AutoRetryPending {
 				entry.row.NextRetryAt = nil

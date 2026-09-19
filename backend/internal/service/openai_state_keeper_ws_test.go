@@ -148,6 +148,7 @@ func TestStateKeeperForcedWSForwardingObservesFreshMetadataWithoutChangingOutput
 			result, err := gateway.Forward(context.Background(), c, account, []byte(fmt.Sprintf(`{"model":%q,"stream":true,"input":[{"role":"user","content":"original prompt"}]}`, q.Model)))
 			require.NoError(t, err)
 			require.True(t, result.OpenAIWSMode)
+			require.Equal(t, tc.injection, result.StateInjected)
 			require.Contains(t, recorder.Body.String(), "original answer")
 			require.Contains(t, recorder.Body.String(), "response.created")
 			require.EqualValues(t, 2, result.Usage.InputTokens)
@@ -158,10 +159,24 @@ func TestStateKeeperForcedWSForwardingObservesFreshMetadataWithoutChangingOutput
 			}
 			require.Equal(t, want, dialer.lastHeaders.Get(openAICodexTurnStateHeader))
 			require.NotContains(t, fmt.Sprint(capture.lastWrite), "current_turn_state")
+			// A later business request can reuse the injected connection without
+			// a new handshake; its usage row must still record injection.
+			capture.mu.Lock()
+			capture.events = append(capture.events, []byte(`{"type":"response.completed","response":{"id":"resp_keeper_second","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}`))
+			capture.mu.Unlock()
+			next, _ := gin.CreateTestContext(httptest.NewRecorder())
+			next.Request = c.Request.Clone(context.Background())
+			next.Set("api_key", &APIKey{GroupID: &group})
+			second, err := gateway.Forward(context.Background(), next, account, []byte(fmt.Sprintf(`{"model":%q,"stream":true,"input":[{"role":"user","content":"original prompt"}]}`, q.Model)))
+			require.NoError(t, err)
+			require.Equal(t, tc.injection, second.StateInjected)
+			require.Equal(t, 1, dialer.DialCount())
 			keeperDrainObservations(s)
 			require.Equal(t, tc.injection && tc.refresh, len(s.queue) == 1)
 			if tc.injection {
-				event := s.Recent([]int64{1})[0].Injections[0]
+				injections := s.Recent([]int64{1})[0].Injections
+				require.Len(t, injections, 2)
+				event := injections[1]
 				if tc.refresh {
 					require.Equal(t, "degraded_signal", event.Result)
 				} else {

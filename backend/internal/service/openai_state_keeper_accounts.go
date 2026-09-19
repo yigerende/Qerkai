@@ -6,6 +6,28 @@ import (
 	"time"
 )
 
+const (
+	keeperCredentialPause      = "采集收到 401 或账号失效错误，停止采集；请先修复账号凭据"
+	keeperAccountErrorPause    = "账号已失效或认证异常，停止采集；请先修复账号"
+	keeperAccountDisabledPause = "账号未启用或不再是 OpenAI OAuth 账号，停止采集"
+	keeperAccountExpiredPause  = "账号已过期，停止采集"
+)
+
+// Exact legacy reasons also recover pauses written before account recovery was automatic.
+func keeperAccountPause(reason string) bool {
+	switch reason {
+	case keeperCredentialPause, keeperAccountErrorPause, keeperAccountDisabledPause, keeperAccountExpiredPause:
+		return true
+	}
+	return false
+}
+
+func pauseStateCollectionForAccount(e *openAIKeptState, reason string) {
+	if !e.row.Paused || e.row.PauseReason == "" || keeperAccountPause(e.row.PauseReason) {
+		e.row.Paused, e.row.PauseReason = true, reason
+	}
+}
+
 func (s *OpenAIStateKeeperService) refreshAccountAvailability() error {
 	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 	defer cancel()
@@ -35,31 +57,47 @@ func (s *OpenAIStateKeeperService) syncAccountAvailabilityLocked(a *Account) {
 		return
 	}
 	stamp := stateKeeperCredentialStamp(a)
-	for _, model := range s.config.Load().modelNames() {
+	cfg := s.config.Load()
+	for _, model := range cfg.modelNames() {
 		key := openAIStateKey{a.ID, model}
 		e := s.rows[key]
 		if e == nil {
 			continue
 		}
 		previousStamp, previousStatus := e.blockedCredentialStamp, e.row.AccountStatus
-		if e.blockedCredentialStamp != "" && (e.blockedCredentialStamp != stamp || (e.row.AccountStatus != "" && e.row.AccountStatus != StatusActive && a.Status == StatusActive)) {
+		accountPaused := e.row.Paused && keeperAccountPause(e.row.PauseReason)
+		if e.blockedCredentialStamp != "" && a.GetOpenAIAccessToken() != "" && (e.blockedCredentialStamp != stamp || (e.row.AccountStatus != "" && e.row.AccountStatus != StatusActive && a.Status == StatusActive)) {
 			e.blockedCredentialStamp = ""
 		}
 		reason := ""
 		switch {
 		case a.Status == StatusError:
-			reason = "账号已失效或认证异常，停止采集；请先修复账号"
+			reason = keeperAccountErrorPause
 		case !stateKeeperAccountEligible(a):
-			reason = "账号未启用或不再是 OpenAI OAuth 账号，停止采集"
+			reason = keeperAccountDisabledPause
 		case a.AutoPauseOnExpired && a.ExpiresAt != nil && !a.ExpiresAt.After(time.Now()):
-			reason = "账号已过期，停止采集"
+			reason = keeperAccountExpiredPause
 		case e.blockedCredentialStamp != "":
-			reason = "采集收到 401 或账号失效错误，停止采集；请先修复账号凭据"
+			reason = keeperCredentialPause
 		}
 		e.row.AccountStatus = a.Status
 		e.row.AccountName = a.Name
 		e.row.AccountGroupIDs = append([]int64{}, a.GroupIDs...)
 		s.setAccountUnavailableLocked(key, e, reason)
+		if reason == "" && accountPaused && a.GetOpenAIAccessToken() != "" {
+			e.row.Paused, e.row.PauseReason, e.refreshVersion = false, "", ""
+			e.row.Message = "账号凭据或状态已恢复，已解除账号停采"
+			e.row.NextAttemptAt = stateKeeperNextAttempt(cfg.OpenAIStateKeeperSettings, e)
+			// Continue the interrupted collection, but never revive a disabled response trigger.
+			if e.row.RoundSource != "response" || (cfg.InjectionEnabled && cfg.ResponseRefreshEnabled) {
+				next, message := time.Now().UTC(), "账号凭据或状态已恢复，自动继续采集"
+				if until, waitReason := s.accountCollectionWaitLocked(a.ID, cfg, next); !until.IsZero() {
+					next, message = until, waitReason
+				}
+				s.deferCollectionLocked(e, next, message)
+			}
+			s.dirtyRuntime[key] = true
+		}
 		if previousStamp != e.blockedCredentialStamp || previousStatus != e.row.AccountStatus {
 			s.dirtyRuntime[key] = true
 		}
@@ -90,7 +128,7 @@ func (s *OpenAIStateKeeperService) blockAccountLocked(id int64, stamp, reason st
 			continue
 		}
 		e.blockedCredentialStamp = stamp
-		e.row.Paused, e.row.PauseReason = true, reason
+		pauseStateCollectionForAccount(e, reason)
 		s.setAccountUnavailableLocked(key, e, reason)
 		s.dirtyRuntime[key] = true
 	}

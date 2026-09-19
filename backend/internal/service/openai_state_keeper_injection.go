@@ -15,6 +15,29 @@ import (
 
 type openAIStateTicketKey struct{}
 
+const openAIStateUsageTicketKey = "openai_state_usage_ticket"
+
+// Keep only the current upstream attempt; a previous account or retry must
+// not mark the final usage record as injected.
+func resetOpenAIStateUsage(c *gin.Context) {
+	if c != nil {
+		if _, exists := c.Get(openAIStateUsageTicketKey); exists {
+			c.Set(openAIStateUsageTicketKey, (*openAIStateTicket)(nil))
+		}
+	}
+}
+
+// SnapshotOpenAIStateUsage runs before asynchronous usage recording. It does
+// not retain gin.Context or copy the sensitive State value into usage logs.
+func SnapshotOpenAIStateUsage(c *gin.Context, result *OpenAIForwardResult) {
+	if c == nil || result == nil {
+		return
+	}
+	value, _ := c.Get(openAIStateUsageTicketKey)
+	ticket, _ := value.(*openAIStateTicket)
+	result.StateInjected = ticket != nil && ticket.sent.Load()
+}
+
 type openAIStateTicket struct {
 	keeper         *OpenAIStateKeeperService
 	config         *openAIStateKeeperConfig
@@ -25,6 +48,7 @@ type openAIStateTicket struct {
 	id             string
 	transport      string
 	sent           atomic.Bool
+	suppressed     atomic.Bool
 	responseLength atomic.Int64
 	responseStatus atomic.Int64
 	originalHeader []string
@@ -104,6 +128,7 @@ func (s *OpenAIStateKeeperService) valueFor(c *gin.Context, a *Account, model st
 }
 
 func (s *OpenAIGatewayService) prepareCollectedStateHTTP(c *gin.Context, a *Account, body []byte, req *http.Request) *http.Request {
+	resetOpenAIStateUsage(c)
 	if s == nil || req == nil {
 		return req
 	}
@@ -119,6 +144,7 @@ func (s *OpenAIGatewayService) prepareCollectedStateHTTP(c *gin.Context, a *Acco
 	if t == nil {
 		return req
 	}
+	c.Set(openAIStateUsageTicketKey, t)
 	if t.value != "" {
 		t.originalHeader = append([]string(nil), req.Header.Values(openAICodexTurnStateHeader)...)
 		req.Header.Set(openAICodexTurnStateHeader, t.value)
@@ -133,10 +159,14 @@ func (s *OpenAIGatewayService) prepareCollectedStateHTTP(c *gin.Context, a *Acco
 }
 
 func (s *OpenAIGatewayService) prepareCollectedStateWS(c *gin.Context, a *Account, model string, headers http.Header) *openAIStateTicket {
+	resetOpenAIStateUsage(c)
 	if s == nil || headers == nil {
 		return nil
 	}
 	t := s.stateKeeper.Load().ticketFor(c, a, model, "ws")
+	if t != nil {
+		c.Set(openAIStateUsageTicketKey, t)
+	}
 	if t != nil && t.value != "" {
 		headers.Set(openAICodexTurnStateHeader, t.value)
 	}
@@ -167,7 +197,7 @@ func (t *openAIStateTicket) poolCurrentCheck() func() bool {
 }
 
 func (t *openAIStateTicket) noteSent() {
-	if t == nil || t.value == "" || !t.sent.CompareAndSwap(false, true) {
+	if t == nil || t.value == "" || t.suppressed.Load() || !t.sent.CompareAndSwap(false, true) {
 		return
 	}
 	t.enqueue(openAIStateObservation{ticket: t, at: time.Now().UTC(), sent: true, length: int(t.responseLength.Load()), status: int(t.responseStatus.Load())})

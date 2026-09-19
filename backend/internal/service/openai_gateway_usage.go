@@ -68,6 +68,7 @@ type CyberPolicyUsageInput struct {
 	RequestPayloadHash          string
 	APIKeyService               APIKeyQuotaUpdater
 	NativeCompactionV2          bool
+	StateInjected               bool
 	OpenAIUpstream5xxRetryCount int
 	ChannelUsageFields
 }
@@ -83,6 +84,7 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 		return
 	}
 	result := &OpenAIForwardResult{
+		StateInjected:               in.StateInjected,
 		OpenAIUpstream5xxRetryCount: in.OpenAIUpstream5xxRetryCount,
 		RequestID:                   in.RequestID,
 		Model:                       in.Model,
@@ -397,6 +399,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:             optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:          result.ImageSizeBreakdown,
 		NativeCompactionV2:          input.NativeCompactionV2,
+		StateInjected:               &result.StateInjected,
 		OpenAIUpstream5xxRetryCount: &result.OpenAIUpstream5xxRetryCount,
 	}
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)

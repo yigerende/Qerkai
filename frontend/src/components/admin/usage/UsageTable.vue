@@ -251,6 +251,16 @@
           </div>
         </template>
 
+        <template #cell-state_injected="{ row }">
+          <span
+            data-testid="state-injected"
+            class="whitespace-nowrap text-sm"
+            :class="row.state_injected === true
+              ? 'font-medium text-emerald-600 dark:text-emerald-400'
+              : 'text-gray-500 dark:text-gray-400'"
+          >{{ row.state_injected == null ? '\u2014' : t(row.state_injected ? 'admin.usage.stateInjectedYes' : 'admin.usage.stateInjectedNo') }}</span>
+        </template>
+
         <template #cell-openai_upstream_5xx_retry_count="{ row }">
           <span
             data-testid="openai-upstream-5xx-retry-count"

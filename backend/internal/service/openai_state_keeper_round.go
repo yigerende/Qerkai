@@ -301,7 +301,7 @@ func (s *OpenAIStateKeeperService) publishAttempt(cfg *openAIStateKeeperConfig, 
 	entry.row.HTTPStatus, entry.row.TurnStateLength, entry.row.HasCodexTurnState = r.status, r.turnStateLength, r.hasCodexTurnState
 	entry.row.Status, entry.row.Message = r.result, r.message
 	if r.accountUnavailable || r.status == http.StatusUnauthorized {
-		s.blockAccountLocked(job.accountID, r.credentialStamp, "采集收到 401 或账号失效错误，停止采集；请先修复账号凭据")
+		s.blockAccountLocked(job.accountID, r.credentialStamp, keeperCredentialPause)
 	}
 	if r.permanentFailure {
 		entry.row.Paused, entry.row.PauseReason = true, r.message+"；等待人工处理"
@@ -345,9 +345,8 @@ func (s *OpenAIStateKeeperService) finishRound(job openAIStateKeeperJob, roundID
 	if entry != nil && entry.row.RoundID == roundID {
 		entry.row.Collecting = false
 		entry.row.NextRetryAt = nil
-		entry.row.Paused = entry.row.Paused || entry.row.AccountUnavailable
 		if entry.row.AccountUnavailable {
-			entry.row.PauseReason = entry.row.AccountUnavailableReason
+			pauseStateCollectionForAccount(entry, entry.row.AccountUnavailableReason)
 		} else if entry.row.Paused && entry.row.PauseReason == "" {
 			entry.row.PauseReason = reason
 		}

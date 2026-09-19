@@ -28,6 +28,9 @@ const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listE
 })
 
 const messages: Record<string, string> = {
+  'admin.usage.stateInjected': 'State Injection',
+  'admin.usage.stateInjectedYes': 'Injected',
+  'admin.usage.stateInjectedNo': 'Not injected',
   'admin.dashboard.timeRange': 'Time Range',
   'admin.dashboard.day': 'Day',
   'admin.dashboard.hour': 'Hour',
@@ -774,7 +777,9 @@ describe('admin UsageView model audit export', () => {
 		vi.useRealTimers()
 	})
 
-	it('exports requested, sent, response, and mismatch as separate admin columns', async () => {
+	it.each([true, false, null])('exports models and State injection (%s) as separate admin columns', async (injected) => {
+		const response = await exportList()
+		response.items[0].state_injected = injected
 		const wrapper = mountRouteFilteredUsageView()
 		vi.advanceTimersByTime(120)
 		await flushPromises()
@@ -797,6 +802,8 @@ describe('admin UsageView model audit export', () => {
 		])
 		const row = sheetAddAoa.mock.calls[0][1][0]
 		expect(row.slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
+		expect(headers).toContain('State Injection')
+		expect(row[headers.indexOf('State Injection')]).toBe(injected == null ? '' : injected ? 'Injected' : 'Not injected')
 		expect(saveAs).toHaveBeenCalledTimes(1)
 	})
 })

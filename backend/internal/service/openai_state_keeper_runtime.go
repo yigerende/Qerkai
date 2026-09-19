@@ -175,7 +175,7 @@ func (s *OpenAIStateKeeperService) restoreRuntime() {
 					e.row.AccountStatus, e.blockedCredentialStamp = r.AccountStatus, r.BlockedCredentialStamp
 				}
 				if e.blockedCredentialStamp != "" {
-					e.row.AccountUnavailable, e.row.AccountUnavailableReason = true, "采集收到 401 或账号失效错误，停止采集；请先修复账号凭据"
+					e.row.AccountUnavailable, e.row.AccountUnavailableReason = true, keeperCredentialPause
 				}
 				e.row.Paused, e.row.PauseReason = r.Paused, r.PauseReason
 				e.row.AutoRetryPending, e.row.NextRetryAt, e.row.RetryReason = r.AutoRetryPending, r.NextRetryAt, r.RetryReason
@@ -185,7 +185,7 @@ func (s *OpenAIStateKeeperService) restoreRuntime() {
 					*limit = r.CollectionLimit
 				}
 				if e.row.AccountUnavailable {
-					e.row.Paused, e.row.PauseReason = true, e.row.AccountUnavailableReason
+					pauseStateCollectionForAccount(e, e.row.AccountUnavailableReason)
 					e.row.AutoRetryPending, e.row.NextRetryAt = false, nil
 				} else if (r.InProgress && !r.Paused) || (r.Version < 2 && r.Paused && keeperLegacyTransientPause(r.PauseReason)) {
 					s.deferCollectionLocked(e, time.Now().UTC().Add(keeperBackoff(cfg.OpenAIStateKeeperSettings, max(1, r.FailureCycles))), "上次采集未完成，冷却后自动继续")

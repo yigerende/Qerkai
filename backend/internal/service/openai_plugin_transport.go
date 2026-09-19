@@ -11,6 +11,7 @@ func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL string, account *Account) (response *http.Response, err error) {
 	if t, _ := request.Context().Value(openAIStateTicketKey{}).(*openAIStateTicket); t != nil {
 		if t.keeper.config.Load() != t.config {
+			t.suppressed.Store(true)
 			if t.value != "" {
 				request.Header.Del(openAICodexTurnStateHeader)
 				for _, value := range t.originalHeader {

@@ -766,6 +766,7 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 		ChannelID:                   l.ChannelID,
 		ModelMappingChain:           l.ModelMappingChain,
 		UpstreamRequestID:           l.UpstreamRequestID,
+		StateInjected:               l.StateInjected,
 		OpenAIUpstream5xxRetryCount: l.OpenAIUpstream5xxRetryCount,
 		BillingTier:                 l.BillingTier,
 		AccountRateMultiplier:       l.AccountRateMultiplier,
