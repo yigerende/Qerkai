@@ -240,6 +240,7 @@ export default {
       subscriptionExpires: '到期',
       // 容量状态提示
       capacity: {
+        requestRpm: '最近60秒开始转发的用户请求数，含进行中和失败请求；同账号重试去重，不含后台采集和检测',
         windowCost: {
           blocked: '5h窗口费用超限，账号暂停调度',
           stickyOnly: '5h窗口费用达阈值，仅允许粘性会话',

@@ -275,6 +275,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				}
 				return
 			}
+			h.concurrencyHelper.TrackAccountRequest(c, account.ID)
 			result, err = h.geminiCompatService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody)
 		} else if shouldUseAntigravityCompat(account) {
 			if h.antigravityGatewayService == nil {
@@ -285,8 +286,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				return
 			}
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
+			h.concurrencyHelper.TrackAccountRequest(c, account.ID)
 			result, err = h.antigravityGatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		} else {
+			h.concurrencyHelper.TrackAccountRequest(c, account.ID)
 			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		}
 

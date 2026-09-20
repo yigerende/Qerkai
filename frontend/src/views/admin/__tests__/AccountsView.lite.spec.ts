@@ -256,6 +256,27 @@ describe('admin AccountsView lite account list', () => {
     wrapper.unmount()
   })
 
+  it.each([0, 42, null])('refreshes RPM-only changes to %s without another polling request', async (requestRpm) => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    listWithEtag.mockResolvedValue({
+      notModified: false,
+      etag: 'changed-rpm',
+      data: { items: [{ ...listRow, request_rpm: requestRpm }], total: 1, page: 1, page_size: 20, pages: 1 }
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(6000)
+    await flushPromises()
+
+    expect(listWithEtag).toHaveBeenCalledTimes(1)
+    expect(wrapper.findComponent(DataTableStub).props('data')).toEqual([
+      expect.objectContaining({ id: 42, request_rpm: requestRpm })
+    ])
+    wrapper.unmount()
+  })
+
   it('loads the full account by id before opening edit, test, and stats actions', async () => {
     const wrapper = mountView()
     await flushPromises()

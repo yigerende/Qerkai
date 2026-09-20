@@ -249,6 +249,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
+			h.concurrencyHelper.TrackAccountRequest(c, account.ID)
 			return h.gatewayService.ForwardImages(requestCtx, c, account, body, parsed, channelMapping.MappedModel)
 		}()
 		markOpenAIUpstream5xxRetryCompleted(c, forwardStart, result, err)

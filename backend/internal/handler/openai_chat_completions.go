@@ -248,6 +248,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
+			h.concurrencyHelper.TrackAccountRequest(c, account.ID)
 			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
 		}()
 		markOpenAIUpstream5xxRetryCompleted(c, forwardStart, result, err)

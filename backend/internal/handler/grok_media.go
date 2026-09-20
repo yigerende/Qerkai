@@ -324,6 +324,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					accountReleaseFunc()
 				}
 			}()
+			if endpoint.IsGenerationRequest() {
+				h.concurrencyHelper.TrackAccountRequest(c, account.ID)
+			}
 			return h.gatewayService.ForwardGrokMedia(requestCtx, c, account, endpoint, requestID, body, contentType)
 		}()
 

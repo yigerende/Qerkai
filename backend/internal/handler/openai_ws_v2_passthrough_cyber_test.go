@@ -24,11 +24,16 @@ type openAIWSPassthroughHandlerHarness struct {
 	moderationRepo *contentModerationHandlerTestRepo
 	gatewayCache   service.GatewayCache
 	apiKey         *service.APIKey
+	requestStarts  chan int64
 }
 
-func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *openAIWSPassthroughHandlerHarness {
+func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, modes ...string) *openAIWSPassthroughHandlerHarness {
 	t.Helper()
 	gatewayCache := testutil.NewRedisGatewayCache(t)
+	mode := service.OpenAIWSIngressModePassthrough
+	if len(modes) > 0 {
+		mode = modes[0]
+	}
 
 	settingRepo := &contentModerationHandlerSettingRepo{values: map[string]string{
 		service.SettingKeyRiskControlEnabled:          "true",
@@ -51,7 +56,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *ope
 		Credentials: map[string]any{"api_key": "sk-test", "base_url": upstreamURL},
 		Extra: map[string]any{
 			"openai_apikey_responses_websockets_v2_enabled": true,
-			"openai_apikey_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,
+			"openai_apikey_responses_websockets_v2_mode":    mode,
 		},
 	}
 	cfg := &config.Config{}
@@ -96,6 +101,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *ope
 		User:    &service.User{ID: 1751, Status: service.StatusActive},
 	}
 	handlerDone := make(chan struct{})
+	requestStarts := make(chan int64, 32)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
@@ -103,6 +109,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *ope
 		c.Next()
 	})
 	router.GET("/openai/v1/responses", func(c *gin.Context) {
+		c.Set(accountRequestRPMContextKey, &accountRequestRPMTracker{record: func(id int64) { requestStarts <- id }})
 		h.ResponsesWebSocket(c)
 		close(handlerDone)
 	})
@@ -121,6 +128,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *ope
 		moderationRepo: moderationRepo,
 		gatewayCache:   gatewayCache,
 		apiKey:         apiKey,
+		requestStarts:  requestStarts,
 	}
 }
 

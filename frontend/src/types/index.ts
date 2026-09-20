@@ -1190,6 +1190,7 @@ export interface Account {
   concurrency: number
   load_factor?: number | null
   current_concurrency?: number // Real-time concurrency count from Redis
+  request_rpm?: number | null // Business request starts in the last 60 seconds
   scheduler_score?: {
     base_score: number
     sticky_score?: number

@@ -192,6 +192,7 @@ type CheckMixedChannelRequest struct {
 type AccountWithConcurrency struct {
 	*dto.Account
 	CurrentConcurrency int                          `json:"current_concurrency"`
+	RequestRPM         *int                         `json:"request_rpm"`
 	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
 	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
@@ -206,6 +207,7 @@ type AccountWithConcurrency struct {
 type AccountListItemWithConcurrency struct {
 	*dto.AccountListItem
 	CurrentConcurrency int                          `json:"current_concurrency"`
+	RequestRPM         *int                         `json:"request_rpm"`
 	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
 	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
 	CurrentWindowCost  *float64                     `json:"current_window_cost,omitempty"`
@@ -260,6 +262,11 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	if h.concurrencyService != nil {
 		if counts, err := h.concurrencyService.GetAccountConcurrencyBatch(ctx, []int64{account.ID}); err == nil {
 			item.CurrentConcurrency = counts[account.ID]
+		}
+		if counts, err := h.concurrencyService.GetAccountRequestRPMBatch(ctx, []int64{account.ID}); err == nil {
+			if rpm, ok := counts[account.ID]; ok {
+				item.RequestRPM = &rpm
+			}
 		}
 	}
 
@@ -581,6 +588,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	concurrencyCounts := make(map[int64]int)
+	var requestRPMCounts map[int64]int
 	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 	var rpmCounts map[int64]int
@@ -604,6 +612,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		if cc, ccErr := h.concurrencyService.GetAccountConcurrencyBatch(c.Request.Context(), accountIDs); ccErr == nil && cc != nil {
 			concurrencyCounts = cc
 		}
+		requestRPMCounts, _ = h.concurrencyService.GetAccountRequestRPMBatch(c.Request.Context(), accountIDs)
 	}
 
 	// 识别需要查询窗口费用、会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
@@ -685,6 +694,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 			SchedulerScore:     schedulerScores[acc.ID],
 			SchedulerScores:    schedulerGroupScores[acc.ID],
 		}
+		if rpm, ok := requestRPMCounts[acc.ID]; ok {
+			item.RequestRPM = &rpm
+		}
 
 		// 添加窗口费用（仅当启用时）
 		if windowCosts != nil {
@@ -719,6 +731,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			compact[i] = AccountListItemWithConcurrency{
 				AccountListItem:    dto.AccountListItemFromAccount(item.Account),
 				CurrentConcurrency: item.CurrentConcurrency,
+				RequestRPM:         item.RequestRPM,
 				SchedulerScore:     item.SchedulerScore,
 				SchedulerScores:    item.SchedulerScores,
 				CurrentWindowCost:  item.CurrentWindowCost,

@@ -344,6 +344,7 @@ export default {
       subscriptionExpires: 'Expires',
       // Capacity status tooltips
       capacity: {
+        requestRpm: 'User requests started in the last 60 seconds, including active and failed requests. Same-account retries count once; background collection and tests are excluded.',
         windowCost: {
           blocked: '5h window cost exceeded, account scheduling paused',
           stickyOnly: '5h window cost at threshold, only sticky sessions allowed',

@@ -2244,8 +2244,11 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 	})
 	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1703, Concurrency: 0})
 
+	requestCounts := make(map[int64]int)
+	c.Set(accountRequestRPMContextKey, &accountRequestRPMTracker{record: func(id int64) { requestCounts[id]++ }})
 	h.Responses(c)
 
+	require.Equal(t, map[int64]int{9910: 1, 9911: 1}, requestCounts)
 	require.Equal(t, []int64{9910, 9910, 9911}, upstream.calls())
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())

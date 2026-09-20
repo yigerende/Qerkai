@@ -1112,6 +1112,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				responseCreateAtCopy := responseCreateAt
 				acceptedTurnStartedAt.Store(&responseCreateAtCopy)
 				acceptedTurn = true
+				if hooks != nil && hooks.RequestStarted != nil {
+					hooks.RequestStarted(turnNo)
+				}
 			}
 			return out, blocked, policyErr
 		},
@@ -1130,6 +1133,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		},
 	}
 	upstreamFirstMessageSent := false
+	if hooks != nil && hooks.RequestStarted != nil {
+		hooks.RequestStarted(1)
+	}
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
 	firstWriteErr := relayUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()

@@ -807,6 +807,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
+			h.concurrencyHelper.TrackAccountRequest(c, account.ID)
 			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
 		}()
 		markOpenAIUpstream5xxRetryCompleted(c, forwardStart, result, err)
@@ -1422,6 +1423,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
+			h.concurrencyHelper.TrackAccountRequest(c, account.ID)
 			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
 		}()
 		markOpenAIUpstream5xxRetryCompleted(c, forwardStart, result, err)
@@ -2593,6 +2595,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	wsAttemptMessage := append([]byte(nil), firstMessage...)
+	requestRPM := h.concurrencyHelper.accountRequestRPMTracker(c)
 	waitForWSSameAccountRetry := func(account *service.Account, failoverErr *service.UpstreamFailoverError) bool {
 		if account == nil || failoverErr == nil {
 			return false
@@ -3089,7 +3092,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 		for {
 			service.BeginOpenAIUpstream5xxUsageAttempt(c)
-			err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)
+			attemptHooks := *hooks
+			attemptHooks.RequestStarted = requestRPM.beginWSAttempt(account.ID)
+			err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, &attemptHooks)
 			if err == nil {
 				reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
 				return
