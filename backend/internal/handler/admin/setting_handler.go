@@ -292,6 +292,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
 		ForceOpenAIUpstreamWS:                                  settings.ForceOpenAIUpstreamWS,
+		OpenAIDownstreamModelAlignment:                         settings.OpenAIDownstreamModelAlignment,
 		ForceOpenAIUpstreamWSGroupIDs:                          settings.ForceOpenAIUpstreamWSGroupIDs,
 		OpenAIWSChannelProbeHTTP:                               settings.OpenAIWSChannelProbeHTTP,
 		OpenAIWSPoolOptimizationEnabled:                        settings.OpenAIWSPoolOptimizationEnabled,

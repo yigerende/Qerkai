@@ -182,6 +182,26 @@ func (_u *UsageLogUpdate) ClearUpstreamModelMismatch() *UsageLogUpdate {
 	return _u
 }
 
+// SetDownstreamModel sets the "downstream_model" field.
+func (_u *UsageLogUpdate) SetDownstreamModel(v string) *UsageLogUpdate {
+	_u.mutation.SetDownstreamModel(v)
+	return _u
+}
+
+// SetNillableDownstreamModel sets the "downstream_model" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableDownstreamModel(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetDownstreamModel(*v)
+	}
+	return _u
+}
+
+// ClearDownstreamModel clears the value of the "downstream_model" field.
+func (_u *UsageLogUpdate) ClearDownstreamModel() *UsageLogUpdate {
+	_u.mutation.ClearDownstreamModel()
+	return _u
+}
+
 // SetChannelID sets the "channel_id" field.
 func (_u *UsageLogUpdate) SetChannelID(v int64) *UsageLogUpdate {
 	_u.mutation.ResetChannelID()
@@ -1061,6 +1081,11 @@ func (_u *UsageLogUpdate) check() error {
 			return &ValidationError{Name: "upstream_response_model", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_response_model": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.DownstreamModel(); ok {
+		if err := usagelog.DownstreamModelValidator(v); err != nil {
+			return &ValidationError{Name: "downstream_model", err: fmt.Errorf(`ent: validator failed for field "UsageLog.downstream_model": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.ModelMappingChain(); ok {
 		if err := usagelog.ModelMappingChainValidator(v); err != nil {
 			return &ValidationError{Name: "model_mapping_chain", err: fmt.Errorf(`ent: validator failed for field "UsageLog.model_mapping_chain": %w`, err)}
@@ -1164,6 +1189,12 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.UpstreamModelMismatchCleared() {
 		_spec.ClearField(usagelog.FieldUpstreamModelMismatch, field.TypeBool)
+	}
+	if value, ok := _u.mutation.DownstreamModel(); ok {
+		_spec.SetField(usagelog.FieldDownstreamModel, field.TypeString, value)
+	}
+	if _u.mutation.DownstreamModelCleared() {
+		_spec.ClearField(usagelog.FieldDownstreamModel, field.TypeString)
 	}
 	if value, ok := _u.mutation.ChannelID(); ok {
 		_spec.SetField(usagelog.FieldChannelID, field.TypeInt64, value)
@@ -1693,6 +1724,26 @@ func (_u *UsageLogUpdateOne) SetNillableUpstreamModelMismatch(v *bool) *UsageLog
 // ClearUpstreamModelMismatch clears the value of the "upstream_model_mismatch" field.
 func (_u *UsageLogUpdateOne) ClearUpstreamModelMismatch() *UsageLogUpdateOne {
 	_u.mutation.ClearUpstreamModelMismatch()
+	return _u
+}
+
+// SetDownstreamModel sets the "downstream_model" field.
+func (_u *UsageLogUpdateOne) SetDownstreamModel(v string) *UsageLogUpdateOne {
+	_u.mutation.SetDownstreamModel(v)
+	return _u
+}
+
+// SetNillableDownstreamModel sets the "downstream_model" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableDownstreamModel(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetDownstreamModel(*v)
+	}
+	return _u
+}
+
+// ClearDownstreamModel clears the value of the "downstream_model" field.
+func (_u *UsageLogUpdateOne) ClearDownstreamModel() *UsageLogUpdateOne {
+	_u.mutation.ClearDownstreamModel()
 	return _u
 }
 
@@ -2588,6 +2639,11 @@ func (_u *UsageLogUpdateOne) check() error {
 			return &ValidationError{Name: "upstream_response_model", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_response_model": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.DownstreamModel(); ok {
+		if err := usagelog.DownstreamModelValidator(v); err != nil {
+			return &ValidationError{Name: "downstream_model", err: fmt.Errorf(`ent: validator failed for field "UsageLog.downstream_model": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.ModelMappingChain(); ok {
 		if err := usagelog.ModelMappingChainValidator(v); err != nil {
 			return &ValidationError{Name: "model_mapping_chain", err: fmt.Errorf(`ent: validator failed for field "UsageLog.model_mapping_chain": %w`, err)}
@@ -2708,6 +2764,12 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if _u.mutation.UpstreamModelMismatchCleared() {
 		_spec.ClearField(usagelog.FieldUpstreamModelMismatch, field.TypeBool)
+	}
+	if value, ok := _u.mutation.DownstreamModel(); ok {
+		_spec.SetField(usagelog.FieldDownstreamModel, field.TypeString, value)
+	}
+	if _u.mutation.DownstreamModelCleared() {
+		_spec.ClearField(usagelog.FieldDownstreamModel, field.TypeString)
 	}
 	if value, ok := _u.mutation.ChannelID(); ok {
 		_spec.SetField(usagelog.FieldChannelID, field.TypeInt64, value)

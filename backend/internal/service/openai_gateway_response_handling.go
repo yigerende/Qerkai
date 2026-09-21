@@ -337,6 +337,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 
 	needModelReplace := originalModel != mappedModel
+	downstream := s.newDownstreamModelWriter(c, account, originalModel, mappedModel)
 	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
 	streamDoneItems := newResponsesStreamOutputItems()
 	streamImageOutputs := make([]json.RawMessage, 0, 1)
@@ -690,6 +691,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 
 			// 写入客户端（客户端断开后继续 drain 上游）
 			if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
+				line = downstream.SSELine(line)
 				shouldFlush := queueDrained && (clientOutputStarted || startsClientOutput)
 				if networkFrame || (firstTokenMs == nil && startsVisibleOutput) {
 					// 保证首个 token 事件尽快出站，避免影响 TTFT。
@@ -1643,6 +1645,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		}
 	}
 
+	body = s.newDownstreamModelWriter(c, account, originalModel, mappedModel).Body(body)
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}
@@ -1750,6 +1753,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			contentType = "text/event-stream"
 		}
 	}
+	body = s.newDownstreamModelWriter(c, account, originalModel, mappedModel).Body(body)
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}

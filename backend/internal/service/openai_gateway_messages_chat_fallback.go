@@ -133,6 +133,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	}
 
 	// 5. Convert response
+	s.newDownstreamModelWriter(c, account, originalModel, upstreamModel)
 	if clientStream {
 		return s.streamChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
@@ -155,10 +156,12 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 		return nil, err
 	}
 	anthropicResp := apicompat.ChatCompletionsResponseToAnthropic(ccResp, originalModel)
+	anthropicResp.Model = convertedDownstreamModel(c, anthropicResp.Model)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
+	observeConvertedDownstreamModel(c, anthropicResp.Model)
 	c.JSON(http.StatusOK, anthropicResp)
 
 	return &OpenAIForwardResult{
@@ -206,7 +209,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 				continue
 			}
 			writeStreamHeaders()
-			if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+			if _, err := fmt.Fprint(c.Writer, rewriteConvertedDownstreamSSE(c, sse)); err != nil {
 				clientDisconnected = true
 				break
 			}
@@ -249,7 +252,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 				continue
 			}
 			writeStreamHeaders()
-			if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+			if _, err := fmt.Fprint(c.Writer, rewriteConvertedDownstreamSSE(c, sse)); err != nil {
 				clientDisconnected = true
 				break
 			}

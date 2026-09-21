@@ -100,6 +100,11 @@ func UpstreamModelMismatch(v bool) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldUpstreamModelMismatch, v))
 }
 
+// DownstreamModel applies equality check predicate on the "downstream_model" field. It's identical to DownstreamModelEQ.
+func DownstreamModel(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldDownstreamModel, v))
+}
+
 // ChannelID applies equality check predicate on the "channel_id" field. It's identical to ChannelIDEQ.
 func ChannelID(v int64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldChannelID, v))
@@ -718,6 +723,81 @@ func UpstreamModelMismatchIsNil() predicate.UsageLog {
 // UpstreamModelMismatchNotNil applies the NotNil predicate on the "upstream_model_mismatch" field.
 func UpstreamModelMismatchNotNil() predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotNull(FieldUpstreamModelMismatch))
+}
+
+// DownstreamModelEQ applies the EQ predicate on the "downstream_model" field.
+func DownstreamModelEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldDownstreamModel, v))
+}
+
+// DownstreamModelNEQ applies the NEQ predicate on the "downstream_model" field.
+func DownstreamModelNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldDownstreamModel, v))
+}
+
+// DownstreamModelIn applies the In predicate on the "downstream_model" field.
+func DownstreamModelIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldDownstreamModel, vs...))
+}
+
+// DownstreamModelNotIn applies the NotIn predicate on the "downstream_model" field.
+func DownstreamModelNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldDownstreamModel, vs...))
+}
+
+// DownstreamModelGT applies the GT predicate on the "downstream_model" field.
+func DownstreamModelGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldDownstreamModel, v))
+}
+
+// DownstreamModelGTE applies the GTE predicate on the "downstream_model" field.
+func DownstreamModelGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldDownstreamModel, v))
+}
+
+// DownstreamModelLT applies the LT predicate on the "downstream_model" field.
+func DownstreamModelLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldDownstreamModel, v))
+}
+
+// DownstreamModelLTE applies the LTE predicate on the "downstream_model" field.
+func DownstreamModelLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldDownstreamModel, v))
+}
+
+// DownstreamModelContains applies the Contains predicate on the "downstream_model" field.
+func DownstreamModelContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldDownstreamModel, v))
+}
+
+// DownstreamModelHasPrefix applies the HasPrefix predicate on the "downstream_model" field.
+func DownstreamModelHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldDownstreamModel, v))
+}
+
+// DownstreamModelHasSuffix applies the HasSuffix predicate on the "downstream_model" field.
+func DownstreamModelHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldDownstreamModel, v))
+}
+
+// DownstreamModelIsNil applies the IsNil predicate on the "downstream_model" field.
+func DownstreamModelIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldDownstreamModel))
+}
+
+// DownstreamModelNotNil applies the NotNil predicate on the "downstream_model" field.
+func DownstreamModelNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldDownstreamModel))
+}
+
+// DownstreamModelEqualFold applies the EqualFold predicate on the "downstream_model" field.
+func DownstreamModelEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldDownstreamModel, v))
+}
+
+// DownstreamModelContainsFold applies the ContainsFold predicate on the "downstream_model" field.
+func DownstreamModelContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldDownstreamModel, v))
 }
 
 // ChannelIDEQ applies the EQ predicate on the "channel_id" field.

@@ -17,6 +17,12 @@ export interface DefaultSubscriptionSetting {
   validity_days: number;
 }
 
+export interface OpenAIDownstreamModelAlignmentSettings {
+  enabled: boolean;
+  group_ids: number[] | null;
+  models: string[];
+}
+
 // ── 平台限额类型 ──────────────────────────────────────────────────
 export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
@@ -630,6 +636,7 @@ export interface SystemSettings {
   openai_upstream_5xx_retry_total: number;
   openai_upstream_5xx_retry_delay_ms: number;
   openai_upstream_5xx_retry_rules: OpenAIUpstream5xxRetryRule[];
+  openai_downstream_model_alignment: OpenAIDownstreamModelAlignmentSettings;
   force_openai_upstream_ws: boolean;
   force_openai_upstream_ws_group_ids: number[] | null;
   openai_ws_channel_probe_http: boolean;
@@ -967,6 +974,7 @@ export interface UpdateSettingsRequest {
   openai_upstream_5xx_retry_total?: number;
   openai_upstream_5xx_retry_delay_ms?: number;
   openai_upstream_5xx_retry_rules?: OpenAIUpstream5xxRetryRule[];
+  openai_downstream_model_alignment?: OpenAIDownstreamModelAlignmentSettings;
   force_openai_upstream_ws?: boolean;
   force_openai_upstream_ws_group_ids?: number[] | null;
   openai_ws_channel_probe_http?: boolean;

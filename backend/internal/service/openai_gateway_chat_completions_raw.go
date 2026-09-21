@@ -289,6 +289,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var terminal openAIRawStreamTerminalState
+	downstream := s.newDownstreamModelWriter(c, account, originalModel, upstreamModel)
+	writeClientLine := func(line string) (int, error) {
+		return c.Writer.WriteString(downstream.SSELine(line) + "\n")
+	}
 
 	writeLine := func(line string) {
 		if clientDisconnected {
@@ -301,7 +305,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if !clientOutputStarted {
 			writeStreamHeaders()
 			for _, pending := range pendingLines {
-				if _, werr := c.Writer.WriteString(pending + "\n"); werr != nil {
+				if _, werr := writeClientLine(pending); werr != nil {
 					clientDisconnected = true
 					logger.L().Debug("openai chat_completions raw: client disconnected, continuing to drain upstream for billing",
 						zap.Error(werr),
@@ -313,7 +317,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			pendingLines = pendingLines[:0]
 			clientOutputStarted = true
 		}
-		if _, werr := c.Writer.WriteString(line + "\n"); werr != nil {
+		if _, werr := writeClientLine(line); werr != nil {
 			clientDisconnected = true
 			logger.L().Debug("openai chat_completions raw: client disconnected, continuing to drain upstream for billing",
 				zap.Error(werr),
@@ -364,6 +368,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			BillingModel:                  billingModel,
 			UpstreamModel:                 upstreamModel,
 			UpstreamResponseModel:         observedUpstreamResponseModel(c),
+			DownstreamModel:               downstream.Model(),
 			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 			UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
 			ReasoningEffort:               reasoningEffort,
@@ -421,7 +426,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if len(pendingLines) > 0 {
 			writeStreamHeaders()
 			for _, pending := range pendingLines {
-				if _, werr := c.Writer.WriteString(pending + "\n"); werr != nil {
+				if _, werr := writeClientLine(pending); werr != nil {
 					clientDisconnected = true
 					logger.L().Debug("openai chat_completions raw: client disconnected during final flush",
 						zap.Error(werr),
@@ -513,6 +518,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		return nil, newGrokMissingUsageFailoverError(c, account, upstreamRequestID)
 	}
 	respBody = applyOllamaCloudRawChatCompletionsResponse(account, respBody)
+	respBody = s.newDownstreamModelWriter(c, account, originalModel, upstreamModel).Body(respBody)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -533,6 +539,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		BillingModel:                  billingModel,
 		UpstreamModel:                 upstreamModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		DownstreamModel:               observedDownstreamModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
 		ReasoningEffort:               reasoningEffort,

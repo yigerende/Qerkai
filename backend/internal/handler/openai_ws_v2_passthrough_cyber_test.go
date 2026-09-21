@@ -25,9 +25,14 @@ type openAIWSPassthroughHandlerHarness struct {
 	gatewayCache   service.GatewayCache
 	apiKey         *service.APIKey
 	requestStarts  chan int64
+	usageLogs      <-chan *service.UsageLog
 }
 
 func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, modes ...string) *openAIWSPassthroughHandlerHarness {
+	return newOpenAIWSPassthroughHandlerHarnessWithSettings(t, upstreamURL, nil, modes...)
+}
+
+func newOpenAIWSPassthroughHandlerHarnessWithSettings(t *testing.T, upstreamURL string, settings map[string]string, modes ...string) *openAIWSPassthroughHandlerHarness {
 	t.Helper()
 	gatewayCache := testutil.NewRedisGatewayCache(t)
 	mode := service.OpenAIWSIngressModePassthrough
@@ -40,6 +45,9 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, mode
 		service.SettingKeyCyberSessionBlockEnabled:    "true",
 		service.SettingKeyCyberSessionBlockTTLSeconds: "60",
 	}}
+	for key, value := range settings {
+		settingRepo.values[key] = value
+	}
 	moderationRepo := &contentModerationHandlerTestRepo{}
 	moderationSvc := service.NewContentModerationService(settingRepo, moderationRepo, nil, nil, nil, nil, nil, nil)
 	settingSvc := service.NewSettingService(settingRepo, nil)
@@ -74,7 +82,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, mode
 	cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = 3
 
 	accountRepo := &openAIWSUsageHandlerAccountRepoStub{account: account}
-	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, 2)}
+	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, 32)}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo, usageRepo, nil, nil, nil, nil, gatewayCache, cfg, nil, nil,
@@ -129,6 +137,7 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string, mode
 		gatewayCache:   gatewayCache,
 		apiKey:         apiKey,
 		requestStarts:  requestStarts,
+		usageLogs:      usageRepo.created,
 	}
 }
 

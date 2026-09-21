@@ -73,8 +73,9 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	stateProbe *openAIStateProbeResult,
 ) (usageResult *OpenAIForwardResult, forwardErr error) {
 	resetOpenAIStateUsage(c)
-	defer func() { SnapshotOpenAIStateUsage(c, usageResult) }()
+	defer func() { SnapshotOpenAIStateUsage(c, usageResult); snapshotDownstreamModel(c, usageResult) }()
 	beginUpstreamResponseModelObservation(c)
+	resetDownstreamModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
@@ -589,6 +590,8 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	acc.SupplementResponseOutput(finalResponse)
 
 	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, originalModel)
+	s.newDownstreamModelWriter(c, account, originalModel, upstreamModel)
+	chatResp.Model = convertedDownstreamModel(c, chatResp.Model)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -598,6 +601,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	// writeContentType 仅在头不存在时才设置，无法覆盖。这里显式 Set 强制改回 JSON，
 	// 否则下游"看头判流式"的中间层（如 new-api）会把本应聚合的 JSON 当成 SSE 处理。
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	observeConvertedDownstreamModel(c, chatResp.Model)
 	c.JSON(http.StatusOK, chatResp)
 
 	result := &OpenAIForwardResult{
@@ -608,6 +612,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		BillingModel:                  billingModel,
 		UpstreamModel:                 upstreamModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		DownstreamModel:               observedDownstreamModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
 		Stream:                        false,
@@ -704,6 +709,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	s.newDownstreamModelWriter(c, account, originalModel, upstreamModel)
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
@@ -730,6 +736,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			BillingModel:                  billingModel,
 			UpstreamModel:                 upstreamModel,
 			UpstreamResponseModel:         observedUpstreamResponseModel(c),
+			DownstreamModel:               observedDownstreamModel(c),
 			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 			UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
 			Stream:                        true,
@@ -873,7 +880,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				if !clientOutputStarted {
 					writeStreamHeaders()
 					for _, pending := range pendingSSE {
-						if _, err := fmt.Fprint(c.Writer, pending); err != nil {
+						if _, err := fmt.Fprint(c.Writer, rewriteConvertedDownstreamSSE(c, pending)); err != nil {
 							clientDisconnected = true
 							logger.L().Info("openai chat_completions stream: client disconnected while flushing pending chunks",
 								zap.String("request_id", requestID),
@@ -887,6 +894,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 						break
 					}
 				}
+				sse = rewriteConvertedDownstreamSSE(c, sse)
 				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
 					clientDisconnected = true
 					logger.L().Info("openai chat_completions stream: client disconnected, continuing to drain upstream for billing",
@@ -926,7 +934,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				if !clientOutputStarted {
 					writeStreamHeaders()
 					for _, pending := range pendingSSE {
-						if _, err := fmt.Fprint(c.Writer, pending); err != nil {
+						if _, err := fmt.Fprint(c.Writer, rewriteConvertedDownstreamSSE(c, pending)); err != nil {
 							clientDisconnected = true
 							logger.L().Info("openai chat_completions stream: client disconnected during pending final flush",
 								zap.String("request_id", requestID),
@@ -940,6 +948,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 						break
 					}
 				}
+				sse = rewriteConvertedDownstreamSSE(c, sse)
 				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
 					clientDisconnected = true
 					logger.L().Info("openai chat_completions stream: client disconnected during final flush",

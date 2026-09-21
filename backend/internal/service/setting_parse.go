@@ -868,6 +868,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
 	result.ForceOpenAIUpstreamWS = settings[SettingKeyForceOpenAIUpstreamWS] == "true"
+	result.OpenAIDownstreamModelAlignment = parseOpenAIDownstreamModelAlignment(settings[SettingKeyOpenAIDownstreamModelAlignment])
 	result.ForceOpenAIUpstreamWSGroupIDs = parseForceUpstreamWSGroupIDs(settings[SettingKeyForceOpenAIUpstreamWSGroupIDs])
 	result.OpenAIWSChannelProbeHTTP = settings[SettingKeyOpenAIWSChannelProbeHTTP] == "true"
 	result.OpenAIWSPoolOptimizationEnabled = settings[SettingKeyOpenAIWSPoolOptimizationEnabled] == "true"

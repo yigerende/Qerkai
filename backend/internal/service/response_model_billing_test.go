@@ -196,6 +196,7 @@ func TestOpenAIGatewayServiceRecordUsage_ResponseModelBillsCheaperResponseModel(
 			Model:                 pricier,
 			UpstreamModel:         pricier,
 			UpstreamResponseModel: cheaper,
+			DownstreamModel:       pricier,
 			Usage:                 OpenAIUsage{InputTokens: 20, OutputTokens: 10},
 			Duration:              time.Second,
 		},
@@ -215,7 +216,9 @@ func TestOpenAIGatewayServiceRecordUsage_ResponseModelBillsCheaperResponseModel(
 	require.InDelta(t, cheaperCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
 	require.InDelta(t, cheaperCost.ActualCost, userRepo.lastAmount, 1e-12)
 	require.True(t, usageRepo.lastLog.ActualCost > 0, "cost must not be zero")
-	// 审计链完整保留。
+	// 下游显示名称不改变上游审计和按真实响应模型计费的规则。
+	require.NotNil(t, usageRepo.lastLog.DownstreamModel)
+	require.Equal(t, pricier, *usageRepo.lastLog.DownstreamModel)
 	require.Equal(t, pricier, usageRepo.lastLog.Model)
 	require.NotNil(t, usageRepo.lastLog.UpstreamResponseModel)
 	require.Equal(t, cheaper, *usageRepo.lastLog.UpstreamResponseModel)

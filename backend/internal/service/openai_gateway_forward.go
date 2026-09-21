@@ -19,6 +19,8 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (usageResult *OpenAIForwardResult, forwardErr error) {
+	resetDownstreamModelObservation(c)
+	defer func() { snapshotDownstreamModel(c, usageResult) }()
 	resetOpenAIStateUsage(c)
 	defer func() { SnapshotOpenAIStateUsage(c, usageResult) }()
 	beginUpstreamResponseModelObservation(c)

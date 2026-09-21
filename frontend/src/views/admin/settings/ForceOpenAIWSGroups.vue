@@ -5,11 +5,11 @@
     </legend>
     <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-700 dark:text-gray-300">
       <label class="flex cursor-pointer items-center gap-2">
-        <input type="radio" name="force-ws-group-scope" :checked="modelValue === null" @change="emit('update:modelValue', null)" />
+        <input type="radio" :name="scopeName" :checked="modelValue === null" @change="emit('update:modelValue', null)" />
         {{ t('admin.settings.gatewayForwarding.forceWSAllGroups') }}
       </label>
       <label class="flex cursor-pointer items-center gap-2">
-        <input type="radio" name="force-ws-group-scope" :checked="modelValue !== null" @change="emit('update:modelValue', modelValue ?? [])" />
+        <input type="radio" :name="scopeName" :checked="modelValue !== null" @change="emit('update:modelValue', modelValue ?? [])" />
         {{ t('admin.settings.gatewayForwarding.forceWSSelectedGroups') }}
       </label>
     </div>
@@ -31,7 +31,7 @@ import { adminAPI } from '@/api'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import type { AdminGroup } from '@/types'
 
-const props = defineProps<{ modelValue: number[] | null }>()
+const props = withDefaults(defineProps<{ modelValue: number[] | null; scopeName?: string }>(), { scopeName: 'force-ws-group-scope' })
 const emit = defineEmits<{ 'update:modelValue': [value: number[] | null] }>()
 const { t } = useI18n()
 const groups = ref<AdminGroup[]>([])

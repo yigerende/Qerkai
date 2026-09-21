@@ -248,6 +248,7 @@ type OpenAIForwardResult struct {
 	// UpstreamResponseModel is captured from the raw successful upstream
 	// response before any client-facing rewrite or protocol conversion.
 	UpstreamResponseModel         string
+	DownstreamModel               string
 	UpstreamResponseModelConflict bool
 	// UpstreamResponseServiceTier is the tier the upstream reports having used
 	// (response service_tier: "priority" / "default" / "flex" / ...); "" when not declared.

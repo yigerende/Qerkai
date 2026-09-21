@@ -32,6 +32,8 @@ const (
 	FieldUpstreamResponseModel = "upstream_response_model"
 	// FieldUpstreamModelMismatch holds the string denoting the upstream_model_mismatch field in the database.
 	FieldUpstreamModelMismatch = "upstream_model_mismatch"
+	// FieldDownstreamModel holds the string denoting the downstream_model field in the database.
+	FieldDownstreamModel = "downstream_model"
 	// FieldChannelID holds the string denoting the channel_id field in the database.
 	FieldChannelID = "channel_id"
 	// FieldModelMappingChain holds the string denoting the model_mapping_chain field in the database.
@@ -169,6 +171,7 @@ var Columns = []string{
 	FieldUpstreamModel,
 	FieldUpstreamResponseModel,
 	FieldUpstreamModelMismatch,
+	FieldDownstreamModel,
 	FieldChannelID,
 	FieldModelMappingChain,
 	FieldBillingTier,
@@ -230,6 +233,8 @@ var (
 	UpstreamModelValidator func(string) error
 	// UpstreamResponseModelValidator is a validator for the "upstream_response_model" field. It is called by the builders before save.
 	UpstreamResponseModelValidator func(string) error
+	// DownstreamModelValidator is a validator for the "downstream_model" field. It is called by the builders before save.
+	DownstreamModelValidator func(string) error
 	// ModelMappingChainValidator is a validator for the "model_mapping_chain" field. It is called by the builders before save.
 	ModelMappingChainValidator func(string) error
 	// BillingTierValidator is a validator for the "billing_tier" field. It is called by the builders before save.
@@ -343,6 +348,11 @@ func ByUpstreamResponseModel(opts ...sql.OrderTermOption) OrderOption {
 // ByUpstreamModelMismatch orders the results by the upstream_model_mismatch field.
 func ByUpstreamModelMismatch(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpstreamModelMismatch, opts...).ToFunc()
+}
+
+// ByDownstreamModel orders the results by the downstream_model field.
+func ByDownstreamModel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDownstreamModel, opts...).ToFunc()
 }
 
 // ByChannelID orders the results by the channel_id field.

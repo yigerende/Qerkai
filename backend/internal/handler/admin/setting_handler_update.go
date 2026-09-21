@@ -243,24 +243,25 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	OpenAITTFTMode                         *string         `json:"openai_ttft_mode"`
-	EnableFingerprintUnification           *bool           `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough              *bool           `json:"enable_metadata_passthrough"`
-	ForceOpenAIUpstreamWS                  *bool           `json:"force_openai_upstream_ws"`
-	ForceOpenAIUpstreamWSGroupIDs          json.RawMessage `json:"force_openai_upstream_ws_group_ids"`
-	OpenAIWSChannelProbeHTTP               *bool           `json:"openai_ws_channel_probe_http"`
-	OpenAIWSPoolOptimizationEnabled        *bool           `json:"openai_ws_pool_optimization_enabled"`
-	OpenAIWSPrewarmIdlePerAccount          *int            `json:"openai_ws_prewarm_idle_per_account"`
-	OpenAIWSStandbyIdlePerAccount          *int            `json:"openai_ws_standby_idle_per_account"`
-	OpenAIWSStandbyMaxPerAccount           *int            `json:"openai_ws_standby_max_per_account"`
-	OpenAIWSOptimizedQueuePerConn          *int            `json:"openai_ws_optimized_queue_per_conn"`
-	OpenAIWSOptimizedTargetUtilization     *float64        `json:"openai_ws_optimized_target_utilization"`
-	OpenAIWSOptimizedIdleRecycleSeconds    *int            `json:"openai_ws_optimized_idle_recycle_seconds"`
-	OpenAIWSOptimizedMaxAgeSeconds         *int            `json:"openai_ws_optimized_max_age_seconds"`
-	OpenAIWSOptimizedHealthIntervalSeconds *int            `json:"openai_ws_optimized_health_interval_seconds"`
-	OpenAIWSOptimizedSessionTTLSeconds     *int            `json:"openai_ws_optimized_session_ttl_seconds"`
-	OpenAIWSOptimizedSessionIdleSeconds    *int            `json:"openai_ws_optimized_session_idle_timeout_seconds"`
-	OpenAIWSOptimizedDialIntervalMS        *int            `json:"openai_ws_optimized_dial_interval_ms"`
+	OpenAITTFTMode                         *string                                         `json:"openai_ttft_mode"`
+	EnableFingerprintUnification           *bool                                           `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough              *bool                                           `json:"enable_metadata_passthrough"`
+	ForceOpenAIUpstreamWS                  *bool                                           `json:"force_openai_upstream_ws"`
+	OpenAIDownstreamModelAlignment         *service.OpenAIDownstreamModelAlignmentSettings `json:"openai_downstream_model_alignment"`
+	ForceOpenAIUpstreamWSGroupIDs          json.RawMessage                                 `json:"force_openai_upstream_ws_group_ids"`
+	OpenAIWSChannelProbeHTTP               *bool                                           `json:"openai_ws_channel_probe_http"`
+	OpenAIWSPoolOptimizationEnabled        *bool                                           `json:"openai_ws_pool_optimization_enabled"`
+	OpenAIWSPrewarmIdlePerAccount          *int                                            `json:"openai_ws_prewarm_idle_per_account"`
+	OpenAIWSStandbyIdlePerAccount          *int                                            `json:"openai_ws_standby_idle_per_account"`
+	OpenAIWSStandbyMaxPerAccount           *int                                            `json:"openai_ws_standby_max_per_account"`
+	OpenAIWSOptimizedQueuePerConn          *int                                            `json:"openai_ws_optimized_queue_per_conn"`
+	OpenAIWSOptimizedTargetUtilization     *float64                                        `json:"openai_ws_optimized_target_utilization"`
+	OpenAIWSOptimizedIdleRecycleSeconds    *int                                            `json:"openai_ws_optimized_idle_recycle_seconds"`
+	OpenAIWSOptimizedMaxAgeSeconds         *int                                            `json:"openai_ws_optimized_max_age_seconds"`
+	OpenAIWSOptimizedHealthIntervalSeconds *int                                            `json:"openai_ws_optimized_health_interval_seconds"`
+	OpenAIWSOptimizedSessionTTLSeconds     *int                                            `json:"openai_ws_optimized_session_ttl_seconds"`
+	OpenAIWSOptimizedSessionIdleSeconds    *int                                            `json:"openai_ws_optimized_session_idle_timeout_seconds"`
+	OpenAIWSOptimizedDialIntervalMS        *int                                            `json:"openai_ws_optimized_dial_interval_ms"`
 	// 二次开发：上游 502/503 过载重试。详见 service/openai_upstream_5xx_retry.go。
 	OpenAIUpstream5xxRetryEnabled          *bool                                 `json:"openai_upstream_5xx_retry_enabled"`
 	OpenAIUpstream5xxRetrySameAccount      *int                                  `json:"openai_upstream_5xx_retry_same_account"`
@@ -1737,6 +1738,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return previousSettings.ForceOpenAIUpstreamWS
 		}(),
 		ForceOpenAIUpstreamWSGroupIDs: forceWSGroupIDs,
+		OpenAIDownstreamModelAlignment: func() service.OpenAIDownstreamModelAlignmentSettings {
+			if req.OpenAIDownstreamModelAlignment != nil {
+				return *req.OpenAIDownstreamModelAlignment
+			}
+			return previousSettings.OpenAIDownstreamModelAlignment
+		}(),
 		OpenAIWSChannelProbeHTTP: func() bool {
 			if req.OpenAIWSChannelProbeHTTP != nil {
 				return *req.OpenAIWSChannelProbeHTTP
@@ -2354,6 +2361,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		ForceOpenAIUpstreamWS:                                  updatedSettings.ForceOpenAIUpstreamWS,
+		OpenAIDownstreamModelAlignment:                         updatedSettings.OpenAIDownstreamModelAlignment,
 		ForceOpenAIUpstreamWSGroupIDs:                          updatedSettings.ForceOpenAIUpstreamWSGroupIDs,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,

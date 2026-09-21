@@ -8,6 +8,7 @@ import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
 import SettingsView from "../SettingsView.vue";
 import ForceOpenAIWSGroups from "../settings/ForceOpenAIWSGroups.vue";
+import DownstreamModelAlignment from "../settings/DownstreamModelAlignment.vue";
 
 const {
   getSettings,
@@ -734,6 +735,28 @@ describe("admin SettingsView payment visible method controls", () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushPromises();
       expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ force_openai_upstream_ws: true, force_openai_upstream_ws_group_ids: ids }));
+    }
+    wrapper.unmount();
+  });
+
+  it("loads and saves downstream model alignment independently from forced WS", async () => {
+    const initial = { enabled: true, group_ids: [11], models: ['gpt-6-astra'] };
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: false, openai_downstream_model_alignment: initial });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const editor = wrapper.getComponent(DownstreamModelAlignment);
+    expect(editor.props('modelValue')).toEqual(initial);
+    for (const policy of [
+      { enabled: true, group_ids: [22], models: ['gpt-6-astra', 'gpt-5.6-terra'] },
+      { enabled: true, group_ids: null, models: ['gpt-6-astra'] },
+      { enabled: false, group_ids: [], models: [] },
+    ]) {
+      editor.vm.$emit('update:modelValue', policy);
+      await flushPromises();
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushPromises();
+      expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ force_openai_upstream_ws: false, openai_downstream_model_alignment: policy }));
     }
     wrapper.unmount();
   });

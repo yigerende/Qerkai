@@ -651,6 +651,12 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 	}
 
+	downstream := s.newDownstreamModelWriter(c, account, originalModel, mappedModel)
+	downstream.upstream = responseModelObserver
+	originalWriteClientMessage := writeClientMessage
+	writeClientMessage = func(message []byte) error {
+		return originalWriteClientMessage(downstream.JSON(message, gjson.GetBytes(message, "type").String()))
+	}
 	resultWithUsage := func() *OpenAIForwardResult {
 		imageCount := imageCounter.Count()
 		result := &OpenAIForwardResult{
@@ -659,6 +665,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			Model:                         originalModel,
 			UpstreamModel:                 mappedModel,
 			UpstreamResponseModel:         responseModelObserver.Model(),
+			DownstreamModel:               downstream.Model(),
 			UpstreamResponseModelConflict: responseModelObserver.Conflict(),
 			UpstreamResponseServiceTier:   responseModelObserver.ServiceTier(),
 			ServiceTier:                   resolvedOpenAIUpstreamServiceTierFromObserver(responseModelObserver, extractOpenAIServiceTierFromBody(body)),

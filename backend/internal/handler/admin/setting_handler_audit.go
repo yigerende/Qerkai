@@ -462,6 +462,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.ForceOpenAIUpstreamWS != after.ForceOpenAIUpstreamWS {
 		changed = append(changed, "force_openai_upstream_ws")
 	}
+	if !reflect.DeepEqual(before.OpenAIDownstreamModelAlignment, after.OpenAIDownstreamModelAlignment) {
+		changed = append(changed, "openai_downstream_model_alignment")
+	}
 	if !reflect.DeepEqual(before.ForceOpenAIUpstreamWSGroupIDs, after.ForceOpenAIUpstreamWSGroupIDs) {
 		changed = append(changed, "force_openai_upstream_ws_group_ids")
 	}

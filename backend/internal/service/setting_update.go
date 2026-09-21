@@ -472,6 +472,13 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyForceOpenAIUpstreamWS] = strconv.FormatBool(settings.ForceOpenAIUpstreamWS)
+	alignment, alignmentErr := NormalizeOpenAIDownstreamModelAlignment(settings.OpenAIDownstreamModelAlignment)
+	if alignmentErr != nil {
+		return nil, infraerrors.BadRequest("INVALID_DOWNSTREAM_MODEL_ALIGNMENT", alignmentErr.Error())
+	}
+	settings.OpenAIDownstreamModelAlignment = alignment
+	alignmentJSON, _ := json.Marshal(alignment)
+	updates[SettingKeyOpenAIDownstreamModelAlignment] = string(alignmentJSON)
 	forceWSGroups, groupErr := normalizeForceUpstreamWSGroupIDs(settings.ForceOpenAIUpstreamWSGroupIDs)
 	if groupErr != nil {
 		return nil, groupErr
@@ -766,6 +773,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
 	})
 	refreshForceUpstreamWSCache(settings.ForceOpenAIUpstreamWS)
+	s.downstreamModelAlignmentCache.Store(newCachedOpenAIDownstreamModelAlignment(settings.OpenAIDownstreamModelAlignment, time.Minute))
 	refreshForceUpstreamWSGroupsCache(settings.ForceOpenAIUpstreamWSGroupIDs)
 	refreshOpenAIWSChannelProbeHTTPCache(settings.OpenAIWSChannelProbeHTTP)
 	// 二次开发：让 502/503 重试开关与参数立即生效，无需等一个 TTL 周期。

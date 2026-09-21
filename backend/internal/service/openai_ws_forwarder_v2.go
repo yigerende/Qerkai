@@ -473,6 +473,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	// 才能被客户端解析。未绑定桥接器时为 nil，行为与上游完全一致。
 	// 详见 openai_ws_chat_completions_bridge.go。
 	chatBridge := openAIWSChatBridgeFromContext(c)
+	downstream := s.newDownstreamModelWriter(c, account, originalModel, mappedModel)
+	downstream.upstream = responseModelObserver
 	emitStreamMessage := func(message []byte, forceFlush bool) {
 		if clientDisconnected {
 			return
@@ -498,6 +500,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			frame = append(frame, '\n', '\n')
 		}
 		// 二次开发：SSE 头贴着首次写出提交，见 openai_ws_sse_headers.go。
+		frame = downstream.Body(frame)
 		sseHeaders.ensure()
 		_, wErr := c.Writer.Write(frame)
 		if wErr == nil {
@@ -888,9 +891,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 		// 二次开发：CC 入站时把 Responses 终态响应转成 chat.completion 形态。
 		if chatBridge != nil {
-			c.Data(http.StatusOK, "application/json", chatBridge.TransformFinalResponse(finalResponse))
+			c.Data(http.StatusOK, "application/json", downstream.Body(chatBridge.TransformFinalResponse(finalResponse)))
 		} else {
-			c.Data(http.StatusOK, "application/json", finalResponse)
+			c.Data(http.StatusOK, "application/json", downstream.JSON(finalResponse, ""))
 		}
 	} else {
 		// 二次开发：CC 入站的收尾分两种。
@@ -899,7 +902,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		// 补 [DONE]，而要把攒下的终止 response 一次性转成 chat.completion JSON。
 		if chatBridge != nil && !clientDisconnected {
 			if chatBridge.WantsBufferedResponse() {
-				c.Data(http.StatusOK, "application/json", chatBridge.TransformFinalResponse(nil))
+				c.Data(http.StatusOK, "application/json", downstream.Body(chatBridge.TransformFinalResponse(nil)))
 			} else if tail := chatBridge.FinalizeStream(); len(tail) > 0 {
 				sseHeaders.ensure()
 				if _, wErr := c.Writer.Write(tail); wErr != nil {
@@ -957,6 +960,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		Model:                         originalModel,
 		UpstreamModel:                 mappedModel,
 		UpstreamResponseModel:         responseModelObserver.Model(),
+		DownstreamModel:               downstream.Model(),
 		UpstreamResponseModelConflict: responseModelObserver.Conflict(),
 		UpstreamResponseServiceTier:   responseModelObserver.ServiceTier(),
 		ImageCount:                    imageCounter.Count(),

@@ -44526,6 +44526,7 @@ type UsageLogMutation struct {
 	upstream_model               *string
 	upstream_response_model      *string
 	upstream_model_mismatch      *bool
+	downstream_model             *string
 	channel_id                   *int64
 	addchannel_id                *int64
 	model_mapping_chain          *string
@@ -45071,6 +45072,55 @@ func (m *UsageLogMutation) UpstreamModelMismatchCleared() bool {
 func (m *UsageLogMutation) ResetUpstreamModelMismatch() {
 	m.upstream_model_mismatch = nil
 	delete(m.clearedFields, usagelog.FieldUpstreamModelMismatch)
+}
+
+// SetDownstreamModel sets the "downstream_model" field.
+func (m *UsageLogMutation) SetDownstreamModel(s string) {
+	m.downstream_model = &s
+}
+
+// DownstreamModel returns the value of the "downstream_model" field in the mutation.
+func (m *UsageLogMutation) DownstreamModel() (r string, exists bool) {
+	v := m.downstream_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDownstreamModel returns the old "downstream_model" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldDownstreamModel(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDownstreamModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDownstreamModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDownstreamModel: %w", err)
+	}
+	return oldValue.DownstreamModel, nil
+}
+
+// ClearDownstreamModel clears the value of the "downstream_model" field.
+func (m *UsageLogMutation) ClearDownstreamModel() {
+	m.downstream_model = nil
+	m.clearedFields[usagelog.FieldDownstreamModel] = struct{}{}
+}
+
+// DownstreamModelCleared returns if the "downstream_model" field was cleared in this mutation.
+func (m *UsageLogMutation) DownstreamModelCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldDownstreamModel]
+	return ok
+}
+
+// ResetDownstreamModel resets all changes to the "downstream_model" field.
+func (m *UsageLogMutation) ResetDownstreamModel() {
+	m.downstream_model = nil
+	delete(m.clearedFields, usagelog.FieldDownstreamModel)
 }
 
 // SetChannelID sets the "channel_id" field.
@@ -47269,7 +47319,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 47)
+	fields := make([]string, 0, 48)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -47296,6 +47346,9 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.upstream_model_mismatch != nil {
 		fields = append(fields, usagelog.FieldUpstreamModelMismatch)
+	}
+	if m.downstream_model != nil {
+		fields = append(fields, usagelog.FieldDownstreamModel)
 	}
 	if m.channel_id != nil {
 		fields = append(fields, usagelog.FieldChannelID)
@@ -47437,6 +47490,8 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.UpstreamResponseModel()
 	case usagelog.FieldUpstreamModelMismatch:
 		return m.UpstreamModelMismatch()
+	case usagelog.FieldDownstreamModel:
+		return m.DownstreamModel()
 	case usagelog.FieldChannelID:
 		return m.ChannelID()
 	case usagelog.FieldModelMappingChain:
@@ -47540,6 +47595,8 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldUpstreamResponseModel(ctx)
 	case usagelog.FieldUpstreamModelMismatch:
 		return m.OldUpstreamModelMismatch(ctx)
+	case usagelog.FieldDownstreamModel:
+		return m.OldDownstreamModel(ctx)
 	case usagelog.FieldChannelID:
 		return m.OldChannelID(ctx)
 	case usagelog.FieldModelMappingChain:
@@ -47687,6 +47744,13 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetUpstreamModelMismatch(v)
+		return nil
+	case usagelog.FieldDownstreamModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDownstreamModel(v)
 		return nil
 	case usagelog.FieldChannelID:
 		v, ok := value.(int64)
@@ -48251,6 +48315,9 @@ func (m *UsageLogMutation) ClearedFields() []string {
 	if m.FieldCleared(usagelog.FieldUpstreamModelMismatch) {
 		fields = append(fields, usagelog.FieldUpstreamModelMismatch)
 	}
+	if m.FieldCleared(usagelog.FieldDownstreamModel) {
+		fields = append(fields, usagelog.FieldDownstreamModel)
+	}
 	if m.FieldCleared(usagelog.FieldChannelID) {
 		fields = append(fields, usagelog.FieldChannelID)
 	}
@@ -48330,6 +48397,9 @@ func (m *UsageLogMutation) ClearField(name string) error {
 		return nil
 	case usagelog.FieldUpstreamModelMismatch:
 		m.ClearUpstreamModelMismatch()
+		return nil
+	case usagelog.FieldDownstreamModel:
+		m.ClearDownstreamModel()
 		return nil
 	case usagelog.FieldChannelID:
 		m.ClearChannelID()
@@ -48419,6 +48489,9 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldUpstreamModelMismatch:
 		m.ResetUpstreamModelMismatch()
+		return nil
+	case usagelog.FieldDownstreamModel:
+		m.ResetDownstreamModel()
 		return nil
 	case usagelog.FieldChannelID:
 		m.ResetChannelID()

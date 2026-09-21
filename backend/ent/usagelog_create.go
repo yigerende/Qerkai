@@ -113,6 +113,20 @@ func (_c *UsageLogCreate) SetNillableUpstreamModelMismatch(v *bool) *UsageLogCre
 	return _c
 }
 
+// SetDownstreamModel sets the "downstream_model" field.
+func (_c *UsageLogCreate) SetDownstreamModel(v string) *UsageLogCreate {
+	_c.mutation.SetDownstreamModel(v)
+	return _c
+}
+
+// SetNillableDownstreamModel sets the "downstream_model" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableDownstreamModel(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetDownstreamModel(*v)
+	}
+	return _c
+}
+
 // SetChannelID sets the "channel_id" field.
 func (_c *UsageLogCreate) SetChannelID(v int64) *UsageLogCreate {
 	_c.mutation.SetChannelID(v)
@@ -821,6 +835,11 @@ func (_c *UsageLogCreate) check() error {
 			return &ValidationError{Name: "upstream_response_model", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_response_model": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.DownstreamModel(); ok {
+		if err := usagelog.DownstreamModelValidator(v); err != nil {
+			return &ValidationError{Name: "downstream_model", err: fmt.Errorf(`ent: validator failed for field "UsageLog.downstream_model": %w`, err)}
+		}
+	}
 	if v, ok := _c.mutation.ModelMappingChain(); ok {
 		if err := usagelog.ModelMappingChainValidator(v); err != nil {
 			return &ValidationError{Name: "model_mapping_chain", err: fmt.Errorf(`ent: validator failed for field "UsageLog.model_mapping_chain": %w`, err)}
@@ -990,6 +1009,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.UpstreamModelMismatch(); ok {
 		_spec.SetField(usagelog.FieldUpstreamModelMismatch, field.TypeBool, value)
 		_node.UpstreamModelMismatch = &value
+	}
+	if value, ok := _c.mutation.DownstreamModel(); ok {
+		_spec.SetField(usagelog.FieldDownstreamModel, field.TypeString, value)
+		_node.DownstreamModel = &value
 	}
 	if value, ok := _c.mutation.ChannelID(); ok {
 		_spec.SetField(usagelog.FieldChannelID, field.TypeInt64, value)
@@ -1401,6 +1424,24 @@ func (u *UsageLogUpsert) UpdateUpstreamModelMismatch() *UsageLogUpsert {
 // ClearUpstreamModelMismatch clears the value of the "upstream_model_mismatch" field.
 func (u *UsageLogUpsert) ClearUpstreamModelMismatch() *UsageLogUpsert {
 	u.SetNull(usagelog.FieldUpstreamModelMismatch)
+	return u
+}
+
+// SetDownstreamModel sets the "downstream_model" field.
+func (u *UsageLogUpsert) SetDownstreamModel(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldDownstreamModel, v)
+	return u
+}
+
+// UpdateDownstreamModel sets the "downstream_model" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateDownstreamModel() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldDownstreamModel)
+	return u
+}
+
+// ClearDownstreamModel clears the value of the "downstream_model" field.
+func (u *UsageLogUpsert) ClearDownstreamModel() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldDownstreamModel)
 	return u
 }
 
@@ -2278,6 +2319,27 @@ func (u *UsageLogUpsertOne) UpdateUpstreamModelMismatch() *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) ClearUpstreamModelMismatch() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearUpstreamModelMismatch()
+	})
+}
+
+// SetDownstreamModel sets the "downstream_model" field.
+func (u *UsageLogUpsertOne) SetDownstreamModel(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetDownstreamModel(v)
+	})
+}
+
+// UpdateDownstreamModel sets the "downstream_model" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateDownstreamModel() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateDownstreamModel()
+	})
+}
+
+// ClearDownstreamModel clears the value of the "downstream_model" field.
+func (u *UsageLogUpsertOne) ClearDownstreamModel() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearDownstreamModel()
 	})
 }
 
@@ -3434,6 +3496,27 @@ func (u *UsageLogUpsertBulk) UpdateUpstreamModelMismatch() *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) ClearUpstreamModelMismatch() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearUpstreamModelMismatch()
+	})
+}
+
+// SetDownstreamModel sets the "downstream_model" field.
+func (u *UsageLogUpsertBulk) SetDownstreamModel(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetDownstreamModel(v)
+	})
+}
+
+// UpdateDownstreamModel sets the "downstream_model" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateDownstreamModel() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateDownstreamModel()
+	})
+}
+
+// ClearDownstreamModel clears the value of the "downstream_model" field.
+func (u *UsageLogUpsertBulk) ClearDownstreamModel() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearDownstreamModel()
 	})
 }
 

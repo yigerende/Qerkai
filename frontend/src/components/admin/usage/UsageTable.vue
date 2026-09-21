@@ -90,6 +90,10 @@
           </div>
         </template>
 
+        <template #cell-downstream_model="{ row }">
+          <span data-testid="downstream-model" class="break-all text-xs text-gray-900 dark:text-white">{{ row.downstream_model || '-' }}</span>
+        </template>
+
         <template #cell-reasoning_effort="{ row }">
           <div v-if="hasReasoningEffortMapping(row)" data-testid="reasoning-effort-cell" class="space-y-0.5 text-xs">
             <div class="font-medium text-gray-900 dark:text-white">

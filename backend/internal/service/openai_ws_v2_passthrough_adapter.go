@@ -951,6 +951,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	completedTurns := atomic.Int32{}
+	// Snapshot rules for each accepted response.create, independent of the
+	// connection and the relay's pre-write usage callback. The reader only
+	// observes the writer published for the current request.
+	var downstream atomic.Pointer[openAIDownstreamModelWriter]
+	downstream.Store(s.newDownstreamModelWriter(c, account, initialRequestModel, initialUpstreamModel))
 	turnLifecycle := newOpenAIWSPassthroughTurnLifecycle(true)
 	var acceptedTurnStartedAt atomic.Pointer[time.Time]
 	clientFrameConn := &openAIWSClientFrameConn{
@@ -959,12 +964,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		interTurnIdleTimeout: s.openAIWSIngressInterTurnIdleTimeout(),
 		interTurnStarted:     make(chan struct{}, 1),
 		restoreResponseModel: func(payload []byte) []byte {
+			requestModel, upstreamModel := usageMeta.turnModels("")
 			eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
 			if !openAIWSEventMayContainModel(eventType) {
 				return payload
 			}
-			requestModel, upstreamModel := usageMeta.turnModels("")
-			return replaceOpenAIWSMessageModel(payload, upstreamModel, requestModel)
+			// The raw declaration is captured before legacy alias restoration.
+			raw := &upstreamResponseModelObserver{}
+			raw.ObserveOpenAI(payload, eventType)
+			downstream.Load().upstream = raw
+			payload = replaceOpenAIWSMessageModel(payload, upstreamModel, requestModel)
+			return downstream.Load().JSON(payload, eventType)
 		},
 		restoreToolNames: func(payload []byte) []byte {
 			return restoreCodexToolNamesFromContext(c, payload)
@@ -1107,7 +1117,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			//     service_tier 时按 default 处理，billing 应如实反映。
 			if policyErr == nil && blocked == nil && isResponseCreate {
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
-				_, actualModel := usageMeta.turnModels(requestModelForThisFrame)
+				requestModel, actualModel := usageMeta.turnModels(requestModelForThisFrame)
+				downstream.Store(s.newDownstreamModelWriter(c, account, requestModel, actualModel))
 				SetOpsUpstreamModel(c, actualModel)
 				responseCreateAtCopy := responseCreateAt
 				acceptedTurnStartedAt.Store(&responseCreateAtCopy)
@@ -1204,6 +1215,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					hooks.TurnStarted(turnNo, turn.StartedAt)
 				}
 				turnRequestModel, turnUpstreamModel := usageMeta.turnModels(turn.RequestModel)
+				// The relay reports usage before writing the terminal frame. Apply
+				// the same model-field rule without changing its raw audit result.
+				clientModel := turn.ResponseModel
+				if clientModel != "" && clientModel == turnUpstreamModel {
+					clientModel = turnRequestModel
+				}
+				clientModel = downstream.Load().alignedModelFromUpstream(clientModel, turn.ResponseModel)
 				turnResult := &OpenAIForwardResult{
 					RequestID: turn.RequestID,
 					Usage: OpenAIUsage{
@@ -1216,6 +1234,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					Model:                         turnRequestModel,
 					UpstreamModel:                 openAIWSDifferentModel(turnRequestModel, turnUpstreamModel),
 					UpstreamResponseModel:         turn.ResponseModel,
+					DownstreamModel:               clientModel,
 					UpstreamResponseModelConflict: turn.ResponseModelConflict,
 					UpstreamResponseServiceTier:   normalizeObservedOpenAIServiceTier(turn.ResponseServiceTier),
 					ServiceTier:                   usageMeta.serviceTier.Load(),
@@ -1350,6 +1369,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		Model:                         resultRequestModel,
 		UpstreamModel:                 openAIWSDifferentModel(resultRequestModel, resultUpstreamModel),
 		UpstreamResponseModel:         relayResult.ResponseModel,
+		DownstreamModel:               downstream.Load().Model(),
 		UpstreamResponseModelConflict: relayResult.ResponseModelConflict,
 		UpstreamResponseServiceTier:   normalizeObservedOpenAIServiceTier(relayResult.ResponseServiceTier),
 		ServiceTier:                   usageMeta.serviceTier.Load(),

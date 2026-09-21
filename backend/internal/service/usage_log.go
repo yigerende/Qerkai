@@ -117,6 +117,8 @@ type UsageLog struct {
 	// UpstreamResponseModel is the model declared by the successful upstream
 	// response before client-facing model rewrites or protocol conversion.
 	UpstreamResponseModel *string
+	// DownstreamModel is observed after response transformations; nil is unknown.
+	DownstreamModel *string
 	// UpstreamModelMismatch is nil when no upstream model was observed. Otherwise
 	// it compares UpstreamResponseModel with the actual model sent upstream.
 	UpstreamModelMismatch *bool

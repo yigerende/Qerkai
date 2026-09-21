@@ -41,6 +41,7 @@ const messages: Record<string, string> = {
 	'usage.sentUpstreamModel': 'Sent upstream model',
 	'usage.upstreamResponseModel': 'Upstream response model',
 	'usage.upstreamModelMismatch': 'Upstream model mismatch',
+	'usage.downstreamModel': 'Downstream model',
 	'common.yes': 'Yes',
 	'common.no': 'No',
 }
@@ -780,6 +781,7 @@ describe('admin UsageView model audit export', () => {
 	it.each([true, false, null])('exports models and State injection (%s) as separate admin columns', async (injected) => {
 		const response = await exportList()
 		response.items[0].state_injected = injected
+		response.items[0].downstream_model = 'gpt-5.6-sol'
 		const wrapper = mountRouteFilteredUsageView()
 		vi.advanceTimersByTime(120)
 		await flushPromises()
@@ -802,6 +804,8 @@ describe('admin UsageView model audit export', () => {
 		])
 		const row = sheetAddAoa.mock.calls[0][1][0]
 		expect(row.slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
+		expect(headers[8]).toBe('Downstream model')
+		expect(row[8]).toBe('gpt-5.6-sol')
 		expect(headers).toContain('State Injection')
 		expect(row[headers.indexOf('State Injection')]).toBe(injected == null ? '' : injected ? 'Injected' : 'Not injected')
 		expect(saveAs).toHaveBeenCalledTimes(1)

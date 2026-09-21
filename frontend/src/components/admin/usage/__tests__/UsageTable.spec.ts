@@ -91,6 +91,7 @@ const DataTableStub = {
     <div>
       <div v-for="row in data" :key="row.request_id">
         <slot name="cell-model" :row="row" :value="row.model" />
+        <slot name="cell-downstream_model" :row="row" :value="row.downstream_model" />
         <slot name="cell-reasoning_effort" :row="row" :value="row.reasoning_effort" />
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
@@ -435,6 +436,16 @@ describe('admin UsageTable tooltip', () => {
     expect(wrapper.text()).not.toContain('XHigh')
     expect(wrapper.text()).not.toContain('↳')
   })
+
+	it.each(['gpt-6-astra', 'gpt-5.6-luna', null])('shows the recorded downstream model independently of the upstream audit (%s)', (downstream) => {
+		const wrapper = mount(UsageTable, {
+			props: { data: [{ ...baseImageRow, model: 'gpt-6-astra', upstream_response_model: 'gpt-5.6-luna', upstream_model_mismatch: true, downstream_model: downstream }], loading: false, columns: [] },
+			global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+		})
+		expect(wrapper.get('[data-testid="downstream-model"]').text()).toBe(downstream ?? '-')
+		expect(wrapper.text()).toContain('gpt-5.6-luna')
+		expect(wrapper.text()).toContain('Different model')
+	})
 
 	it.each([
 		{

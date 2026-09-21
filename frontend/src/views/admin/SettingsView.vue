@@ -5354,6 +5354,8 @@
               </div>
 
               <!-- Force OpenAI Upstream WebSocket -->
+              <DownstreamModelAlignment v-model="form.openai_downstream_model_alignment" />
+
               <div class="flex items-center justify-between">
                 <div>
                   <label
@@ -8893,6 +8895,7 @@ import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
 import Select from "@/components/common/Select.vue";
 import ForceOpenAIWSGroups from "./settings/ForceOpenAIWSGroups.vue";
+import DownstreamModelAlignment from "./settings/DownstreamModelAlignment.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import PaymentProviderList from "@/components/payment/PaymentProviderList.vue";
 import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vue";
@@ -9858,6 +9861,7 @@ const form = reactive<SettingsForm>({
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   force_openai_upstream_ws: false,
+  openai_downstream_model_alignment: { enabled: false, group_ids: null as number[] | null, models: ['gpt-6-astra'] },
   force_openai_upstream_ws_group_ids: null as number[] | null,
   openai_upstream_5xx_retry_enabled: false,
   openai_upstream_5xx_retry_same_account: 2,
@@ -11495,6 +11499,7 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       force_openai_upstream_ws: form.force_openai_upstream_ws,
+      openai_downstream_model_alignment: form.openai_downstream_model_alignment,
       force_openai_upstream_ws_group_ids: form.force_openai_upstream_ws_group_ids,
       openai_upstream_5xx_retry_enabled: form.openai_upstream_5xx_retry_enabled,
       openai_upstream_5xx_retry_same_account: form.openai_upstream_5xx_retry_same_account,
