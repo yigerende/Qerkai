@@ -247,6 +247,7 @@ type UpdateSettingsRequest struct {
 	EnableFingerprintUnification           *bool                                           `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool                                           `json:"enable_metadata_passthrough"`
 	ForceOpenAIUpstreamWS                  *bool                                           `json:"force_openai_upstream_ws"`
+	OpenAIBPS                              *service.OpenAIBPSSettings                      `json:"openai_bps"`
 	OpenAIDownstreamModelAlignment         *service.OpenAIDownstreamModelAlignmentSettings `json:"openai_downstream_model_alignment"`
 	ForceOpenAIUpstreamWSGroupIDs          json.RawMessage                                 `json:"force_openai_upstream_ws_group_ids"`
 	OpenAIWSChannelProbeHTTP               *bool                                           `json:"openai_ws_channel_probe_http"`
@@ -1738,6 +1739,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return previousSettings.ForceOpenAIUpstreamWS
 		}(),
 		ForceOpenAIUpstreamWSGroupIDs: forceWSGroupIDs,
+		OpenAIBPS: func() service.OpenAIBPSSettings {
+			if req.OpenAIBPS != nil {
+				return *req.OpenAIBPS
+			}
+			return previousSettings.OpenAIBPS
+		}(),
 		OpenAIDownstreamModelAlignment: func() service.OpenAIDownstreamModelAlignmentSettings {
 			if req.OpenAIDownstreamModelAlignment != nil {
 				return *req.OpenAIDownstreamModelAlignment
@@ -2119,7 +2126,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ForceEmailOnThirdPartySignup: boolValueOrDefault(req.ForceEmailOnThirdPartySignup, previousAuthSourceDefaults.ForceEmailOnThirdPartySignup),
 	}
 	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
-		if errors.Is(err, service.ErrInvalidOpenAIWSPoolSettings) {
+		if errors.Is(err, service.ErrInvalidOpenAIWSPoolSettings) || errors.Is(err, service.ErrInvalidOpenAIBPSSettings) {
 			response.BadRequest(c, err.Error())
 			return
 		}
@@ -2361,6 +2368,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		ForceOpenAIUpstreamWS:                                  updatedSettings.ForceOpenAIUpstreamWS,
+		OpenAIBPS:                                              updatedSettings.OpenAIBPS,
 		OpenAIDownstreamModelAlignment:                         updatedSettings.OpenAIDownstreamModelAlignment,
 		ForceOpenAIUpstreamWSGroupIDs:                          updatedSettings.ForceOpenAIUpstreamWSGroupIDs,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,

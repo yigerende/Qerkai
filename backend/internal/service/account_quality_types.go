@@ -148,6 +148,7 @@ type QualityQuestionResult struct {
 }
 type QualityModelResult struct {
 	QualityVerdict
+	UpstreamEndpoint       string     `json:"upstream_endpoint,omitempty"`
 	LatestID               int64      `json:"latest_id"`
 	SentModel              string     `json:"sent_model,omitempty"`
 	ResponseModel          string     `json:"response_model,omitempty"`

@@ -33,6 +33,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (forwarded *OpenAIForwardResult, forwardErr error) {
+	if bps := s.bpsRoute(ctx, c, account, body, defaultMappedModel); bps != nil {
+		return s.forwardBPS(ctx, c, account, body, bps, "anthropic", defaultMappedModel, promptCacheKey)
+	}
 	beginUpstreamResponseModelObservation(c)
 	resetDownstreamModelObservation(c)
 	defer func() { snapshotDownstreamModel(c, forwarded) }()

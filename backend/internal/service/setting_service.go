@@ -150,6 +150,10 @@ type SettingService struct {
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
 	openAIAPIKeyHealthBreakerCache    atomic.Value // *cachedOpenAIAPIKeyHealthBreakerSettings
+	bpsSettingsCache                  atomic.Pointer[cachedOpenAIBPS]
+	bpsSettingsRefreshing             atomic.Bool
+	bpsSettingsSF                     singleflight.Group
+	bpsSettingsWriteMu                sync.Mutex
 	downstreamModelAlignmentCache     atomic.Pointer[cachedOpenAIDownstreamModelAlignment]
 	downstreamModelAlignmentSF        singleflight.Group
 

@@ -10,6 +10,13 @@ import (
 )
 
 func modelAuditQuery(input service.ModelAuditInput) (string, []any) {
+	endpointFilter := ""
+	if input.ExcludeBPS {
+		// Filter before LIMIT so different routes never displace valid samples.
+		endpointFilter = " AND COALESCE(upstream_endpoint,'') <> '/basispoints/api/responses'\n"
+	} else if input.OnlyBPS {
+		endpointFilter = " AND upstream_endpoint = '/basispoints/api/responses'\n"
+	}
 	args := []any{strings.TrimSpace(input.Model)}
 	values := make([]string, 0, len(input.Accounts))
 	for _, a := range input.Accounts {
@@ -26,7 +33,7 @@ func modelAuditQuery(input service.ModelAuditInput) (string, []any) {
  COALESCE(upstream_response_model,'') AS response_model,upstream_model_mismatch,
  CASE WHEN duration_ms IS NOT NULL AND duration_ms>=0 THEN created_at-duration_ms*INTERVAL '1 millisecond' END AS request_started_at
  FROM usage_logs WHERE account_id=wanted.account_id AND created_at>=wanted.since
- AND LOWER(COALESCE(NULLIF(TRIM(upstream_model),''),TRIM(model)))=LOWER($1)
+` + endpointFilter + ` AND LOWER(COALESCE(NULLIF(TRIM(upstream_model),''),TRIM(model)))=LOWER($1)
  ORDER BY created_at DESC,id DESC LIMIT 3
  ) recent ORDER BY recent.account_id,recent.created_at,recent.id`
 	return query, args

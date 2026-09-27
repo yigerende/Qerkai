@@ -1,0 +1,55 @@
+# CPA 宿主配置示例：将本文件内容合并到 CPA 的 config.yaml。
+# 已有 plugins 节点时，请合并其子项，不要重复添加同名节点或覆盖其他插件。
+# 本文件不会被插件自动读取；CPA 会把 plugins.configs.oai-basispoints 的参数传给插件。
+plugins:
+  # CPA 插件系统总开关；仅打开下方单个插件开关还不够。
+  enabled: true
+  configs:
+    oai-basispoints:
+      # 启用本插件。插件 ID 固定为 oai-basispoints，请勿随意改名。
+      enabled: true
+
+      # Basis Points Responses 接口地址，通常无需修改。
+      responses_url: https://bps.openai.com/basispoints/api/responses
+
+      # 未在 model_mappings 中单独配置的别名使用此上游模型。
+      # 不配置 model_mappings 时，保持原有行为：所有别名都使用此模型。
+      upstream_model: gpt-6-astra
+
+      # 启用的客户端模型别名列表，插件不限制条目数量。
+      # 推荐保留 -basispoints 后缀，避免与 CPA 原生 Codex 模型混淆。
+      # 请求未指定模型时，使用列表中的第一项。
+      models:
+        - gpt-6-astra-basispoints
+        - gpt-5.6-sol-basispoints
+
+      # 别名到实际上游模型的映射，支持任意数量，不限于本示例的两项。
+      # 添加模型：在 models 中加入别名，再在此处添加「别名: 上游模型名」。
+      # 移除模型：同时删除 models 中的别名及此处的对应映射。
+      # 映射键必须已列入 models，键和值均不可为空；多个别名可指向同一上游。
+      # 示例只说明路由配置，实际可用模型及其参数取决于 Basis Points 和账号权限。
+      model_mappings:
+        gpt-6-astra-basispoints: gpt-6-astra
+        gpt-5.6-sol-basispoints: gpt-5.6-sol
+
+      # 读取上游响应的超时时间，单位：秒；范围：10～1800，默认 300。
+      timeout_seconds: 300
+
+      # 上游响应体大小上限，单位：字节；默认 67108864（64 MiB）。
+      # 允许范围：65536（64 KiB）～134217728（128 MiB）。
+      max_response_bytes: 67108864
+
+      # 认证模式，通常保持 chatgpt；凭据来自 CPA 已有的 Codex OAuth 文件。
+      # 不要在这里填写 access_token、refresh_token 或其他密钥。
+      auth_mode: chatgpt
+
+      # 可选：权威 Basis Points 工具目录版本 ID。默认留空，不发送版本标识。
+      # 仅在已取得确切版本 ID 时填写，不要自行编造。
+      tools_version_id: ""
+
+      # 非敏感配置的持久化目录，默认值为 plugins/oai-basispoints-data。
+      # 当前实现会先读取 YAML，再用此目录中已有的 settings.json 覆盖对应字段。
+      # 本示例留空：只由 YAML 管理配置，避免旧文件覆盖模型列表和映射。
+      # 留空不会删除已有的 settings.json，也不会禁用 CPA 的 OAuth 凭据读取。
+      # 如需持久化，请填写 CPA 进程可写目录；相对路径以其工作目录为基准。
+      data_dir: ""

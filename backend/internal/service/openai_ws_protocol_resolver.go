@@ -13,6 +13,7 @@ const (
 	// OpenAIUpstreamTransportResponsesWebsocketV2Ingress 用于 WS ingress 入口选账号：
 	// mode_router_v2 开启时允许 ctx_pool/passthrough/http_bridge，拒绝 off。
 	OpenAIUpstreamTransportResponsesWebsocketV2Ingress OpenAIUpstreamTransport = "responses_websockets_v2_ingress"
+	OpenAIUpstreamTransportBPSIngress                  OpenAIUpstreamTransport = "bps_ingress"
 )
 
 // OpenAIWSProtocolDecision 表示协议决策结果。

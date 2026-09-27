@@ -2,13 +2,15 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountTestModal from '../AccountTestModal.vue'
 
-const { getAvailableModels, copyToClipboard } = vi.hoisted(() => ({
+const { getAvailableModels, copyToClipboard, getBPSSettings } = vi.hoisted(() => ({
   getAvailableModels: vi.fn(),
-  copyToClipboard: vi.fn()
+  copyToClipboard: vi.fn(),
+  getBPSSettings: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
+    settings: { getSettings: getBPSSettings },
     accounts: {
       getAvailableModels
     }
@@ -91,6 +93,7 @@ function mountModal(account: Record<string, unknown> = {
 
 describe('AccountTestModal', () => {
   beforeEach(() => {
+    getBPSSettings.mockResolvedValue({ openai_bps: { enabled: false, models: ['gpt-6-astra'] } })
     getAvailableModels.mockResolvedValue([
       { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
       { id: 'gemini-2.5-flash-image', display_name: 'Gemini 2.5 Flash Image' },
@@ -117,6 +120,36 @@ describe('AccountTestModal', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('OpenAI OAuth 显示端点选择并将 BPS 模型和端点发往测试接口', async () => {
+    getBPSSettings.mockResolvedValueOnce({ openai_bps: { enabled: true, models: ['gpt-6-astra', 'gpt-5.6-sol'] } })
+    const wrapper = mountModal({ id: 212, name: 'OAuth', platform: 'openai', type: 'oauth', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    const endpoint = wrapper.get('[data-testid="bps-test-endpoint"] select')
+    expect((endpoint.element as HTMLSelectElement).value).toBe('original')
+    await endpoint.setValue('bps')
+    await flushPromises()
+    const vm = wrapper.vm as any
+    expect(vm.selectedModelId).toBe('gpt-6-astra')
+    expect(vm.availableModels.map((m: any) => m.id)).toEqual(['gpt-6-astra', 'gpt-5.6-sol'])
+    await vm.startTest()
+    await flushPromises()
+    const call = (global.fetch as any).mock.calls[0]
+    expect(call[0]).toContain('/admin/accounts/212/test')
+    expect(JSON.parse(call[1].body)).toMatchObject({ model_id: 'gpt-6-astra', endpoint: 'bps', mode: 'default' })
+    wrapper.unmount()
+  })
+
+  it('BPS 开关关闭时不可选，API Key 账号不显示 BPS 选择', async () => {
+    const wrapper = mountModal({ id: 212, name: 'OAuth', platform: 'openai', type: 'oauth', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect((wrapper.get('option[value="bps"]').element as HTMLOptionElement).disabled).toBe(true)
+    await wrapper.setProps({ account: { id: 1, name: 'API Key', platform: 'openai', type: 'apikey', status: 'active' } as any })
+    expect(wrapper.find('[data-testid="bps-test-endpoint"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {

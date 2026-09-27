@@ -40,15 +40,21 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 // UpdateSettingsOmitting persists system settings, leaving the keys in omitted
 // at their stored value.
 func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *SystemSettings, omitted OmittedSettingKeys) error {
+	s.bpsSettingsWriteMu.Lock()
+	defer s.bpsSettingsWriteMu.Unlock()
 	updates, err := s.buildSystemSettingsUpdates(ctx, settings)
 	if err != nil {
 		return err
 	}
 	omitted.dropFrom(updates)
+	if err := s.validateBPSUpdates(ctx, updates); err != nil {
+		return err
+	}
 
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
+	s.publishBPSUpdate(updates)
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
 }
@@ -62,6 +68,8 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaults(ctx context.Contex
 // auth-source defaults in a single write, leaving the keys in omitted at their
 // stored value.
 func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx context.Context, settings *SystemSettings, authDefaults *AuthSourceDefaultSettings, omitted OmittedSettingKeys) error {
+	s.bpsSettingsWriteMu.Lock()
+	defer s.bpsSettingsWriteMu.Unlock()
 	updates, err := s.buildSystemSettingsUpdates(ctx, settings)
 	if err != nil {
 		return err
@@ -75,10 +83,14 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 		updates[key] = value
 	}
 	omitted.dropFrom(updates)
+	if err := s.validateBPSUpdates(ctx, updates); err != nil {
+		return err
+	}
 
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
+	s.publishBPSUpdate(updates)
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
 }
@@ -472,6 +484,13 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyForceOpenAIUpstreamWS] = strconv.FormatBool(settings.ForceOpenAIUpstreamWS)
+	bps, bpsErr := NormalizeOpenAIBPSSettings(settings.OpenAIBPS)
+	if bpsErr != nil {
+		return nil, bpsErr
+	}
+	settings.OpenAIBPS = bps
+	bpsJSON, _ := json.Marshal(bps)
+	updates[SettingKeyOpenAIBPS] = string(bpsJSON)
 	alignment, alignmentErr := NormalizeOpenAIDownstreamModelAlignment(settings.OpenAIDownstreamModelAlignment)
 	if alignmentErr != nil {
 		return nil, infraerrors.BadRequest("INVALID_DOWNSTREAM_MODEL_ALIGNMENT", alignmentErr.Error())
@@ -773,6 +792,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
 	})
 	refreshForceUpstreamWSCache(settings.ForceOpenAIUpstreamWS)
+	s.bpsSettingsCache.Store(newCachedOpenAIBPS(settings.OpenAIBPS, time.Minute))
 	s.downstreamModelAlignmentCache.Store(newCachedOpenAIDownstreamModelAlignment(settings.OpenAIDownstreamModelAlignment, time.Minute))
 	refreshForceUpstreamWSGroupsCache(settings.ForceOpenAIUpstreamWSGroupIDs)
 	refreshOpenAIWSChannelProbeHTTPCache(settings.OpenAIWSChannelProbeHTTP)

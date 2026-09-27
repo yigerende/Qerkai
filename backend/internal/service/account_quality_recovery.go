@@ -185,6 +185,10 @@ func (s *AccountQualityService) qualityRecoveryVersions(ctx context.Context, q A
 	}
 	for _, model := range qualityRecoveryModels(q) {
 		versions["model:"+model] = ""
+		if cfg := s.tests.settingService.bpsSettings(ctx); cfg.matchesAccount(a, model) {
+			versions["model:"+model] = "bps:" + cfg.settings.ResponsesURL + ":" + cfg.models[model]
+			continue
+		}
 		if ticket := keeper.prepareQualityState(a, model, http.Header{}); ticket != nil {
 			versions["config"] = ticket.config.Revision
 			versions["model:"+model] = ticket.poolVersion()
@@ -255,13 +259,21 @@ func (s *AccountQualityService) probeQualityRecovery(ctx context.Context, q Acco
 				v.Model.Status, v.Model.Error = "error", "复检未取得有效的上游模型名"
 				v.Scheduling.Error = v.Model.Error
 			} else {
-				sent, response := strings.ToLower(q.ModelAuditModel), strings.ToLower(observer.Model())
+				sentModel, endpoint := q.ModelAuditModel, ""
+				if route, routeErr := s.qualityBPSRoute(ctx, v.AccountID, q.ModelAuditModel); routeErr != nil {
+					v.Model.Status, v.Model.Error = "error", routeErr.Error()
+					v.Scheduling.Error = routeErr.Error()
+					continue
+				} else if route != nil {
+					sentModel, endpoint = route.models[q.ModelAuditModel], openAIBPSEndpoint
+				}
+				sent, response := strings.ToLower(sentModel), strings.ToLower(observer.Model())
 				variant := sent != response && qualityModelSuffix.ReplaceAllString(sent, "") == qualityModelSuffix.ReplaceAllString(response, "")
 				applyQualityVerdict(&v.Model.QualityVerdict, (sent == response || variant) && !observer.Conflict(), samplePolicy, now)
 				if variant && !observer.Conflict() {
 					v.Model.Status = "variant"
 				}
-				v.Model.SentModel, v.Model.ResponseModel = q.ModelAuditModel, observer.Model()
+				v.Model.SentModel, v.Model.ResponseModel, v.Model.UpstreamEndpoint = sentModel, observer.Model(), endpoint
 				v.Model.NoNewSamples, v.Model.StateValidationPending = false, false
 			}
 		}

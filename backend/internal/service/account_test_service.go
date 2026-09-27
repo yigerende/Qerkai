@@ -68,11 +68,13 @@ type TestEvent struct {
 // AccountTestOptions carries optional media for admin connectivity tests.
 // ImageDataURL / AudioDataURL are full data URLs (data:<mime>;base64,...).
 type AccountTestOptions struct {
+	Endpoint        string
 	ImageDataURL    string
 	AudioDataURL    string
 	ReasoningEffort string
 	stateKeeper     *OpenAIStateKeeperService
 	qualityModel    *upstreamResponseModelObserver
+	qualityRouting  bool
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -148,6 +150,7 @@ type AccountTestService struct {
 	antigravityGatewayService *AntigravityGatewayService
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
+	bpsGateway                *OpenAIGatewayService
 	settingService            *SettingService
 	tlsFPProfileService       *TLSFingerprintProfileService
 	modelMetadataRegistryMu   sync.Mutex
@@ -284,6 +287,15 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
 
+	if testOpts.Endpoint == "bps" {
+		return s.testBPSAccount(c, account, modelID, prompt, mode, testOpts)
+	}
+	if testOpts.qualityRouting && s.settingService.bpsSettings(ctx).matchesAccount(account, modelID) {
+		return s.testBPSAccount(c, account, modelID, prompt, mode, testOpts)
+	}
+	if testOpts.Endpoint != "" && testOpts.Endpoint != "original" {
+		return s.sendErrorAndEnd(c, "Unknown test endpoint")
+	}
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
 	// to an upstream provider.

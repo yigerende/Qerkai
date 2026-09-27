@@ -1,3 +1,20 @@
+export interface OpenAIBPSSettings {
+  enabled: boolean;
+  group_ids: number[] | null;
+  models: string[];
+  model_mappings: Record<string, string>;
+  responses_url: string;
+  upstream_model: string;
+  timeout_seconds: number;
+  max_response_bytes: number;
+  auth_mode: string;
+  tools_version_id: string;
+}
+
+export function defaultOpenAIBPSSettings(): OpenAIBPSSettings {
+  return { enabled: false, group_ids: null, models: ['gpt-6-astra'], model_mappings: {}, responses_url: 'https://bps.openai.com/basispoints/api/responses', upstream_model: 'gpt-6-astra', timeout_seconds: 300, max_response_bytes: 67108864, auth_mode: 'chatgpt', tools_version_id: '' };
+}
+
 /**
  * Admin Settings API endpoints
  * Handles system settings management for administrators
@@ -636,6 +653,7 @@ export interface SystemSettings {
   openai_upstream_5xx_retry_total: number;
   openai_upstream_5xx_retry_delay_ms: number;
   openai_upstream_5xx_retry_rules: OpenAIUpstream5xxRetryRule[];
+  openai_bps: OpenAIBPSSettings;
   openai_downstream_model_alignment: OpenAIDownstreamModelAlignmentSettings;
   force_openai_upstream_ws: boolean;
   force_openai_upstream_ws_group_ids: number[] | null;
@@ -974,6 +992,7 @@ export interface UpdateSettingsRequest {
   openai_upstream_5xx_retry_total?: number;
   openai_upstream_5xx_retry_delay_ms?: number;
   openai_upstream_5xx_retry_rules?: OpenAIUpstream5xxRetryRule[];
+  openai_bps?: OpenAIBPSSettings;
   openai_downstream_model_alignment?: OpenAIDownstreamModelAlignmentSettings;
   force_openai_upstream_ws?: boolean;
   force_openai_upstream_ws_group_ids?: number[] | null;

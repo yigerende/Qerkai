@@ -70,7 +70,16 @@
         />
       </div>
 
-      <div v-if="isOpenAIAccount" class="space-y-1.5">
+      <div v-if="isOpenAIOAuth" class="space-y-1.5" data-testid="bps-test-endpoint">
+        <label class="text-sm font-medium text-gray-700 dark:text-gray-300">测试端点</label>
+        <select v-model="testEndpoint" class="input w-full" :disabled="status === 'connecting'" @change="changeTestEndpoint">
+          <option value="original">原端点</option>
+          <option value="bps" :disabled="!bpsEnabled">BPS 端点{{ bpsEnabled ? '' : '（需先开启 BPS）' }}</option>
+        </select>
+        <p class="text-xs text-gray-500">使用当前账号及其代理测试，不改变正式请求的分组配置。</p>
+      </div>
+
+      <div v-if="isOpenAIAccount && testEndpoint !== 'bps'" class="space-y-1.5">
         <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ t('admin.accounts.openai.testMode') }}
         </label>
@@ -414,6 +423,9 @@ const generatedAudios = ref<PreviewMedia[]>([])
 const generatedVideos = ref<PreviewMedia[]>([])
 const previewImageUrl = ref('')
 const testMode = ref<'default' | 'compact'>('default')
+const testEndpoint = ref<'original' | 'bps'>('original')
+const bpsEnabled = ref(false)
+const bpsModels = ref<string[]>([])
 const grokTestMode = ref<'text' | 'image' | 'video' | 'search' | 'tts' | 'stt' | 'realtime'>('text')
 const uploadImageDataURL = ref('')
 const uploadImagePreview = ref('')
@@ -423,6 +435,7 @@ const uploadAudioName = ref('')
 const imageFileInput = ref<HTMLInputElement | null>(null)
 const audioFileInput = ref<HTMLInputElement | null>(null)
 const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
+const isOpenAIOAuth = computed(() => isOpenAIAccount.value && props.account?.type === 'oauth')
 const isGrokAccount = computed(() => props.account?.platform === 'grok')
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
@@ -446,6 +459,7 @@ const supportsGeminiImageTest = computed(() => {
 })
 
 const supportsOpenAIImageTest = computed(() => {
+  if (testEndpoint.value === 'bps') return false
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gpt-image-')) return false
   return props.account?.platform === 'openai'
@@ -739,6 +753,16 @@ watch(
     if (newVal && props.account) {
       testPrompt.value = ''
       testMode.value = 'default'
+      testEndpoint.value = 'original'
+      bpsEnabled.value = false
+      bpsModels.value = []
+      if (isOpenAIOAuth.value) {
+        try {
+          const settings = await adminAPI.settings.getSettings()
+          bpsEnabled.value = settings.openai_bps?.enabled ?? false
+          bpsModels.value = settings.openai_bps?.models ?? []
+        } catch { /* Original testing remains available if settings cannot be loaded. */ }
+      }
       grokTestMode.value = 'text'
       resetState()
       await loadAvailableModels()
@@ -787,6 +811,17 @@ const loadAvailableModels = async () => {
     selectedModelId.value = ''
   } finally {
     loadingModels.value = false
+  }
+}
+
+const changeTestEndpoint = async () => {
+  testMode.value = 'default'
+  resetState()
+  if (testEndpoint.value === 'bps') {
+    availableModels.value = bpsModels.value.map(id => ({ id, display_name: id, type: 'model', created_at: '' }))
+    selectedModelId.value = availableModels.value[0]?.id ?? ''
+  } else {
+    await loadAvailableModels()
   }
 }
 
@@ -848,6 +883,7 @@ const startTest = async () => {
       model_id: string
       prompt: string
       mode?: string
+      endpoint?: string
       image_data_url?: string
       audio_data_url?: string
     } = {
@@ -857,6 +893,7 @@ const startTest = async () => {
     if (isOpenAIAccount.value) {
       requestBody.mode = testMode.value
     }
+    if (isOpenAIOAuth.value) requestBody.endpoint = testEndpoint.value
     if (isGrokAccount.value) {
       // Always send explicit Grok mode. search/tts/stt/realtime are standalone
       // endpoints (no free-form model select). text/image/video use optional model.

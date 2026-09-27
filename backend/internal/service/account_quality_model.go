@@ -8,7 +8,23 @@ import (
 )
 
 func (s *AccountQualityService) checkQualityModel(ctx context.Context, q AccountQualitySettings, v *AccountQualityResult) {
-	results, err := s.usage.LatestModelAudit(ctx, ModelAuditInput{Model: q.ModelAuditModel, Accounts: []ModelAuditAccount{{AccountID: v.AccountID, Since: qualityModelSampleSince(q, v.Model)}}})
+	route, err := s.qualityBPSRoute(ctx, v.AccountID, q.ModelAuditModel)
+	if err != nil {
+		applyQualityModelError(&v.Model, q, err, time.Now().UTC())
+		return
+	}
+	requestedModel := q.ModelAuditModel
+	endpoint := ""
+	if route != nil {
+		endpoint = openAIBPSEndpoint
+		q.ModelAuditModel = route.models[requestedModel]
+	}
+	if v.Model.UpstreamEndpoint != endpoint {
+		// Consecutive evidence from different endpoints must not combine.
+		v.Model = QualityModelResult{UpstreamEndpoint: endpoint, StateVersion: v.Model.StateVersion,
+			StateCollectedAt: v.Model.StateCollectedAt, StateValidationPending: v.Model.StateValidationPending}
+	}
+	results, err := s.usage.LatestModelAudit(ctx, ModelAuditInput{ExcludeBPS: route == nil, OnlyBPS: route != nil, Model: q.ModelAuditModel, Accounts: []ModelAuditAccount{{AccountID: v.AccountID, Since: qualityModelSampleSince(q, v.Model)}}})
 	if err != nil {
 		applyQualityModelError(&v.Model, q, err, time.Now().UTC())
 		return
@@ -33,7 +49,7 @@ func (s *AccountQualityService) checkQualityModel(ctx context.Context, q Account
 	// Pending State validation needs fresh evidence even when old logs exist.
 	// A direct sample is not a usage log: do not invent IDs or change LatestID.
 	modelPolicy := q
-	modelPolicy.Model = q.ModelAuditModel
+	modelPolicy.Model = requestedModel
 	observer := &upstreamResponseModelObserver{}
 	started := time.Now().UTC()
 	_, _, err = s.testQualityRequest(ctx, v.AccountID, modelPolicy, "hi", observer)
@@ -63,6 +79,27 @@ func (s *AccountQualityService) checkQualityModel(ctx context.Context, q Account
 			v.Model.Status = "state_pending"
 		}
 	}
+}
+
+func (s *AccountQualityService) qualityBPSRoute(ctx context.Context, accountID int64, model string) (*cachedOpenAIBPS, error) {
+	if s.tests == nil {
+		return nil, nil
+	}
+	cfg := s.tests.settingService.bpsSettings(ctx)
+	if cfg == nil || !cfg.settings.Enabled {
+		return nil, nil
+	}
+	if _, ok := cfg.models[model]; !ok {
+		return nil, nil
+	}
+	a, err := s.tests.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.matchesAccount(a, model) {
+		return nil, nil
+	}
+	return cfg, nil
 }
 
 func applyQualityModelError(v *QualityModelResult, q AccountQualitySettings, err error, now time.Time) {

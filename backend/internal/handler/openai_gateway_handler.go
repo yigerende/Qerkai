@@ -2572,6 +2572,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	requestPlatform := openAICompatibleRequestPlatform(ctx, apiKey)
 	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
+	if h.gatewayService.BPSIngressEnabled(ctx, c, wsForwardModel) {
+		requiredTransport = service.OpenAIUpstreamTransportBPSIngress
+	}
 	if requestPlatform == service.PlatformGrok {
 		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
 	}

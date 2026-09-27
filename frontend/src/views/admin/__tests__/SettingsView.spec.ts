@@ -739,6 +739,36 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it("switches BPS and forced WS atomically while preserving their group configuration", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: true, force_openai_upstream_ws_group_ids: [11], openai_ws_pool_optimization_enabled: true });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const editor = wrapper.getComponent({ name: 'OpenAIBPSSettings' });
+    const initial = editor.props('modelValue');
+    editor.vm.$emit('update:modelValue', { ...initial, enabled: true, group_ids: [22] });
+    await flushPromises();
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      openai_bps: expect.objectContaining({ enabled: true, group_ids: [22] }),
+      force_openai_upstream_ws: false, force_openai_upstream_ws_group_ids: [11], openai_ws_pool_optimization_enabled: false,
+    }));
+    const wsRow = wrapper.findAll('label').find(label => label.text() === 'admin.settings.gatewayForwarding.forceOpenAIUpstreamWS');
+    expect(wsRow).toBeDefined();
+    const toggle = wsRow!.element.parentElement!.parentElement!.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(toggle).not.toBeNull();
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      openai_bps: expect.objectContaining({ enabled: false, group_ids: [22] }), force_openai_upstream_ws: true,
+    }));
+    wrapper.unmount();
+  });
+
   it("loads and saves downstream model alignment independently from forced WS", async () => {
     const initial = { enabled: true, group_ids: [11], models: ['gpt-6-astra'] };
     getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: false, openai_downstream_model_alignment: initial });

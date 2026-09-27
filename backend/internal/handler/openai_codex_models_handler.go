@@ -34,6 +34,25 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	}
 
 	ifNoneMatch := c.GetHeader("If-None-Match")
+	bpsCatalog := h.gatewayService.BPSCatalogEnabled(c.Request.Context(), apiKey.Group)
+	clientETag := ifNoneMatch
+	if bpsCatalog {
+		ifNoneMatch = ""
+	}
+	writeManifest := func(manifest *service.CodexModelsManifest) {
+		if bpsCatalog && !manifest.NotModified {
+			body, err := h.gatewayService.ApplyBPSModelCatalog(c.Request.Context(), apiKey.Group, manifest.Body)
+			if err != nil {
+				h.errorResponse(c, http.StatusBadGateway, "model_metadata_missing", err.Error())
+				return
+			}
+			manifest.Body = body
+			manifest.ETag = service.CodexModelsManifestETag(body)
+			manifest.NotModified = service.CodexModelsManifestETagMatches(clientETag, manifest.ETag)
+		}
+		writeCodexModelsManifestResponse(c, manifest)
+	}
+
 	configuredManifest, configured, err := h.gatewayService.BuildGroupConfiguredCodexModelsManifest(
 		c.Request.Context(),
 		apiKey.Group,
@@ -47,7 +66,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 	if configured {
-		writeCodexModelsManifestResponse(c, configuredManifest)
+		writeManifest(configuredManifest)
 		return
 	}
 
@@ -84,7 +103,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			if c.Request.Context().Err() != nil {
 				return
 			}
-			writeCodexModelsManifestResponse(c, pinnedManifest)
+			writeManifest(pinnedManifest)
 			return
 		}
 	}
@@ -141,7 +160,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			return
 		}
 
-		writeCodexModelsManifestResponse(c, manifest)
+		writeManifest(manifest)
 		return
 	}
 }

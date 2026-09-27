@@ -700,7 +700,7 @@ func (s *AccountQualityService) testQualityRequest(ctx context.Context, id int64
 	c, _ := gin.CreateTestContext(writer)
 	c.Request = (&http.Request{}).WithContext(ctx)
 	started := time.Now()
-	options := AccountTestOptions{ReasoningEffort: q.ReasoningEffort, stateKeeper: s.stateKeeper.Load()}
+	options := AccountTestOptions{ReasoningEffort: q.ReasoningEffort, stateKeeper: s.stateKeeper.Load(), qualityRouting: true}
 	if len(observers) > 0 {
 		options.qualityModel = observers[0]
 	}

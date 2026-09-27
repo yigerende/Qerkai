@@ -5355,6 +5355,7 @@
 
               <!-- Force OpenAI Upstream WebSocket -->
               <DownstreamModelAlignment v-model="form.openai_downstream_model_alignment" />
+              <OpenAIBPSSettings :model-value="form.openai_bps" @update:model-value="updateBPSSettings" />
 
               <div class="flex items-center justify-between">
                 <div>
@@ -5375,7 +5376,7 @@
                     }}
                   </p>
                 </div>
-                <Toggle v-model="form.force_openai_upstream_ws" />
+                <Toggle :model-value="form.force_openai_upstream_ws" @update:model-value="setForceWS" />
               </div>
 
               <div v-if="form.force_openai_upstream_ws" class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800">
@@ -8895,6 +8896,8 @@ import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
 import Select from "@/components/common/Select.vue";
 import ForceOpenAIWSGroups from "./settings/ForceOpenAIWSGroups.vue";
+import OpenAIBPSSettings from "./settings/OpenAIBPSSettings.vue";
+import { defaultOpenAIBPSSettings, type OpenAIBPSSettings as BPSSettings } from "@/api/admin/settings";
 import DownstreamModelAlignment from "./settings/DownstreamModelAlignment.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import PaymentProviderList from "@/components/payment/PaymentProviderList.vue";
@@ -9860,6 +9863,7 @@ const form = reactive<SettingsForm>({
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
+  openai_bps: defaultOpenAIBPSSettings(),
   force_openai_upstream_ws: false,
   openai_downstream_model_alignment: { enabled: false, group_ids: null as number[] | null, models: ['gpt-6-astra'] },
   force_openai_upstream_ws_group_ids: null as number[] | null,
@@ -10922,6 +10926,7 @@ async function loadSettings() {
   loadFailed.value = false;
   try {
     const settings = await adminAPI.settings.getSettings();
+    form.openai_bps = settings.openai_bps ?? defaultOpenAIBPSSettings();
     form.force_openai_upstream_ws_group_ids = settings.force_openai_upstream_ws_group_ids ?? null;
     settings.payment_load_balance_strategy =
       settings.payment_load_balance_strategy || "round-robin";
@@ -11498,6 +11503,7 @@ async function saveSettings() {
           : "semantic",
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
+      openai_bps: form.openai_bps,
       force_openai_upstream_ws: form.force_openai_upstream_ws,
       openai_downstream_model_alignment: form.openai_downstream_model_alignment,
       force_openai_upstream_ws_group_ids: form.force_openai_upstream_ws_group_ids,
@@ -13108,6 +13114,17 @@ watch(
     }
   },
 );
+function updateBPSSettings(value: BPSSettings) {
+  form.openai_bps = value;
+  if (value.enabled) {
+    form.force_openai_upstream_ws = false;
+    form.openai_ws_pool_optimization_enabled = false;
+  }
+}
+function setForceWS(value: boolean) {
+  form.force_openai_upstream_ws = value;
+  if (value) form.openai_bps = { ...form.openai_bps, enabled: false };
+}
 </script>
 
 <style scoped>

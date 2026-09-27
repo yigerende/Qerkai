@@ -205,6 +205,7 @@ type SystemSettings struct {
 	EnableFingerprintUnification           bool                                           `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              bool                                           `json:"enable_metadata_passthrough"`
 	ForceOpenAIUpstreamWS                  bool                                           `json:"force_openai_upstream_ws"`
+	OpenAIBPS                              service.OpenAIBPSSettings                      `json:"openai_bps"`
 	OpenAIDownstreamModelAlignment         service.OpenAIDownstreamModelAlignmentSettings `json:"openai_downstream_model_alignment"`
 	ForceOpenAIUpstreamWSGroupIDs          []int64                                        `json:"force_openai_upstream_ws_group_ids"`
 	OpenAIWSChannelProbeHTTP               bool                                           `json:"openai_ws_channel_probe_http"`

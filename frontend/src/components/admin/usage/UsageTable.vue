@@ -94,6 +94,19 @@
           <span data-testid="downstream-model" class="break-all text-xs text-gray-900 dark:text-white">{{ row.downstream_model || '-' }}</span>
         </template>
 
+        <template #cell-upstream_route="{ row }">
+          <span
+            v-if="row.upstream_endpoint?.trim()"
+            data-testid="upstream-route"
+            :title="row.upstream_endpoint.trim()"
+            class="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium"
+            :class="row.upstream_endpoint.trim() === '/basispoints/api/responses'
+              ? 'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200'
+              : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'"
+          >{{ row.upstream_endpoint.trim() === '/basispoints/api/responses' ? 'BPS' : t('admin.usage.originalEndpoint') }}</span>
+          <span v-else data-testid="upstream-route" class="text-xs text-gray-400" :title="t('admin.usage.endpointNotRecorded')">—</span>
+        </template>
+
         <template #cell-reasoning_effort="{ row }">
           <div v-if="hasReasoningEffortMapping(row)" data-testid="reasoning-effort-cell" class="space-y-0.5 text-xs">
             <div class="font-medium text-gray-900 dark:text-white">

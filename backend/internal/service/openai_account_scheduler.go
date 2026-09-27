@@ -2395,6 +2395,13 @@ func cloneExcludedAccountIDs(excludedIDs map[int64]struct{}) map[int64]struct{} 
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Account, requiredTransport OpenAIUpstreamTransport, groupIDs ...int64) bool {
+	if requiredTransport == OpenAIUpstreamTransportBPSIngress {
+		if account != nil && account.IsOpenAIOAuth() {
+			return true
+		}
+		// API-key/setup-token accounts must retain their original WS eligibility.
+		requiredTransport = OpenAIUpstreamTransportResponsesWebsocketV2Ingress
+	}
 	if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
 		return true
 	}

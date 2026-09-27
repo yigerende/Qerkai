@@ -12,8 +12,10 @@ type ModelAuditAccount struct {
 	Since     time.Time `json:"since"`
 }
 type ModelAuditInput struct {
-	Accounts []ModelAuditAccount `json:"accounts"`
-	Model    string              `json:"model"`
+	ExcludeBPS bool                `json:"-"`
+	OnlyBPS    bool                `json:"-"`
+	Accounts   []ModelAuditAccount `json:"accounts"`
+	Model      string              `json:"model"`
 }
 type ModelAuditLog struct {
 	ID               int64      `json:"id"`
@@ -31,6 +33,9 @@ type ModelAuditResult struct {
 }
 
 func (v ModelAuditInput) Validate() error {
+	if v.ExcludeBPS && v.OnlyBPS {
+		return errors.New("conflicting model audit endpoint filters")
+	}
 	if len(v.Accounts) < 1 || len(v.Accounts) > 10 || strings.TrimSpace(v.Model) == "" || len(v.Model) > 200 {
 		return errors.New("require 1-10 accounts and a model of at most 200 bytes")
 	}

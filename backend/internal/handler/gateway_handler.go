@@ -1139,6 +1139,24 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
+		if h.openAIGatewayService != nil && apiKey != nil {
+			bpsModels := h.openAIGatewayService.BPSCatalogModelIDs(c.Request.Context(), apiKey.Group)
+			if len(bpsModels) > 0 {
+				if len(availableModels) == 0 {
+					availableModels = defaultModelIDsForPlatform(service.PlatformComposite)
+				}
+				seen := make(map[string]bool, len(availableModels))
+				for _, model := range availableModels {
+					seen[model] = true
+				}
+				for _, model := range bpsModels {
+					if !seen[model] {
+						availableModels = append(availableModels, model)
+						seen[model] = true
+					}
+				}
+			}
+		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 			availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(service.PlatformComposite), apiKey.Group.ModelsListConfig.Models)
 			writeCustomModelsList(c, service.PlatformComposite, availableModels)
@@ -1152,8 +1170,27 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
+	var bpsModels []string
+	if h.openAIGatewayService != nil && apiKey != nil {
+		bpsModels = h.openAIGatewayService.BPSCatalogModelIDs(c.Request.Context(), apiKey.Group)
+	}
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	if len(bpsModels) > 0 {
+		if len(availableModels) == 0 {
+			availableModels = defaultModelIDsForPlatform(platform)
+		}
+		seen := map[string]bool{}
+		for _, model := range availableModels {
+			seen[model] = true
+		}
+		for _, model := range bpsModels {
+			if !seen[model] {
+				availableModels = append(availableModels, model)
+				seen[model] = true
+			}
+		}
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
@@ -1218,6 +1255,13 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 	if err != nil {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to build Codex models manifest")
 		return
+	}
+	if h.openAIGatewayService != nil {
+		body, err = h.openAIGatewayService.ApplyBPSModelCatalog(c.Request.Context(), apiKey.Group, body)
+		if err != nil {
+			h.errorResponse(c, http.StatusBadGateway, "model_metadata_missing", err.Error())
+			return
+		}
 	}
 	etag := service.CodexModelsManifestETag(body)
 	c.Header("ETag", etag)
