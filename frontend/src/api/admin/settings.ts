@@ -4,6 +4,8 @@ export interface OpenAIBPSSettings {
   models: string[];
   model_mappings: Record<string, string>;
   responses_url: string;
+  upstream_transport: 'http' | 'auto';
+  ws_handshake_timeout_seconds: number;
   upstream_model: string;
   timeout_seconds: number;
   max_response_bytes: number;
@@ -12,7 +14,7 @@ export interface OpenAIBPSSettings {
 }
 
 export function defaultOpenAIBPSSettings(): OpenAIBPSSettings {
-  return { enabled: false, group_ids: null, models: ['gpt-6-astra'], model_mappings: {}, responses_url: 'https://bps.openai.com/basispoints/api/responses', upstream_model: 'gpt-6-astra', timeout_seconds: 300, max_response_bytes: 67108864, auth_mode: 'chatgpt', tools_version_id: '' };
+  return { enabled: false, group_ids: null, models: ['gpt-6-astra'], model_mappings: {}, responses_url: 'https://bps.openai.com/basispoints/api/responses', upstream_transport: 'http', ws_handshake_timeout_seconds: 5, upstream_model: 'gpt-6-astra', timeout_seconds: 300, max_response_bytes: 67108864, auth_mode: 'chatgpt', tools_version_id: '' };
 }
 
 /**

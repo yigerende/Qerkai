@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,9 +116,33 @@ func TestBPSCatalogKeepsAliasAndCanonical(t *testing.T) {
 }
 
 func TestBPSWebsocketUsesHTTPAndPreservesOriginalModelAcrossTurns(t *testing.T) {
+	testBPSWebsocketTransportAcrossTurns(t, []string{"http", "http"})
+}
+
+func TestBPSWebsocketUsesConfiguredTransportAcrossTurns(t *testing.T) {
+	for _, modes := range [][]string{{"auto", "auto"}, {"http", "auto"}, {"auto", "http"}} {
+		t.Run(strings.Join(modes, "_to_"), func(t *testing.T) {
+			testBPSWebsocketTransportAcrossTurns(t, modes)
+		})
+	}
+}
+
+func testBPSWebsocketTransportAcrossTurns(t *testing.T, modes []string) {
+	t.Helper()
 	gateway, account := bpsTestGateway(t)
-	gateway.httpUpstream = bpsFixtureHTTP(bpsTextFixture)
-	account.Extra = map[string]any{"openai_ws_responses_v2_mode": "off"}
+	var httpCalls, wsCalls atomic.Int32
+	gateway.httpUpstream = &keeperHTTPStub{do: func(*http.Request, string, int64, int) (*http.Response, error) {
+		httpCalls.Add(1)
+		return newJSONResponse(http.StatusOK, bpsTextFixture), nil
+	}}
+	upstream := bpsTestWSServer(t, func(r *http.Request, payload map[string]any) string {
+		wsCalls.Add(1)
+		return bpsTextFixture
+	})
+	settings := gateway.settingService.bpsSettings(context.Background()).settings
+	settings.UpstreamTransport, settings.ResponsesURL = modes[0], upstream.URL+"/responses"
+	gateway.settingService.bpsSettingsCache.Store(newCachedOpenAIBPS(settings, time.Hour))
+	account.Extra = map[string]any{"openai_oauth_responses_websockets_v2_mode": "off", "openai_ws_force_http": true}
 	require.True(t, gateway.isOpenAIAccountTransportCompatible(account, OpenAIUpstreamTransportBPSIngress, 11))
 	for _, kind := range []string{AccountTypeAPIKey, AccountTypeSetupToken} {
 		other := *account
@@ -154,6 +179,8 @@ func TestBPSWebsocketUsesHTTPAndPreservesOriginalModelAcrossTurns(t *testing.T) 
 	defer conn.CloseNow()
 	for turn := 0; turn < 2; turn++ {
 		if turn > 0 {
+			settings.UpstreamTransport = modes[turn]
+			gateway.settingService.bpsSettingsCache.Store(newCachedOpenAIBPS(settings, time.Hour))
 			require.NoError(t, conn.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create","input":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"},{"role":"user","content":"again"}]}`)))
 		}
 		for {
@@ -167,6 +194,9 @@ func TestBPSWebsocketUsesHTTPAndPreservesOriginalModelAcrossTurns(t *testing.T) 
 		case result := <-turns:
 			require.Equal(t, "client-alias", result.Model)
 			require.Equal(t, openAIBPSEndpoint, result.UpstreamEndpoint)
+			require.Equal(t, 8, result.Usage.CacheReadInputTokens)
+			require.True(t, result.OpenAIWSMode, "retain WS per-turn billing identity")
+			require.Equal(t, modes[turn] == "auto", openAIUsageWSMode(result), "usage type follows the upstream on each turn")
 		case <-ctx.Done():
 			t.Fatal("missing turn accounting")
 		}
@@ -177,6 +207,14 @@ func TestBPSWebsocketUsesHTTPAndPreservesOriginalModelAcrossTurns(t *testing.T) 
 	case <-ctx.Done():
 		t.Fatal("BPS reader leaked after disconnect")
 	}
+	wantWS := 0
+	for _, mode := range modes {
+		if mode == "auto" {
+			wantWS++
+		}
+	}
+	require.EqualValues(t, wantWS, wsCalls.Load(), "each auto turn opens an independent upstream WS")
+	require.EqualValues(t, len(modes)-wantWS, httpCalls.Load())
 }
 
 func TestBPSRouteRequiresExactOAuthGroupAndModel(t *testing.T) {

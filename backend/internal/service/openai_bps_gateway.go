@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
@@ -23,7 +24,7 @@ var openAIBPSEngine basispoints.Engine
 const openAIBPSEndpoint = "/basispoints/api/responses"
 
 // BPSIngressEnabled is used before account selection. The scheduler still
-// restricts the HTTP bridge to exact OpenAI OAuth accounts.
+// restricts the BPS bridge to exact OpenAI OAuth accounts.
 func (s *OpenAIGatewayService) BPSIngressEnabled(ctx context.Context, c *gin.Context, model string) bool {
 	if s == nil || s.settingService == nil {
 		return false
@@ -66,6 +67,17 @@ func openBPSResponse(ctx context.Context, cfg OpenAIBPSSettings, account *Accoun
 		proxy = account.Proxy.URL()
 	}
 	request := basispoints.ExecutorRequest{Payload: body, SourceFormat: "codex", Stream: stream, StorageJSON: basispoints.Credential(token, account.GetChatGPTAccountID()), CacheScope: fmt.Sprintf("%s/%d/%s", scope, account.ID, gjson.GetBytes(body, "model").String())}
+	wsProxy := proxy
+	if wsProxy == "" {
+		// Match Qerkai's HTTP transport: an account without a proxy connects directly.
+		wsProxy = "direct"
+	}
+	request.AuthAttributes = map[string]string{
+		// BPS transport is controlled only by BPS settings, independently of
+		// the account's Codex WS mode and forced-HTTP setting.
+		"websockets":            strconv.FormatBool(cfg.UpstreamTransport == "auto"),
+		"basispoints_proxy_url": wsProxy,
+	}
 	if compact {
 		request.Alt = "responses/compact"
 	}
@@ -161,6 +173,7 @@ func (s *OpenAIGatewayService) forwardBPS(ctx context.Context, c *gin.Context, a
 	if result != nil {
 		result.UpstreamEndpoint = openAIBPSEndpoint
 		result.StateInjected = false
+		// Preserve HTTP ingress billing identity; usage type reads the BPS transport metadata.
 		result.OpenAIWSMode = false
 		result.OpenAIUpstream5xxRetryCount = 0
 		result.ReasoningEffort = extractOpenAIReasoningEffortFromBody(converted, actual, model, original)

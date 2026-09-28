@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
@@ -26,10 +27,22 @@ type StreamOptions struct {
 	ResetAttempt         func()
 }
 
-func DefaultConfig() Config { c := defaultConfig(); c.DataDir = ""; return c }
+func DefaultConfig() Config {
+	c := defaultConfig()
+	c.DataDir = ""
+	// Existing Qerkai installations keep their HTTP behavior until an admin opts in.
+	c.UpstreamTransport = "http"
+	return c
+}
 func NormalizeConfig(c Config) (Config, error) {
 	c = c.clone()
 	c.DataDir = ""
+	if c.UpstreamTransport == "" {
+		c.UpstreamTransport = "http"
+	}
+	if c.WSHandshakeTimeoutSeconds == 0 {
+		c.WSHandshakeTimeoutSeconds = 5
+	}
 	err := c.normalize()
 	return c, err
 }
@@ -42,9 +55,9 @@ func (e *Engine) Open(ctx context.Context, cfg Config, request ExecutorRequest, 
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(cfg.TimeoutSeconds)*time.Second)
 	host := &nativeHTTPHost{ctx: ctx, do: do, cfg: cfg, streams: make(map[string]*nativeHTTPStream)}
-	s := &Service{cfg: cfg, sharedAttachments: &e.attachments, requestContext: ctx, host: host.call}
+	s := &Service{cfg: cfg, sharedAttachments: &e.attachments, requestContext: ctx, host: host.call, observeWebSocket: host.websocketOpened}
 	body, cred, err := s.prepareRequest(request)
 	if err != nil {
 		cancel()
@@ -59,11 +72,17 @@ func (e *Engine) Open(ctx context.Context, cfg Config, request ExecutorRequest, 
 			return nil, err
 		}
 		headers.Set("X-Qerkai-BPS-Attempts", strconv.Itoa(host.attemptCount()))
+		headers.Set("X-Qerkai-BPS-Transport", host.responseHeaders().Get("X-Qerkai-BPS-Transport"))
 		return &http.Response{StatusCode: http.StatusOK, Header: headers, Body: io.NopCloser(bytes.NewReader(payload))}, nil
+	}
+	run, err := s.startRun(request)
+	if err != nil {
+		cancel()
+		host.closeAll()
+		return nil, err
 	}
 	reader, writer := io.Pipe()
 	ready := make(chan error, 1)
-	run := &runningStream{service: s}
 	delivery := newStreamDelivery("", func() { ready <- nil }, func(frame []byte) error {
 		_, err := writer.Write(frame)
 		return err
@@ -77,6 +96,7 @@ func (e *Engine) Open(ctx context.Context, cfg Config, request ExecutorRequest, 
 		defer stop()
 		defer host.closeAll()
 		defer writer.Close()
+		defer run.finish()
 		response, err := s.readStreamingResponse(request, body, cred, run, delivery)
 		if err == nil {
 			err = delivery.finish(response)
@@ -95,7 +115,7 @@ func (e *Engine) Open(ctx context.Context, cfg Config, request ExecutorRequest, 
 		return nil, err
 	}
 	headers := host.responseHeaders()
-	for _, name := range []string{"Content-Length", "Content-Encoding", "Transfer-Encoding", "ETag"} {
+	for _, name := range []string{"Content-Length", "Content-Encoding", "Transfer-Encoding", "ETag", "Connection", "Upgrade", "Sec-Websocket-Accept"} {
 		headers.Del(name)
 	}
 	headers.Set("Content-Type", "text/event-stream")
@@ -115,17 +135,25 @@ type nativeHTTPStream struct {
 	cancel context.CancelFunc
 }
 type nativeHTTPHost struct {
-	ctx      context.Context
-	do       HTTPDo
-	cfg      Config
-	mu       sync.Mutex
-	streams  map[string]*nativeHTTPStream
-	headers  http.Header
-	attempts int
-	nextID   int
+	ctx       context.Context
+	do        HTTPDo
+	cfg       Config
+	mu        sync.Mutex
+	streams   map[string]*nativeHTTPStream
+	headers   http.Header
+	transport string
+	attempts  int
+	nextID    int
 }
 
 func (h *nativeHTTPHost) attemptCount() int { h.mu.Lock(); defer h.mu.Unlock(); return h.attempts }
+func (h *nativeHTTPHost) websocketOpened(headers http.Header) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.headers = headers.Clone()
+	h.transport = "ws"
+	h.attempts++
+}
 func (h *nativeHTTPHost) responseHeaders() http.Header {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -134,6 +162,7 @@ func (h *nativeHTTPHost) responseHeaders() http.Header {
 		result = make(http.Header)
 	}
 	result.Set("X-Qerkai-BPS-Attempts", strconv.Itoa(h.attempts))
+	result.Set("X-Qerkai-BPS-Transport", h.transport)
 	return result
 }
 func (h *nativeHTTPHost) closeAll() {
@@ -170,6 +199,7 @@ func (h *nativeHTTPHost) call(method string, payload any, out any) error {
 		h.mu.Lock()
 		if req.URL.String() == h.cfg.ResponsesURL {
 			h.attempts++
+			h.transport = "http"
 		}
 		h.mu.Unlock()
 		resp, err := h.do(req)
@@ -230,6 +260,9 @@ func (h *nativeHTTPHost) call(method string, payload any, out any) error {
 			stream.cancel()
 			return stream.body.Close()
 		}
+		return nil
+	case "host.log":
+		slog.Info("BPS transport", "message", stringValue(p["message"]))
 		return nil
 	default:
 		return fmt.Errorf("unsupported native BPS host callback: %s", method)

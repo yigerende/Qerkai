@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -981,6 +983,56 @@ func TestOpenAIGatewayServiceRecordUsage_WSModePrefersUpstreamRequestIDOverClien
 	require.Equal(t, "resp_openai_ws_turn_456", billingRepo.lastCmd.RequestID)
 	require.NotNil(t, usageRepo.lastLog)
 	require.Equal(t, "resp_openai_ws_turn_456", usageRepo.lastLog.RequestID)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_BPSTransportPreservesBillingIdentity(t *testing.T) {
+	for _, ingressWS := range []bool{false, true} {
+		commands := make(map[int]UsageBillingCommand)
+		for _, transport := range []string{"ws", "http"} {
+			t.Run(fmt.Sprintf("ingressWS=%t/upstream=%s", ingressWS, transport), func(t *testing.T) {
+				usageRepo := &openAIRecordUsageLogRepoStub{}
+				billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+				svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+				ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "stable-bps-client-id")
+				for turn := 1; turn <= 2; turn++ {
+					upstreamID := fmt.Sprintf("bps-turn-%d", turn)
+					err := svc.RecordUsage(ctx, &OpenAIRecordUsageInput{
+						Result: &OpenAIForwardResult{
+							RequestID: upstreamID, OpenAIWSMode: ingressWS, Stream: true,
+							UpstreamEndpoint: openAIBPSEndpoint,
+							UpstreamHeaders:  http.Header{"X-Qerkai-Bps-Transport": {transport}},
+							Usage:            OpenAIUsage{InputTokens: 12, OutputTokens: 4, CacheReadInputTokens: 8},
+							Model:            "gpt-5.1", Duration: time.Second,
+						},
+						APIKey: &APIKey{ID: 10050, Quota: 100, RateLimit5h: 10}, User: &User{ID: 20050},
+						Account:       &Account{ID: 30050, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+						APIKeyService: &openAIRecordUsageAPIKeyQuotaStub{},
+					})
+					require.NoError(t, err)
+					wantID := "client:stable-bps-client-id"
+					if ingressWS {
+						wantID = upstreamID
+					}
+					require.Equal(t, wantID, billingRepo.lastCmd.RequestID)
+					require.Equal(t, wantID, usageRepo.lastLog.RequestID)
+					wantType := RequestTypeStream
+					if transport == "ws" {
+						wantType = RequestTypeWSV2
+					}
+					require.Equal(t, wantType, usageRepo.lastLog.EffectiveRequestType())
+					require.Equal(t, 8, usageRepo.lastLog.CacheReadTokens)
+					require.Positive(t, billingRepo.lastCmd.BalanceCost)
+					require.Positive(t, billingRepo.lastCmd.APIKeyQuotaCost)
+					require.Positive(t, billingRepo.lastCmd.APIKeyRateLimitCost)
+					if previous, ok := commands[turn]; ok {
+						require.Equal(t, previous, *billingRepo.lastCmd, "changing the logged transport must not change any billing field or dedup fingerprint")
+					} else {
+						commands[turn] = *billingRepo.lastCmd
+					}
+				}
+			})
+		}
+	}
 }
 
 func TestOpenAIGatewayServiceRecordUsage_GeneratesRequestIDWhenAllSourcesMissing(t *testing.T) {

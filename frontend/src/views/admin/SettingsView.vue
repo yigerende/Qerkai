@@ -10926,7 +10926,7 @@ async function loadSettings() {
   loadFailed.value = false;
   try {
     const settings = await adminAPI.settings.getSettings();
-    form.openai_bps = settings.openai_bps ?? defaultOpenAIBPSSettings();
+    form.openai_bps = { ...defaultOpenAIBPSSettings(), ...settings.openai_bps };
     form.force_openai_upstream_ws_group_ids = settings.force_openai_upstream_ws_group_ids ?? null;
     settings.payment_load_balance_strategy =
       settings.payment_load_balance_strategy || "round-robin";

@@ -352,7 +352,7 @@ func fallbackTransportCall(item map[string]any) map[string]any {
 	}
 }
 
-func translateInputItems(rawInput any, allowed map[string]toolSpec, scope ...string) []any {
+func translateInputItems(rawInput any, scope ...string) []any {
 	if text, ok := rawInput.(string); ok {
 		return []any{messageItem("user", text)}
 	}
@@ -387,14 +387,11 @@ func translateInputItems(rawInput any, allowed map[string]toolSpec, scope ...str
 				result = append(result, item)
 				continue
 			}
-			if _, exists := allowed[name]; exists {
-				if callID != "" {
-					origins[callID] = transportName
-				}
-				result = append(result, fallbackTransportCall(item))
-				continue
+			// 压缩请求可能没有工具目录；历史调用自身已包含名称和载荷。
+			if callID != "" {
+				origins[callID] = transportName
 			}
-			result = append(result, item)
+			result = append(result, fallbackTransportCall(item))
 			continue
 		}
 		if itemType == "function_call_output" || itemType == "custom_tool_call_output" {
@@ -562,7 +559,7 @@ func prepareResponsesBody(source map[string]any, cfg Config) (map[string]any, er
 	if clientToolCallRequired(source) && len(callableClientToolSpecs(source)) == 0 {
 		return nil, fail(400, "invalid_tool_choice", "tool_choice does not select any available client tool")
 	}
-	inputItems := translateInputItems(source["input"], clientToolSpecs(source), stringValue(source[nativeScopeField]))
+	inputItems := translateInputItems(source["input"], stringValue(source[nativeScopeField]))
 	historyRoot := conversationFingerprint(inputItems)
 	prologue := []any{}
 	if instructions := stringValue(source["instructions"]); instructions != "" {
@@ -841,13 +838,21 @@ func schemaMatches(value any, schema map[string]any) bool {
 }
 
 func extractNativeClientToolCall(native map[string]any, specs map[string]toolSpec) (map[string]any, error) {
+	return extractNativeClientToolCallIn(native, specs, specs)
+}
+
+// callable 限制本轮调用权限，declared 只用于区分目录缺失与本轮禁用。
+func extractNativeClientToolCallIn(native map[string]any, callable, declared map[string]toolSpec) (map[string]any, error) {
 	inner, err := transportEnvelope(native)
 	if err != nil {
 		return nil, err
 	}
 	name, _ := inner["tool"].(string)
-	spec, exists := specs[name]
+	spec, exists := callable[name]
 	if !exists {
+		if _, declaredOnly := declared[name]; declaredOnly {
+			return nil, relayError("tool_not_allowed_by_tool_choice")
+		}
 		return nil, relayError("tool_not_in_catalog")
 	}
 	callID := stringValue(native["call_id"])
@@ -868,6 +873,7 @@ func extractNativeClientToolCall(native map[string]any, specs map[string]toolSpe
 	}
 	if spec.Type == "custom" {
 		result["type"] = "custom_tool_call"
+		result["id"] = "ctc_" + strings.TrimPrefix(stringValue(result["id"]), "fc_")
 		result["input"] = inner["args"]
 	} else {
 		parsed, reason := parseRelayObject(inner["args"])
@@ -896,6 +902,7 @@ func transformResponseBody(body []byte, source map[string]any) ([]byte, map[stri
 	}
 	output, _ := response["output"].([]any)
 	specs := callableClientToolSpecs(source)
+	declared := clientToolSpecs(source)
 	replaced := make([]any, 0, len(output))
 	natives := make([]map[string]any, 0)
 	callIDs := map[string]bool{}
@@ -905,7 +912,7 @@ func transformResponseBody(body []byte, source map[string]any) ([]byte, map[stri
 			replaced = append(replaced, value)
 			continue
 		}
-		call, err := extractNativeClientToolCall(item, specs)
+		call, err := extractNativeClientToolCallIn(item, specs, declared)
 		if err != nil {
 			// 不把服务器注入工具或损坏的中转载荷交给客户端执行。
 			return nil, nil, false, err

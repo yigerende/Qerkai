@@ -748,10 +748,13 @@ describe("admin SettingsView payment visible method controls", () => {
     const initial = editor.props('modelValue');
     editor.vm.$emit('update:modelValue', { ...initial, enabled: true, group_ids: [22] });
     await flushPromises();
+    expect(editor.get('[data-testid="bps-upstream-transport"]').element).toHaveProperty('value', 'http');
+    await editor.get('[data-testid="bps-upstream-transport"]').setValue('auto');
+    await editor.get('[data-testid="bps-handshake-timeout"]').setValue(7);
     await wrapper.find('form').trigger('submit.prevent');
     await flushPromises();
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
-      openai_bps: expect.objectContaining({ enabled: true, group_ids: [22] }),
+      openai_bps: expect.objectContaining({ enabled: true, group_ids: [22], upstream_transport: 'auto', ws_handshake_timeout_seconds: 7 }),
       force_openai_upstream_ws: false, force_openai_upstream_ws_group_ids: [11], openai_ws_pool_optimization_enabled: false,
     }));
     const wsRow = wrapper.findAll('label').find(label => label.text() === 'admin.settings.gatewayForwarding.forceOpenAIUpstreamWS');
@@ -764,7 +767,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await wrapper.find('form').trigger('submit.prevent');
     await flushPromises();
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
-      openai_bps: expect.objectContaining({ enabled: false, group_ids: [22] }), force_openai_upstream_ws: true,
+      openai_bps: expect.objectContaining({ enabled: false, group_ids: [22], upstream_transport: 'auto', ws_handshake_timeout_seconds: 7 }), force_openai_upstream_ws: true,
     }));
     wrapper.unmount();
   });

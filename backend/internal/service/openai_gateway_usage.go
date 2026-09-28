@@ -46,6 +46,16 @@ type OpenAIRecordUsageInput struct {
 	ChannelUsageFields
 }
 
+// BPS ingress and upstream transport can differ. Only the display/accounting
+// field follows actual transport; retain OpenAIWSMode's existing request-ID
+// semantics so HTTP idempotency and WS per-turn billing remain unchanged.
+func openAIUsageWSMode(result *OpenAIForwardResult) bool {
+	if result.UpstreamEndpoint == openAIBPSEndpoint {
+		return result.UpstreamHeaders.Get("X-Qerkai-BPS-Transport") == "ws"
+	}
+	return result.OpenAIWSMode
+}
+
 // CyberPolicyUsageInput 是 cyber 拒绝、未走正常 RecordUsage 的请求记录用量的入参。
 // 用量按上游真实 token 计费，与 WS cyber 及正常请求口径一致（InputTokens/OutputTokens
 // 取自上游 response.failed 报告的 usage，即 mark.UpstreamInTok/OutTok）。
@@ -434,7 +444,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if input.CyberBlocked {
 		usageLog.RequestType = RequestTypeCyberBlocked
 	}
-	usageLog.OpenAIWSMode = result.OpenAIWSMode
+	usageLog.OpenAIWSMode = openAIUsageWSMode(result)
 	usageLog.DurationMs = &durationMs
 	usageLog.FirstTokenMs = result.FirstTokenMs
 	usageLog.CreatedAt = time.Now()

@@ -62,6 +62,11 @@ func (s *AccountTestService) testBPSAccount(c *gin.Context, account *Account, mo
 		return s.sendErrorAndEnd(c, err.Error())
 	}
 	defer resp.Body.Close()
+	transport := "HTTP/SSE"
+	if resp.Header.Get("X-Qerkai-BPS-Transport") == "ws" {
+		transport = "WebSocket"
+	}
+	s.sendEvent(c, TestEvent{Type: "status", Text: "实际传输：" + transport})
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64<<10), cfg.settings.MaxResponseBytes)
 	completed := false

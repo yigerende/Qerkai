@@ -31,8 +31,15 @@ func DefaultOpenAIBPSSettings() OpenAIBPSSettings {
 func NormalizeOpenAIBPSSettings(v OpenAIBPSSettings) (OpenAIBPSSettings, error) {
 	if v.ResponsesURL == "" && v.Models == nil && v.TimeoutSeconds == 0 {
 		enabled, groups := v.Enabled, v.GroupIDs
+		transport, handshakeTimeout := v.UpstreamTransport, v.WSHandshakeTimeoutSeconds
 		v = DefaultOpenAIBPSSettings()
 		v.Enabled, v.GroupIDs = enabled, groups
+		if transport != "" {
+			v.UpstreamTransport = transport
+		}
+		if handshakeTimeout != 0 {
+			v.WSHandshakeTimeoutSeconds = handshakeTimeout
+		}
 	}
 	groups, err := normalizeForceUpstreamWSGroupIDs(v.GroupIDs)
 	if err != nil {

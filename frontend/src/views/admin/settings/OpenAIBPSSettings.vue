@@ -3,12 +3,24 @@
     <div class="flex items-center justify-between gap-4">
       <div>
         <label class="text-sm font-medium text-gray-700 dark:text-gray-300">启用 OpenAI BPS 端点</label>
-        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">仅对所选分组、模型的 OpenAI OAuth 账号生效，使用 BPS HTTP/SSE。与强制 WS、WS 优化调度互斥，开启时关闭另一套；关闭或未命中时沿用原流程。</p>
+        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">仅对所选分组、模型的 OpenAI OAuth 账号生效，支持 BPS HTTP/SSE 和独立 WS。与强制 WS、WS 优化调度互斥，开启时关闭另一套；关闭或未命中时沿用原流程。</p>
       </div>
       <Toggle :model-value="modelValue.enabled" @update:model-value="update({ enabled: $event })" />
     </div>
     <div v-if="modelValue.enabled" class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800">
       <ForceOpenAIWSGroups :model-value="modelValue.group_ids" scope-name="bps-group-scope" @update:model-value="update({ group_ids: $event })" />
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label class="text-sm">BPS 上游传输方式
+          <select :value="modelValue.upstream_transport ?? 'http'" class="input mt-1 w-full" data-testid="bps-upstream-transport" @change="update({ upstream_transport: inputText($event) as 'http' | 'auto' })">
+            <option value="http">HTTP / SSE（默认）</option>
+            <option value="auto">自动（优先 WS，可回退 HTTP）</option>
+          </select>
+        </label>
+        <label v-if="modelValue.upstream_transport === 'auto'" class="text-sm">WS 握手超时（秒）
+          <input :value="modelValue.ws_handshake_timeout_seconds ?? 5" type="number" min="1" max="30" step="1" class="input mt-1 w-full" data-testid="bps-handshake-timeout" @input="update({ ws_handshake_timeout_seconds: Number(inputText($event)) })" />
+        </label>
+      </div>
+      <p class="text-xs text-gray-500">BPS 传输方式仅由此处控制，独立于账号级 WS 设置。自动模式每轮优先尝试一次 WS 握手，独立建连，不使用原 WS 连接池。握手失败可回退同一 BPS 端点的 HTTP；401/403/407/429 和建连成功后的错误不回退。握手等待最多增加上方设置的时间。</p>
       <label class="block">
         <span class="mb-1.5 block text-sm font-medium">启用模型（每行一个）</span>
         <textarea v-model="modelsText" rows="4" class="input w-full font-mono" placeholder="gpt-6-astra" />
@@ -26,7 +38,7 @@
           <label class="text-sm">工具目录版本（可选）<input :value="modelValue.tools_version_id" class="input mt-1 w-full" @input="update({ tools_version_id: inputText($event) })" /></label>
         </div>
       </details>
-      <p class="text-xs text-gray-500">协议对齐 CPA BPS v0.1.18：支持流式、图片和客户端工具。不支持 Fast、独立 compact、仅 ID 续聊、多代理 v2 密文及 JSON Schema 输出。不会自动回退到原端点。</p>
+      <p class="text-xs text-gray-500">协议对齐 CPA BPS v0.2.2：支持流式、图片和客户端工具，包含工具历史回放修复。不支持 Fast、独立 compact、仅 ID 续聊、多代理 v2 密文及 JSON Schema 输出。不会自动回退到原端点。</p>
     </div>
   </div>
 </template>

@@ -13,7 +13,7 @@ import (
 )
 
 // The downstream connection carries standard Responses events. The upstream
-// transport is always BPS HTTP, with the exact same executor as HTTP ingress.
+// transport follows BPS settings, with the same executor as HTTP ingress.
 func (s *OpenAIGatewayService) proxyBPSWebSocket(ctx context.Context, c *gin.Context, conn *coderws.Conn, account *Account, first []byte, hooks *OpenAIWSIngressHooks, cfg *cachedOpenAIBPS) (returnErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -145,6 +145,7 @@ func (s *OpenAIGatewayService) proxyBPSWebSocket(ctx context.Context, c *gin.Con
 		}
 		if result != nil {
 			result.FirstTokenMs = timing.milliseconds()
+			// Preserve per-turn billing identity even when the BPS upstream uses HTTP.
 			result.OpenAIWSMode = true
 			result.StateInjected = false
 		}
