@@ -53,18 +53,8 @@ func (s *OpenAIGatewayService) ApplyBPSModelCatalog(ctx context.Context, group *
 		return body, nil
 	}
 	cfg := snapshot.settings.Config
-	if group.CustomModelsListEnabled() {
-		allowed := make(map[string]bool)
-		for _, model := range group.ModelsListConfig.Models {
-			allowed[model] = true
-		}
-		filtered := models[:0]
-		for _, model := range models {
-			if allowed[model] {
-				filtered = append(filtered, model)
-			}
-		}
-		models = filtered
+	if group.ModelAllowlistEnabled() {
+		models = group.ModelAllowlist.FilterForListing(models)
 	}
 	if len(models) == 0 {
 		return body, nil
@@ -92,7 +82,7 @@ func (s *OpenAIGatewayService) ApplyBPSModelCatalog(ctx context.Context, group *
 	for _, model := range models {
 		canonical := cfg.ModelMappings[model]
 		if bySlug[canonical] == nil {
-			raw, err := buildCodexModelsManifestForAccounts(PlatformOpenAI, []string{canonical}, nil, nil, true)
+			raw, err := buildCodexModelsManifestForAccounts(PlatformOpenAI, []string{canonical}, nil, nil, nil, true)
 			if err != nil {
 				return nil, err
 			}

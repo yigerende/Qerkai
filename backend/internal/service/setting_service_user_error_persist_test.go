@@ -19,9 +19,9 @@ func TestAllowUserViewErrorRequests_PersistsToDB(t *testing.T) {
 	repo := &bmUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		AllowUserViewErrorRequests: true,
-	})
+	}))
 	require.NoError(t, err)
 
 	// 断言 updates 中含有该 key，且值为 "true"

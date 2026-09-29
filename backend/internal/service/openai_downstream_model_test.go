@@ -222,10 +222,11 @@ func TestDownstreamModelMappedRequests(t *testing.T) {
 					if returned != sent {
 						if enabled {
 							want = sent
-						} else if strings.HasPrefix(path, "responses") {
-							want = returned
 						}
 					}
+					// Upstream 0.2.9 restores the public request alias in Responses
+					// too. Alignment still overrides a mismatch only when enabled;
+					// the quality observer must retain the original upstream model.
 					require.Equal(t, returned, observedUpstreamResponseModel(c))
 					require.Equal(t, want, observedDownstreamModel(c))
 					if strings.HasSuffix(path, "-stream") {

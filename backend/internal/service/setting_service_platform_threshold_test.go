@@ -44,13 +44,13 @@ func TestPlatformSchedulingThresholds_RoundTrip_DefaultsAndStoredValues(t *testi
 func TestBuildSystemSettingsUpdates_PersistsAccountSchedulingThresholds(t *testing.T) {
 	svc := newSettingServiceForPlatformThresholdTest(nil)
 
-	updates, err := svc.buildSystemSettingsUpdates(context.Background(), &SystemSettings{
+	updates, err := svc.buildSystemSettingsUpdates(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		AccountSchedulingThresholds: map[string]int{
 			PlatformOpenAI:    91,
 			PlatformAnthropic: 88,
 			PlatformGrok:      77,
 		},
-	})
+	}))
 	require.NoError(t, err)
 	require.JSONEq(t, `{"openai":91,"anthropic":88,"grok":77}`, updates[SettingKeyAccountSchedulingThresholds])
 }
@@ -78,13 +78,13 @@ func TestValidateAndNormalizeAccountSchedulingThresholds_RejectsUnsupportedPlatf
 func TestUpdateSettings_StoresAccountSchedulingThresholds(t *testing.T) {
 	svc := newSettingServiceForPlatformThresholdTest(nil)
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		AccountSchedulingThresholds: map[string]int{
 			PlatformOpenAI:    92,
 			PlatformAnthropic: 89,
 			PlatformGrok:      76,
 		},
-	})
+	}))
 	require.NoError(t, err)
 
 	got := svc.parseSettings(map[string]string{
@@ -133,9 +133,9 @@ func TestUpdateSettings_OmittedAccountSchedulingThresholdsDoesNotCacheDefaults(t
 		SettingKeyAccountSchedulingThresholds: `{"openai":85,"grok":88,"kiro":87}`,
 	})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		FrontendURL: "https://example.test",
-	})
+	}))
 	require.NoError(t, err)
 
 	got := svc.GetAccountSchedulingThresholds(context.Background())

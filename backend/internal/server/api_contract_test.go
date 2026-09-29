@@ -863,7 +863,7 @@ func TestAPIContracts(t *testing.T) {
 					"force_email_on_third_party_signup": false,
 					"default_concurrency": 5,
 					"default_balance": 1.25,
-					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
+					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"minimax":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"opencode_go":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
 					"auth_source_default_email_platform_quotas": null,
 					"auth_source_default_github_platform_quotas": null,
 					"auth_source_default_google_platform_quotas": null,
@@ -925,6 +925,71 @@ func TestAPIContracts(t *testing.T) {
 					"openai_oauth_scheduling_rate_multiplier": 0.05,
 					"openai_ttft_mode": "semantic",
 					"openai_upstream_5xx_retry_enabled": false,
+					  "force_openai_upstream_ws": false,
+					  "force_openai_upstream_ws_group_ids": null,
+					  "openai_bps": {
+					    "enabled": false,
+					    "group_ids": null,
+					    "models": [
+					      "gpt-6-astra"
+					    ],
+					    "upstream_model": "gpt-6-astra",
+					    "model_mappings": {
+					      "gpt-6-astra": "gpt-6-astra"
+					    },
+					    "auth_mode": "chatgpt",
+					    "responses_url": "https://bps.openai.com/basispoints/api/responses",
+					    "data_dir": "",
+					    "timeout_seconds": 300,
+					    "max_response_bytes": 67108864,
+					    "tools_version_id": "",
+					    "upstream_transport": "http",
+					    "ws_handshake_timeout_seconds": 5
+					  },
+					  "openai_downstream_model_alignment": {
+					    "enabled": false,
+					    "group_ids": null,
+					    "models": [
+					      "gpt-6-astra"
+					    ]
+					  },
+					  "openai_upstream_5xx_retry_rules": [
+					    {
+					      "enabled": true,
+					      "id": "processing_error",
+					      "name": "502 processing error",
+					      "status_code": 502,
+					      "match_mode": "all",
+					      "keywords": [
+					        "An error occurred while processing your request",
+					        "You can retry your request"
+					      ]
+					    },
+					    {
+					      "enabled": true,
+					      "id": "server_overloaded",
+					      "name": "503 server overloaded",
+					      "status_code": 503,
+					      "match_mode": "all",
+					      "keywords": [
+					        "Our servers are currently overloaded",
+					        "Please try again later"
+					      ]
+					    }
+					  ],
+					  "openai_ws_channel_probe_http": false,
+					  "openai_ws_pool_optimization_enabled": false,
+					  "openai_ws_prewarm_idle_per_account": 3,
+					  "openai_ws_standby_idle_per_account": 3,
+					  "openai_ws_standby_max_per_account": 8,
+					  "openai_ws_optimized_queue_per_conn": 1,
+					  "openai_ws_optimized_target_utilization": 0.8,
+					  "openai_ws_optimized_idle_recycle_seconds": 300,
+					  "openai_ws_optimized_max_age_seconds": 3600,
+					  "openai_ws_optimized_health_interval_seconds": 30,
+					  "openai_ws_optimized_session_ttl_seconds": 3600,
+					  "openai_ws_optimized_session_idle_timeout_seconds": 300,
+					  "openai_ws_optimized_dial_interval_ms": 400,
 					"openai_upstream_5xx_retry_same_account": 2,
 					"openai_upstream_5xx_retry_total": 5,
 					"openai_upstream_5xx_retry_delay_ms": 500,
@@ -957,6 +1022,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_client_version":       "",
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
+					"claude_code_client_version": "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
@@ -996,8 +1064,10 @@ func TestAPIContracts(t *testing.T) {
 					"channel_monitor_mode": "v1",
 					"channel_monitor_hide_throughput": true,
 					"channel_monitor_show_quota": false,
+					"channel_monitor_hide_user_ranking": false,
 					"channel_monitor_default_interval_seconds": 60,
 					"available_channels_enabled": false,
+					"subscription_enabled": true,
 					"model_plaza_enabled": false,
 					"model_plaza_require_auth": false,
 					"model_plaza_description": "",
@@ -1184,7 +1254,7 @@ func TestAPIContracts(t *testing.T) {
 					"purchase_subscription_url": "",
 					"table_default_page_size": 20,
 					"table_page_size_options": [10, 20, 50],
-					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
+					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"minimax":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"opencode_go":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
 					"auth_source_default_email_platform_quotas": null,
 					"auth_source_default_github_platform_quotas": null,
 					"auth_source_default_google_platform_quotas": null,
@@ -1244,6 +1314,71 @@ func TestAPIContracts(t *testing.T) {
 					"openai_oauth_scheduling_rate_multiplier": 1,
 					"openai_ttft_mode": "semantic",
 					"openai_upstream_5xx_retry_enabled": false,
+					  "force_openai_upstream_ws": false,
+					  "force_openai_upstream_ws_group_ids": null,
+					  "openai_bps": {
+					    "enabled": false,
+					    "group_ids": null,
+					    "models": [
+					      "gpt-6-astra"
+					    ],
+					    "upstream_model": "gpt-6-astra",
+					    "model_mappings": {
+					      "gpt-6-astra": "gpt-6-astra"
+					    },
+					    "auth_mode": "chatgpt",
+					    "responses_url": "https://bps.openai.com/basispoints/api/responses",
+					    "data_dir": "",
+					    "timeout_seconds": 300,
+					    "max_response_bytes": 67108864,
+					    "tools_version_id": "",
+					    "upstream_transport": "http",
+					    "ws_handshake_timeout_seconds": 5
+					  },
+					  "openai_downstream_model_alignment": {
+					    "enabled": false,
+					    "group_ids": null,
+					    "models": [
+					      "gpt-6-astra"
+					    ]
+					  },
+					  "openai_upstream_5xx_retry_rules": [
+					    {
+					      "enabled": true,
+					      "id": "processing_error",
+					      "name": "502 processing error",
+					      "status_code": 502,
+					      "match_mode": "all",
+					      "keywords": [
+					        "An error occurred while processing your request",
+					        "You can retry your request"
+					      ]
+					    },
+					    {
+					      "enabled": true,
+					      "id": "server_overloaded",
+					      "name": "503 server overloaded",
+					      "status_code": 503,
+					      "match_mode": "all",
+					      "keywords": [
+					        "Our servers are currently overloaded",
+					        "Please try again later"
+					      ]
+					    }
+					  ],
+					  "openai_ws_channel_probe_http": false,
+					  "openai_ws_pool_optimization_enabled": false,
+					  "openai_ws_prewarm_idle_per_account": 3,
+					  "openai_ws_standby_idle_per_account": 3,
+					  "openai_ws_standby_max_per_account": 8,
+					  "openai_ws_optimized_queue_per_conn": 1,
+					  "openai_ws_optimized_target_utilization": 0.8,
+					  "openai_ws_optimized_idle_recycle_seconds": 300,
+					  "openai_ws_optimized_max_age_seconds": 3600,
+					  "openai_ws_optimized_health_interval_seconds": 30,
+					  "openai_ws_optimized_session_ttl_seconds": 3600,
+					  "openai_ws_optimized_session_idle_timeout_seconds": 300,
+					  "openai_ws_optimized_dial_interval_ms": 400,
 					"openai_upstream_5xx_retry_same_account": 2,
 					"openai_upstream_5xx_retry_total": 5,
 					"openai_upstream_5xx_retry_delay_ms": 500,
@@ -1276,6 +1411,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_client_version":       "",
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
+					"claude_code_client_version": "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
@@ -1313,8 +1451,10 @@ func TestAPIContracts(t *testing.T) {
 					"channel_monitor_mode": "v1",
 					"channel_monitor_hide_throughput": true,
 					"channel_monitor_show_quota": false,
+					"channel_monitor_hide_user_ranking": false,
 					"channel_monitor_default_interval_seconds": 60,
 					"available_channels_enabled": false,
+					"subscription_enabled": true,
 					"model_plaza_enabled": false,
 					"model_plaza_require_auth": false,
 					"model_plaza_description": "",
@@ -1484,7 +1624,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
@@ -1794,6 +1934,10 @@ func (stubGroupRepo) Delete(ctx context.Context, id int64) error {
 }
 
 func (stubGroupRepo) DeleteCascade(ctx context.Context, id int64) ([]int64, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (stubGroupRepo) DeleteCascadeIfEmpty(ctx context.Context, id int64) ([]int64, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2949,7 +3093,7 @@ var (
 	_ service.UserRepository             = (*stubUserRepo)(nil)
 	_ service.APIKeyRepository           = (*stubApiKeyRepo)(nil)
 	_ service.APIKeyCache                = (*stubApiKeyCache)(nil)
-	_ service.GroupRepository            = (*stubGroupRepo)(nil)
+	_ service.AdminGroupRepository       = (*stubGroupRepo)(nil)
 	_ service.UserSubscriptionRepository = (*stubUserSubscriptionRepo)(nil)
 	_ service.UsageLogRepository         = (*stubUsageLogRepo)(nil)
 	_ service.SettingRepository          = (*stubSettingRepo)(nil)

@@ -190,9 +190,9 @@ func TestUpdateSettings_InvalidatesBackendModeCache(t *testing.T) {
 	}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		BackendModeEnabled: false,
-	})
+	}))
 	require.NoError(t, err)
 	require.Equal(t, "false", repo.updates[SettingKeyBackendModeEnabled])
 	require.False(t, svc.IsBackendModeEnabled(context.Background()))

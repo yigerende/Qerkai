@@ -3,6 +3,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
 import ForceOpenAIWSGroups from '../ForceOpenAIWSGroups.vue'
 
+vi.mock('@/stores', () => ({ useAuthStore: () => ({ isSimpleMode: false }) }))
+
 const { getAll } = vi.hoisted(() => ({ getAll: vi.fn() }))
 vi.mock('@/api', () => ({ adminAPI: { groups: { getAll } } }))
 vi.mock('vue-i18n', async (importOriginal) => ({

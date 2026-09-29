@@ -4,6 +4,8 @@ import { defineComponent, ref } from 'vue'
 import DownstreamModelAlignment from '../DownstreamModelAlignment.vue'
 import ForceOpenAIWSGroups from '../ForceOpenAIWSGroups.vue'
 
+vi.mock('@/stores', () => ({ useAuthStore: () => ({ isSimpleMode: false }) }))
+
 vi.mock('@/api', () => ({ adminAPI: { groups: { getAll: vi.fn().mockResolvedValue([
   { id: 11, name: 'A', platform: 'openai' }, { id: 22, name: 'B', platform: 'openai' }
 ]) } } }))

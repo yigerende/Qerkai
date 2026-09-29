@@ -49,7 +49,7 @@ func (r *bmSettingRepo) SetMultiple(_ context.Context, settings map[string]strin
 }
 
 func (r *bmSettingRepo) GetAll(_ context.Context) (map[string]string, error) {
-	panic("unexpected GetAll call")
+	return r.values, nil
 }
 
 func (r *bmSettingRepo) Delete(_ context.Context, _ string) error {
@@ -65,9 +65,10 @@ func newBackendModeSettingService(t *testing.T, enabled string) *service.Setting
 		},
 	}
 	svc := service.NewSettingService(repo, &config.Config{})
-	require.NoError(t, svc.UpdateSettings(context.Background(), &service.SystemSettings{
-		BackendModeEnabled: enabled == "true",
-	}))
+	settings, err := svc.GetAllSettings(context.Background())
+	require.NoError(t, err)
+	settings.BackendModeEnabled = enabled == "true"
+	require.NoError(t, svc.UpdateSettings(context.Background(), settings))
 
 	return svc
 }

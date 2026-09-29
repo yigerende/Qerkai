@@ -28,6 +28,13 @@ func TestWithHTTPUpstreamProfile_CollectionKeepsDedicatedPool(t *testing.T) {
 	}
 }
 
+func TestWithHTTPUpstreamProfile_LongStream(t *testing.T) {
+	ctx := WithHTTPUpstreamProfile(context.TODO(), HTTPUpstreamProfileLongStream)
+	if profile := HTTPUpstreamProfileFromContext(ctx); profile != HTTPUpstreamProfileLongStream {
+		t.Fatalf("expected profile %q, got %q", HTTPUpstreamProfileLongStream, profile)
+	}
+}
+
 func TestWithHTTPUpstreamRedirectsDisabled(t *testing.T) {
 	//nolint:staticcheck // Exercises the defensive nil-context fallback.
 	ctx := WithHTTPUpstreamRedirectsDisabled(nil)

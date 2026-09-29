@@ -55,6 +55,34 @@ func TestOpenAIWSPoolOptimizationDefaultsAndDialFloor(t *testing.T) {
 	require.Equal(t, 400, settings.DialIntervalMS)
 }
 
+func TestOpenAIWSOptimizedPoolHonorsForcedNewConnection(t *testing.T) {
+	pool := newOpenAIWSConnPool(&config.Config{})
+	defer pool.Close()
+	dialer := &openAIWSCountingDialer{}
+	pool.setClientDialerForTest(dialer)
+	account := &Account{ID: 4102, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 4}
+	req := openAIWSAcquireRequest{Account: account, WSURL: "wss://example.test", PoolOptimized: true, SessionHash: "session-a"}
+	first, err := pool.Acquire(context.Background(), req)
+	require.NoError(t, err)
+	firstID := first.ConnID()
+	first.Release()
+
+	// Ordinary turns still reuse their own primary connection.
+	reused, err := pool.Acquire(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, firstID, reused.ConnID())
+	reused.Release()
+
+	// The upstream reconnect decision must also hold in the optimized branch.
+	req.ForceNewConn = true
+	req.PreferredConnID = firstID
+	fresh, err := pool.Acquire(context.Background(), req)
+	require.NoError(t, err)
+	defer fresh.Release()
+	require.NotEqual(t, firstID, fresh.ConnID())
+	require.False(t, fresh.Reused())
+}
+
 func TestOpenAIWSOptimizedPoolUnbindsIdleSessionWithoutClosingConnection(t *testing.T) {
 	refreshForceUpstreamWSCache(true)
 	refreshOpenAIWSPoolOptimizationSettings(&SystemSettings{

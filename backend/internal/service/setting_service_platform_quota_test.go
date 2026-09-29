@@ -158,11 +158,11 @@ func TestSystemPlatformQuotas_WriteReadRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	ten := 10.0
-	ss := &SystemSettings{
+	ss := withQerkaiDefaultsForTest(&SystemSettings{
 		DefaultPlatformQuotas: map[string]*DefaultPlatformQuotaSetting{
 			"anthropic": {DailyLimitUSD: &ten, WeeklyLimitUSD: nil, MonthlyLimitUSD: nil},
 		},
-	}
+	})
 	if err := svc.UpdateSettings(ctx, ss); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
@@ -196,18 +196,18 @@ func TestSystemPlatformQuotas_EmptyMapClearsAll(t *testing.T) {
 
 	// 先写入有值的配置
 	ten := 10.0
-	if err := svc.UpdateSettings(ctx, &SystemSettings{
+	if err := svc.UpdateSettings(ctx, withQerkaiDefaultsForTest(&SystemSettings{
 		DefaultPlatformQuotas: map[string]*DefaultPlatformQuotaSetting{
 			"anthropic": {DailyLimitUSD: &ten},
 		},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("initial write: %v", err)
 	}
 
 	// 再写入空 map（整体替换语义：清空全部）
-	if err := svc.UpdateSettings(ctx, &SystemSettings{
+	if err := svc.UpdateSettings(ctx, withQerkaiDefaultsForTest(&SystemSettings{
 		DefaultPlatformQuotas: map[string]*DefaultPlatformQuotaSetting{},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("empty map write: %v", err)
 	}
 
@@ -238,7 +238,7 @@ func TestSystemPlatformQuotas_EmptyMapClearsAll(t *testing.T) {
 // Round-4 之前 writeProviderDefaultGrantUpdates 完全没写 PQ key，前端配置静默丢失。
 func TestUpdateSettingsWithAuthSourceDefaults_PlatformQuotaRoundTrip(t *testing.T) {
 	svc := newSettingServiceForPlatformQuotaTest(nil)
-	systemSettings := &SystemSettings{}
+	systemSettings := withQerkaiDefaultsForTest(&SystemSettings{})
 	authDefaults := &AuthSourceDefaultSettings{
 		Email: ProviderDefaultGrantSettings{
 			PlatformQuotas: map[string]*DefaultPlatformQuotaSetting{
@@ -288,7 +288,7 @@ func TestUpdateSettingsWithAuthSourceDefaults_NilPlatformQuotaPreservesExisting(
 	authDefaults := &AuthSourceDefaultSettings{
 		Email: ProviderDefaultGrantSettings{PlatformQuotas: nil},
 	}
-	if err := svc.UpdateSettingsWithAuthSourceDefaults(context.Background(), &SystemSettings{}, authDefaults); err != nil {
+	if err := svc.UpdateSettingsWithAuthSourceDefaults(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{}), authDefaults); err != nil {
 		t.Fatalf("UpdateSettingsWithAuthSourceDefaults: %v", err)
 	}
 	anthro := svc.GetAuthSourcePlatformQuotas(context.Background(), "email")["anthropic"]
@@ -338,7 +338,7 @@ func TestUpdateSettingsWithAuthSourceDefaults_NegativeQuotaRejected(t *testing.T
 			},
 		},
 	}
-	err := svc.UpdateSettingsWithAuthSourceDefaults(context.Background(), &SystemSettings{}, authDefaults)
+	err := svc.UpdateSettingsWithAuthSourceDefaults(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{}), authDefaults)
 	require.Error(t, err, "expected error for negative quota")
 	require.Equal(t, "INVALID_DEFAULT_PLATFORM_QUOTA", infraerrors.Reason(err))
 }

@@ -728,7 +728,8 @@ func TestGrokQuotaServiceProbeUsageReturnsRateLimitedSnapshot(t *testing.T) {
 	require.Equal(t, 45, *result.Snapshot.RetryAfterSeconds)
 	require.Equal(t, 1, repo.rateLimitedCalls)
 	require.Equal(t, account.ID, repo.lastRateLimitedID)
-	require.WithinDuration(t, time.Now().Add(45*time.Second), repo.lastRateLimitResetAt, time.Second)
+	// The persisted reset has second precision.
+	require.WithinDuration(t, time.Now().Add(45*time.Second).Truncate(time.Second), repo.lastRateLimitResetAt, time.Second)
 	require.Zero(t, repo.tempUnschedCalls)
 }
 

@@ -115,6 +115,40 @@ func TestBPSCatalogKeepsAliasAndCanonical(t *testing.T) {
 	}
 }
 
+func TestBPSCatalogRespectsV029GroupAllowlist(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		allowlist GroupModelAllowlist
+		want      []string
+	}{
+		{"disabled", GroupModelAllowlist{}, []string{"astra-bps", "gpt-6-astra"}},
+		{"alias wildcard", GroupModelAllowlist{Enabled: true, Models: []string{"astra-*"}}, []string{"astra-bps"}},
+		{"canonical only", GroupModelAllowlist{Enabled: true, Models: []string{"gpt-6-astra"}}, []string{"gpt-6-astra"}},
+		{"no match", GroupModelAllowlist{Enabled: true, Models: []string{"gpt-5.5"}}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gateway, account := bpsTestGateway(t)
+			cfg := DefaultOpenAIBPSSettings()
+			cfg.Enabled = true
+			cfg.Models = []string{"astra-bps", "gpt-6-astra"}
+			cfg.ModelMappings = map[string]string{"astra-bps": "gpt-6-astra", "gpt-6-astra": "gpt-6-astra"}
+			gateway.settingService.bpsSettingsCache.Store(newCachedOpenAIBPS(cfg, time.Hour))
+			gateway.accountRepo = codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{11: {*account}}}
+			body, err := gateway.ApplyBPSModelCatalog(context.Background(), &Group{
+				ID: 11, Platform: PlatformOpenAI, ModelAllowlist: tc.allowlist,
+			}, []byte(`{"models":[]}`))
+			require.NoError(t, err)
+			var got []string
+			for _, model := range gjson.GetBytes(body, "models").Array() {
+				got = append(got, model.Get("slug").String())
+				require.False(t, model.Get("use_responses_lite").Bool())
+				require.Equal(t, "null", model.Get("tool_mode").Raw)
+			}
+			require.ElementsMatch(t, tc.want, got)
+		})
+	}
+}
+
 func TestBPSWebsocketUsesHTTPAndPreservesOriginalModelAcrossTurns(t *testing.T) {
 	testBPSWebsocketTransportAcrossTurns(t, []string{"http", "http"})
 }

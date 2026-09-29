@@ -209,9 +209,9 @@ func TestSettingService_AffiliateAdminRechargeSetting(t *testing.T) {
 		repo := &settingUpdateRepoStub{}
 		svc := NewSettingService(repo, &config.Config{})
 
-		err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 			AdminRechargeRebateEnabled: true,
-		})
+		}))
 		require.NoError(t, err)
 		require.Equal(t, "true", repo.updates[SettingKeyAffiliateAdminRechargeEnabled])
 	})
@@ -232,7 +232,7 @@ func TestSettingService_UpdateSettings_PersistsCompactHomeEnabled(t *testing.T) 
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{CompactHomeEnabled: true})
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{CompactHomeEnabled: true}))
 
 	require.NoError(t, err)
 	require.Equal(t, "true", repo.updates[SettingKeyCompactHomeEnabled])
@@ -248,11 +248,11 @@ func TestSettingService_UpdateSettings_DefaultSubscriptions_ValidGroup(t *testin
 	svc := NewSettingService(repo, &config.Config{})
 	svc.SetDefaultSubscriptionGroupReader(groupReader)
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		DefaultSubscriptions: []DefaultSubscriptionSetting{
 			{GroupID: 11, ValidityDays: 30},
 		},
-	})
+	}))
 	require.NoError(t, err)
 	require.Equal(t, []int64{11}, groupReader.calls)
 
@@ -276,11 +276,11 @@ func TestSettingService_UpdateSettings_DefaultSubscriptions_RejectsNonSubscripti
 	svc := NewSettingService(repo, &config.Config{})
 	svc.SetDefaultSubscriptionGroupReader(groupReader)
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		DefaultSubscriptions: []DefaultSubscriptionSetting{
 			{GroupID: 12, ValidityDays: 7},
 		},
-	})
+	}))
 	require.Error(t, err)
 	require.Equal(t, "DEFAULT_SUBSCRIPTION_GROUP_INVALID", infraerrors.Reason(err))
 	require.Nil(t, repo.updates)
@@ -296,11 +296,11 @@ func TestSettingService_UpdateSettings_DefaultSubscriptions_RejectsNotFoundGroup
 	svc := NewSettingService(repo, &config.Config{})
 	svc.SetDefaultSubscriptionGroupReader(groupReader)
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		DefaultSubscriptions: []DefaultSubscriptionSetting{
 			{GroupID: 13, ValidityDays: 7},
 		},
-	})
+	}))
 	require.Error(t, err)
 	require.Equal(t, "DEFAULT_SUBSCRIPTION_GROUP_INVALID", infraerrors.Reason(err))
 	require.Equal(t, "13", infraerrors.FromError(err).Metadata["group_id"])
@@ -317,12 +317,12 @@ func TestSettingService_UpdateSettings_DefaultSubscriptions_RejectsDuplicateGrou
 	svc := NewSettingService(repo, &config.Config{})
 	svc.SetDefaultSubscriptionGroupReader(groupReader)
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		DefaultSubscriptions: []DefaultSubscriptionSetting{
 			{GroupID: 11, ValidityDays: 30},
 			{GroupID: 11, ValidityDays: 60},
 		},
-	})
+	}))
 	require.Error(t, err)
 	require.Equal(t, "DEFAULT_SUBSCRIPTION_GROUP_DUPLICATE", infraerrors.Reason(err))
 	require.Equal(t, "11", infraerrors.FromError(err).Metadata["group_id"])
@@ -333,12 +333,12 @@ func TestSettingService_UpdateSettings_DefaultSubscriptions_RejectsDuplicateGrou
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		DefaultSubscriptions: []DefaultSubscriptionSetting{
 			{GroupID: 11, ValidityDays: 30},
 			{GroupID: 11, ValidityDays: 60},
 		},
-	})
+	}))
 	require.Error(t, err)
 	require.Equal(t, "DEFAULT_SUBSCRIPTION_GROUP_DUPLICATE", infraerrors.Reason(err))
 	require.Equal(t, "11", infraerrors.FromError(err).Metadata["group_id"])
@@ -349,9 +349,9 @@ func TestSettingService_UpdateSettings_RegistrationEmailSuffixWhitelist_Normaliz
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		RegistrationEmailSuffixWhitelist: []string{"example.com", "@EXAMPLE.com", " @foo.bar ", "*.EDU.CN"},
-	})
+	}))
 	require.NoError(t, err)
 	require.Equal(t, `["@example.com","@foo.bar","*.edu.cn"]`, repo.updates[SettingKeyRegistrationEmailSuffixWhitelist])
 }
@@ -360,9 +360,9 @@ func TestSettingService_UpdateSettings_RegistrationEmailSuffixWhitelist_Invalid(
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		RegistrationEmailSuffixWhitelist: []string{"@invalid_domain"},
-	})
+	}))
 	require.Error(t, err)
 	require.Equal(t, "INVALID_REGISTRATION_EMAIL_SUFFIX_WHITELIST", infraerrors.Reason(err))
 }
@@ -380,18 +380,18 @@ func TestSettingService_UpdateSettings_TablePreferences(t *testing.T) {
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		TableDefaultPageSize: 50,
 		TablePageSizeOptions: []int{20, 50, 100},
-	})
+	}))
 	require.NoError(t, err)
 	require.Equal(t, "50", repo.updates[SettingKeyTableDefaultPageSize])
 	require.Equal(t, "[20,50,100]", repo.updates[SettingKeyTablePageSizeOptions])
 
-	err = svc.UpdateSettings(context.Background(), &SystemSettings{
+	err = svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		TableDefaultPageSize: 1000,
 		TablePageSizeOptions: []int{20, 100},
-	})
+	}))
 	require.NoError(t, err)
 	require.Equal(t, "1000", repo.updates[SettingKeyTableDefaultPageSize])
 	require.Equal(t, "[20,100]", repo.updates[SettingKeyTablePageSizeOptions])
@@ -404,13 +404,13 @@ func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		PaymentVisibleMethodAlipaySource:                   "alipay",
 		PaymentVisibleMethodWxpaySource:                    "easypay",
 		PaymentVisibleMethodAlipayEnabled:                  true,
 		PaymentVisibleMethodWxpayEnabled:                   false,
 		OpenAILowUpstreamRatePriorityEnabled:               true,
-		OpenAIOAuthSchedulingRateMultiplier:                0.05,
+		OpenAIOAuthSchedulingRateMultiplier:                testPtrFloat64(0.05),
 		OpenAIAdvancedSchedulerEnabled:                     true,
 		OpenAIAdvancedSchedulerStickyWeightedEnabled:       true,
 		OpenAIAdvancedSchedulerSubscriptionPriorityEnabled: true,
@@ -425,7 +425,7 @@ func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler
 		OpenAIAdvancedSchedulerWeightUpstreamCost:          "1.5",
 		OpenAIAdvancedSchedulerWeightPreviousResponse:      "8",
 		OpenAIAdvancedSchedulerWeightSessionSticky:         "4",
-	})
+	}))
 	require.NoError(t, err)
 	require.Equal(t, VisibleMethodSourceOfficialAlipay, repo.updates[SettingPaymentVisibleMethodAlipaySource])
 	require.Equal(t, VisibleMethodSourceEasyPayWechat, repo.updates[SettingPaymentVisibleMethodWxpaySource])
@@ -454,7 +454,7 @@ func TestSettingService_UpdateSettingsRejectsInvalidOpenAIOAuthSchedulingRateMul
 	svc := NewSettingService(repo, &config.Config{})
 
 	for _, rate := range []float64{-0.01, math.NaN(), math.Inf(1)} {
-		err := svc.UpdateSettings(context.Background(), &SystemSettings{OpenAIOAuthSchedulingRateMultiplier: rate})
+		err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{OpenAIOAuthSchedulingRateMultiplier: &rate}))
 		require.Error(t, err)
 	}
 }
@@ -502,7 +502,7 @@ func TestSettingService_UpdateSettings_OpenAIAdvancedSchedulerWeightSums(t *test
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
-			err := svc.UpdateSettings(context.Background(), &tt.weights)
+			err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&tt.weights))
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -515,8 +515,12 @@ func TestSettingService_UpdateSettings_OpenAIAdvancedSchedulerWeightSums(t *test
 func TestSettingService_ParseSettingsDefaultsOpenAIOAuthSchedulingRateMultiplier(t *testing.T) {
 	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
 
-	require.Equal(t, 1.0, svc.parseSettings(map[string]string{}).OpenAIOAuthSchedulingRateMultiplier)
-	require.Equal(t, 0.05, svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0.05"}).OpenAIOAuthSchedulingRateMultiplier)
+	require.Equal(t, testPtrFloat64(1.0), svc.parseSettings(map[string]string{}).OpenAIOAuthSchedulingRateMultiplier)
+	require.Equal(t, testPtrFloat64(0.05), svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0.05"}).OpenAIOAuthSchedulingRateMultiplier)
+	require.Equal(t, testPtrFloat64(0), svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0"}).OpenAIOAuthSchedulingRateMultiplier)
+	for _, raw := range []string{"", " ", "invalid", "-1", "NaN", "+Inf"} {
+		require.Nil(t, svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: raw}).OpenAIOAuthSchedulingRateMultiplier, raw)
+	}
 }
 
 func TestSettingService_GetAllSettings_OpenAIAdvancedSchedulerEffectiveValuesUseConfig(t *testing.T) {
@@ -556,9 +560,9 @@ func TestSettingService_UpdateSettings_AntigravityUserAgentVersion(t *testing.T)
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		AntigravityUserAgentVersion: "1.23.2",
-	})
+	}))
 	require.NoError(t, err)
 	require.Equal(t, "1.23.2", repo.updates[SettingKeyAntigravityUserAgentVersion])
 }
@@ -578,10 +582,10 @@ func TestSettingService_UpdateSettings_APIKeyACLTrustForwardedIPRefreshesConfig(
 	cfg := &config.Config{}
 	svc := NewSettingService(repo, cfg)
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		APIKeyACLTrustForwardedIP: true,
 		ForwardedClientIPHeaders:  []string{" x-cdn-ip ", "X-CDN-IP", "true-client-ip"},
-	})
+	}))
 	require.NoError(t, err)
 	require.Equal(t, "true", repo.updates[SettingKeyAPIKeyACLTrustForwardedIP])
 	require.JSONEq(t, `["X-Cdn-Ip","True-Client-Ip"]`, repo.updates[SettingKeyForwardedClientIPHeaders])
@@ -599,9 +603,9 @@ func TestSettingService_UpdateSettings_RejectsInvalidForwardedClientIPHeadersWit
 	cfg.SetForwardedClientIPSettings(true, []string{"X-Existing-IP"})
 	svc := NewSettingService(repo, cfg)
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		ForwardedClientIPHeaders: []string{"X Invalid"},
-	})
+	}))
 
 	require.Error(t, err)
 	require.Nil(t, repo.updates)
@@ -616,10 +620,10 @@ func TestSettingService_UpdateSettings_WriteFailureDoesNotRefreshForwardedIPRunt
 	cfg.SetForwardedClientIPSettings(false, []string{"X-Existing-IP"})
 	svc := NewSettingService(repo, cfg)
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		APIKeyACLTrustForwardedIP: true,
 		ForwardedClientIPHeaders:  []string{"X-New-IP"},
-	})
+	}))
 
 	require.ErrorContains(t, err, "database unavailable")
 	runtimeSettings := cfg.ForwardedClientIPSettings()
@@ -853,9 +857,9 @@ func TestSettingService_UpdateSettings_RejectsInvalidPaymentVisibleMethodSource(
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+	err := svc.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		PaymentVisibleMethodAlipaySource: "not-a-provider",
-	})
+	}))
 	require.Error(t, err)
 	require.Equal(t, "INVALID_PAYMENT_VISIBLE_METHOD_SOURCE", infraerrors.Reason(err))
 	require.Nil(t, repo.updates)
@@ -876,9 +880,9 @@ func TestSettingService_PasskeySwitchPersistsAndDefaultsToConfigured(t *testing.
 
 	updateRepo := &settingUpdateRepoStub{}
 	updateService := NewSettingService(updateRepo, cfg)
-	require.NoError(t, updateService.UpdateSettings(context.Background(), &SystemSettings{
+	require.NoError(t, updateService.UpdateSettings(context.Background(), withQerkaiDefaultsForTest(&SystemSettings{
 		PasskeyEnabled: false,
-	}))
+	})))
 	require.Equal(t, "false", updateRepo.updates[SettingKeyPasskeyEnabled])
 
 	runtimeRepo.values[SettingKeyPasskeyEnabled] = "false"

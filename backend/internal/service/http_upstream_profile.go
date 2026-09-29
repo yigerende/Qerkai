@@ -11,6 +11,7 @@ const (
 	HTTPUpstreamProfileOpenAI                HTTPUpstreamProfile = "openai"
 	HTTPUpstreamProfileOpenAIStateCollection HTTPUpstreamProfile = "openai-state-collection"
 	HTTPUpstreamProfileGrok                  HTTPUpstreamProfile = "grok"
+	HTTPUpstreamProfileLongStream            HTTPUpstreamProfile = "long_stream"
 )
 
 func (p HTTPUpstreamProfile) IsOpenAI() bool {
@@ -45,7 +46,7 @@ func HTTPUpstreamProfileFromContext(ctx context.Context) HTTPUpstreamProfile {
 		return HTTPUpstreamProfileDefault
 	}
 	switch profile {
-	case HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileOpenAIStateCollection, HTTPUpstreamProfileGrok:
+	case HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileOpenAIStateCollection, HTTPUpstreamProfileGrok, HTTPUpstreamProfileLongStream:
 		return profile
 	default:
 		return HTTPUpstreamProfileDefault
