@@ -30,6 +30,32 @@ func TestLoadDefaultModelsListReadMaxBytes(t *testing.T) {
 	require.Equal(t, DefaultModelsListReadMaxBytes, cfg.Gateway.ModelsListReadMaxBytes)
 }
 
+func TestLoadQerkaiInflightReservationOptIn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		env  string
+		want bool
+	}{
+		{name: "existing configuration", yaml: "{}\n"},
+		{name: "explicitly disabled", yaml: "billing:\n  inflight_reservation:\n    enabled: false\n"},
+		{name: "enabled in configuration", yaml: "billing:\n  inflight_reservation:\n    enabled: true\n", want: true},
+		{name: "enabled in environment", yaml: "{}\n", env: "true", want: true},
+		{name: "environment overrides configuration", yaml: "billing:\n  inflight_reservation:\n    enabled: true\n", env: "false"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetViperWithJWTSecret(t)
+			configFile := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(configFile, []byte(tc.yaml), 0o600))
+			t.Setenv("CONFIG_FILE", configFile)
+			t.Setenv("BILLING_INFLIGHT_RESERVATION_ENABLED", tc.env)
+			cfg, err := Load()
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.Billing.InflightReservation.Enabled)
+		})
+	}
+}
+
 func TestLoadTimezonePrecedence(t *testing.T) {
 	tests := []struct {
 		name         string

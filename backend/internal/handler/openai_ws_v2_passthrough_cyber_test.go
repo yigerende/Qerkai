@@ -19,6 +19,7 @@ import (
 )
 
 type openAIWSPassthroughHandlerHarness struct {
+	handler        *OpenAIGatewayHandler
 	clientConn     *coderws.Conn
 	handlerDone    <-chan struct{}
 	moderationRepo *contentModerationHandlerTestRepo
@@ -103,6 +104,7 @@ func newOpenAIWSPassthroughHandlerHarnessWithSettings(t *testing.T, upstreamURL 
 
 	apiKey := &service.APIKey{
 		ID:      1851,
+		UserID:  1751,
 		Name:    "ws-cyber-key",
 		Key:     "sk-handler-cyber-test",
 		GroupID: &groupID,
@@ -131,6 +133,7 @@ func newOpenAIWSPassthroughHandlerHarnessWithSettings(t *testing.T, upstreamURL 
 	t.Cleanup(func() { _ = clientConn.CloseNow() })
 
 	return &openAIWSPassthroughHandlerHarness{
+		handler:        h,
 		clientConn:     clientConn,
 		handlerDone:    handlerDone,
 		moderationRepo: moderationRepo,
