@@ -352,12 +352,13 @@ func TestBPSUpstreamWSConcurrentStreams(t *testing.T) {
 
 func TestBPSUpstreamWSInheritsAccountProxy(t *testing.T) {
 	gateway, account := bpsTestGateway(t)
+	account.GroupIDs = []int64{11}
 	var connections, upstreamCalls atomic.Int32
 	server := bpsTestWSServer(t, func(r *http.Request, p map[string]any) string {
 		upstreamCalls.Add(1)
 		assert.Equal(t, "Bearer fixture-token", r.Header.Get("Authorization"))
 		assert.Empty(t, r.Header.Get("Proxy-Authorization"))
-		return bpsTextFixture
+		return strings.ReplaceAll(bpsTextFixture, `  hello\n`, "21")
 	})
 	target, err := url.Parse(server.URL)
 	require.NoError(t, err)
@@ -394,6 +395,7 @@ func TestBPSUpstreamWSInheritsAccountProxy(t *testing.T) {
 	port, err := strconv.Atoi(proxyURL.Port())
 	require.NoError(t, err)
 	account.Proxy = &Proxy{ID: 99, Protocol: "http", Host: proxyURL.Hostname(), Port: port, Username: "fixture-user", Password: "fixture-password"}
+	account.ProxyID = &account.Proxy.ID
 	cfg := gateway.settingService.bpsSettings(context.Background()).settings
 	cfg.UpstreamTransport, cfg.ResponsesURL = "auto", server.URL+"/responses"
 	gateway.settingService.bpsSettingsCache.Store(newCachedOpenAIBPS(cfg, time.Hour))
@@ -408,4 +410,17 @@ func TestBPSUpstreamWSInheritsAccountProxy(t *testing.T) {
 	require.Equal(t, 8, result.Usage.CacheReadInputTokens)
 	require.EqualValues(t, 1, connections.Load())
 	require.EqualValues(t, 1, upstreamCalls.Load())
+
+	quality := &AccountQualityService{tests: &AccountTestService{
+		accountRepo: &qualityAccountRepo{account: account}, httpUpstream: gateway.httpUpstream,
+		bpsGateway: gateway, settingService: gateway.settingService,
+	}}
+	q := DefaultAccountQualitySettings()
+	observer := &upstreamResponseModelObserver{}
+	answer, _, err := quality.testAnswer(ctx, account.ID, q, q.Questions[0], observer)
+	require.NoError(t, err)
+	require.Equal(t, "21", answer)
+	require.Equal(t, q.Model, observer.Model())
+	require.EqualValues(t, 2, connections.Load(), "quality detection must use the authenticated CONNECT proxy too")
+	require.EqualValues(t, 2, upstreamCalls.Load())
 }

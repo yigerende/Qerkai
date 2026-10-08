@@ -373,6 +373,13 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	// Quality checks must use the selected account's current proxy on both the
+	// original and BPS routes. GetByID loads the proxy; an unresolved binding
+	// must be a detection error instead of silently becoming a direct request.
+	if testOpts.qualityRouting && account.ProxyID != nil &&
+		(account.Proxy == nil || account.Proxy.ID != *account.ProxyID) {
+		return s.sendErrorAndEnd(c, "降智检测未能加载账号绑定的代理，请检查代理配置后重试")
+	}
 
 	if testOpts.Endpoint == "bps" {
 		return s.testBPSAccount(c, account, modelID, prompt, mode, testOpts)
