@@ -29,6 +29,8 @@ type AccountQualitySettings struct {
 	DegradationMode           string            `json:"degradation_mode"`
 	DegradationConditions     []string          `json:"degradation_conditions"`
 	PauseOnDegradation        bool              `json:"pause_on_degradation"`
+	SwitchGroupOnDegradation  bool              `json:"switch_group_on_degradation"`
+	DegradationGroupID        int64             `json:"degradation_group_id"`
 	Questions                 []QualityQuestion `json:"questions"`
 	Model                     string            `json:"model"`
 	ModelAuditModel           string            `json:"model_audit_model"`
@@ -63,6 +65,9 @@ func (q AccountQualitySettings) ActiveQuestions() []QualityQuestion {
 func (q AccountQualitySettings) Validate() error {
 	if err := validateQualityOverallPolicy(q); err != nil {
 		return err
+	}
+	if q.Enabled && q.SwitchGroupOnDegradation && q.DegradationGroupID < 1 {
+		return errors.New("请选择综合降智后切换的目标分组")
 	}
 	if !q.AllGroups && len(q.GroupIDs) == 0 {
 		return errors.New("请选择至少一个定时检测分组，或选择全部分组")

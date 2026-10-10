@@ -21,10 +21,18 @@ func (s *AccountQualityService) syncQualityScheduling(ctx context.Context, _ Acc
 	if s.tests == nil || s.tests.accountRepo == nil {
 		return nil
 	}
-	if repo, ok := s.tests.accountRepo.(interface{ SyncQualityScheduling(context.Context) error }); ok {
-		return repo.SyncQualityScheduling(ctx)
+	var groupErr, pauseErr error
+	if repo, ok := s.tests.accountRepo.(interface{ SyncQualityGroupSwitches(context.Context) error }); ok {
+		groupErr = repo.SyncQualityGroupSwitches(ctx)
 	}
-	return nil
+	// The two measures are independent: a group error must not skip pausing.
+	if repo, ok := s.tests.accountRepo.(interface{ SyncQualityScheduling(context.Context) error }); ok {
+		pauseErr = repo.SyncQualityScheduling(ctx)
+	}
+	if groupErr != nil {
+		slog.Warn("account quality group switch failed; will retry", "error", groupErr)
+	}
+	return pauseErr
 }
 
 func (s *AccountQualityService) notifyQualityCollection(id int64) {

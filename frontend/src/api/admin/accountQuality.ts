@@ -8,6 +8,7 @@ export interface QualitySettings {
  recovery_limit: number; concurrency: number; timeout_seconds: number; history_limit: number
  degradation_mode: 'any' | 'all'; degradation_conditions: ('question' | 'model')[]
  pause_on_degradation?: boolean
+ switch_group_on_degradation?: boolean; degradation_group_id?: number
 }
 export interface QualityVerdict { status?: string; degraded: boolean; failures: number; successes: number; checked_at?: string; evidence_at?: string; next_at?: string; error?: string }
 export interface QualityResult {

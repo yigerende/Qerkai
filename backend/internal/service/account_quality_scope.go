@@ -18,7 +18,12 @@ func qualityGroupScope(q AccountQualitySettings, args *[]any) string {
 		return "FALSE"
 	}
 	*args = append(*args, pq.Array(q.GroupIDs))
-	return fmt.Sprintf(`EXISTS (SELECT 1 FROM account_groups ag JOIN groups g ON g.id=ag.group_id AND g.deleted_at IS NULL WHERE ag.account_id=a.id AND ag.group_id=ANY($%d::bigint[]))`, len(*args))
+	scope := fmt.Sprintf(`EXISTS (SELECT 1 FROM account_groups ag JOIN groups g ON g.id=ag.group_id AND g.deleted_at IS NULL WHERE ag.account_id=a.id AND ag.group_id=ANY($%d::bigint[]))`, len(*args))
+	if q.SwitchGroupOnDegradation {
+		// An automatic move must not strand the account outside its detector.
+		scope = `(` + scope + ` OR (a.extra->'quality_group_switch'->>'active'='true' AND a.extra->'quality_group_switch'->>'account_id'=a.id::text))`
+	}
+	return scope
 }
 
 func qualityManualScope(kind int, revisionParam string) string {

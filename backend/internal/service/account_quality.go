@@ -87,6 +87,9 @@ func (s *AccountQualityService) SaveSettings(ctx context.Context, q AccountQuali
 	if err := q.Validate(); err != nil {
 		return q, err
 	}
+	if err := s.validateQualityGroupSwitch(ctx, q); err != nil {
+		return q, err
+	}
 	if s.stateKeeper.Load().stateSchedulingEnabled() {
 		if err := validateStateSchedulingQuality(q); err != nil {
 			return q, err
@@ -654,7 +657,7 @@ func (s *AccountQualityService) saveResult(ctx context.Context, q AccountQuality
 	if keeper := s.stateKeeper.Load(); keeper != nil {
 		keeper.observeQualityResult(q, v)
 	}
-	if s.schedulingEnabled(q) {
+	if s.schedulingEnabled(q) || q.SwitchGroupOnDegradation {
 		return s.syncQualityScheduling(ctx, q)
 	}
 	return nil

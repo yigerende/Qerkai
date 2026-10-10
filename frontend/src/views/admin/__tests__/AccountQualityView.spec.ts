@@ -7,9 +7,10 @@ import { getAllIncludingInactive } from '@/api/admin/groups'
 import type { AdminGroup } from '@/types'
 
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
-vi.mock('@/api/admin/groups', () => ({ getAllIncludingInactive: vi.fn() }))
+vi.mock('@/api/admin/groups', () => ({ default: {}, getAllIncludingInactive: vi.fn() }))
 vi.mock('vue-i18n', async importOriginal => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ cachedPublicSettings: {} }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isSimpleMode: false }) }))
 vi.mock('@/api/admin/accountQuality', async importOriginal => ({
  ...await importOriginal<typeof import('@/api/admin/accountQuality')>(),
  qualityAPI: { settings: vi.fn(), progress: vi.fn(), save: vi.fn(), run: vi.fn(), history: vi.fn() }
@@ -30,7 +31,7 @@ describe('quality detection progress', () => {
   vi.mocked(qualityAPI.progress).mockResolvedValue({summary:{total:62},progress:progress()})
   vi.mocked(qualityAPI.run).mockResolvedValue({scheduled:true})
   vi.mocked(getAllIncludingInactive).mockResolvedValue([
-   {id:10,name:'检测组A',platform:'openai'}, {id:20,name:'检测组B',platform:'composite'}, {id:30,name:'其他平台',platform:'claude'}
+   {id:10,name:'检测组A',platform:'openai',status:'active'}, {id:20,name:'检测组B',platform:'composite',status:'active'}, {id:30,name:'其他平台',platform:'claude',status:'active'}, {id:40,name:'禁用目标',platform:'openai',status:'inactive'}
   ] as AdminGroup[])
   vi.mocked(qualityAPI.save).mockImplementation(async value => ({settings:value}))
  })
@@ -68,6 +69,48 @@ describe('quality detection progress', () => {
   const w=mount(Cell,{props:{accountId:1,result},global:{stubs:{Teleport:true}}})
   expect(w.text()).toContain('调度：降智暂停 · 连续正常 1')
   expect(w.text()).toContain('综合：无降智')
+  w.unmount()
+ })
+ it('independently selects group switching and pause, validates the target and saves without running detection', async () => {
+  const w=render(); await flushPromises()
+  await w.findAll('button').find(b=>b.text()==='检测配置')!.trigger('click')
+  const groupSwitch=w.get('input[name="switch_group_on_degradation"]')
+  expect((groupSwitch.element as HTMLInputElement).checked).toBe(false)
+  await groupSwitch.setValue(true)
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(w.text()).toContain('请选择综合降智后切换的目标分组')
+  expect(qualityAPI.save).not.toHaveBeenCalled()
+  const target=w.get('select[name="degradation_group_id"]')
+  expect(target.text()).toContain('检测组A')
+  expect(target.text()).not.toContain('检测组B')
+  expect(target.text()).not.toContain('禁用目标')
+  await target.setValue('10')
+  await w.get('input[name="pause_on_degradation"]').setValue(true)
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(qualityAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({switch_group_on_degradation:true,degradation_group_id:10,pause_on_degradation:true}))
+  await w.get('input[name="pause_on_degradation"]').setValue(false)
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(qualityAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({switch_group_on_degradation:true,degradation_group_id:10,pause_on_degradation:false}))
+  expect(qualityAPI.run).not.toHaveBeenCalled()
+  w.unmount()
+ })
+ it('restores the saved group switch and makes a removed target visible', async () => {
+  vi.mocked(qualityAPI.settings).mockResolvedValue({settings:{...settings,switch_group_on_degradation:true,degradation_group_id:99,pause_on_degradation:true},summary:{},progress:progress()})
+  const w=render(); await flushPromises()
+  await w.findAll('button').find(b=>b.text()==='检测配置')!.trigger('click')
+  expect((w.get('input[name="switch_group_on_degradation"]').element as HTMLInputElement).checked).toBe(true)
+  expect(w.get('select[name="degradation_group_id"]').text()).toContain('不可用分组 #99')
+  await w.get('input[name="switch_group_on_degradation"]').setValue(false)
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(qualityAPI.save).toHaveBeenLastCalledWith(expect.objectContaining({switch_group_on_degradation:false,pause_on_degradation:true}))
+  w.unmount()
+ })
+ it('can disable detection even when its switch target is no longer configured', async () => {
+  vi.mocked(qualityAPI.settings).mockResolvedValue({settings:{...settings,enabled:false,switch_group_on_degradation:true,degradation_group_id:0},summary:{},progress:progress()})
+  const w=render(); await flushPromises()
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(qualityAPI.save).toHaveBeenCalledWith(expect.objectContaining({enabled:false,switch_group_on_degradation:true}))
+  expect(qualityAPI.run).not.toHaveBeenCalled()
   w.unmount()
  })
  it('shows all three overall states and the explanation independently of collection', async () => {

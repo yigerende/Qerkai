@@ -13,7 +13,9 @@ const progress = ref<QualityProgress | null>(null)
 const groups = ref<AdminGroup[]>([])
 const groupsError = ref(''), groupsLoading = ref(false)
 const missingGroups = computed(() => (form.value?.group_ids || []).filter(id => !groups.value.some(group => group.id === id)))
-const normalizeSettings = (settings: QualitySettings): QualitySettings => ({ ...settings, pause_on_degradation: settings.pause_on_degradation ?? false, all_groups: settings.all_groups ?? true, group_ids: settings.group_ids || [], degradation_mode: settings.degradation_mode || 'any', degradation_conditions: settings.degradation_conditions ?? ([settings.question_enabled ? 'question' : '', settings.model_audit_enabled ? 'model' : ''].filter(Boolean) as ('question' | 'model')[]) })
+const switchGroups = computed(() => groups.value.filter(group => group.platform === 'openai' && group.status === 'active'))
+const missingSwitchGroup = computed(() => form.value?.degradation_group_id && !switchGroups.value.some(group => group.id === form.value?.degradation_group_id))
+const normalizeSettings = (settings: QualitySettings): QualitySettings => ({ ...settings, pause_on_degradation: settings.pause_on_degradation ?? false, switch_group_on_degradation: settings.switch_group_on_degradation ?? false, degradation_group_id: settings.degradation_group_id ?? 0, all_groups: settings.all_groups ?? true, group_ids: settings.group_ids || [], degradation_mode: settings.degradation_mode || 'any', degradation_conditions: settings.degradation_conditions ?? ([settings.question_enabled ? 'question' : '', settings.model_audit_enabled ? 'model' : ''].filter(Boolean) as ('question' | 'model')[]) })
 async function loadGroups() {
  if (groupsLoading.value) return
  groupsLoading.value = true; groupsError.value = ''
@@ -34,7 +36,7 @@ async function refreshProgress() {
  catch (e) { if (!controller.signal.aborted) message.value = '进度读取失败：' + errorText(e) }
  finally { if (progressController === controller) progressController = null }
 }
-async function save() { if (!form.value) return; if (!form.value.all_groups && !form.value.group_ids.length) { message.value = '请选择至少一个定时检测分组，或选择全部分组'; return } busy.value = true; try { form.value = normalizeSettings((await qualityAPI.save(form.value)).settings); message.value = '配置已保存'; await load() } catch (e) { message.value = errorText(e) } finally { busy.value = false } }
+async function save() { if (!form.value) return; if (!form.value.all_groups && !form.value.group_ids.length) { message.value = '请选择至少一个定时检测分组，或选择全部分组'; return } if (form.value.enabled && form.value.switch_group_on_degradation && !form.value.degradation_group_id) { message.value = '请选择综合降智后切换的目标分组'; return } busy.value = true; try { form.value = normalizeSettings((await qualityAPI.save(form.value)).settings); message.value = '配置已保存'; await load() } catch (e) { message.value = errorText(e) } finally { busy.value = false } }
 async function run() { if (!window.confirm('按已保存的分组范围检测 OpenAI 账号，答题会消耗实际额度。继续？')) return; busy.value = true; try { await qualityAPI.run(); message.value = '检测已排队，正在检测的账号继续执行，其余按顺序处理。进度每 3 秒更新。'; await refreshProgress() } catch (e) { message.value = errorText(e) } finally { busy.value = false } }
 function add() { if (!form.value) return; const id = crypto.randomUUID ? crypto.randomUUID() : `q-${Date.now()}`; form.value.questions.push({ id, name:'新题目', enabled:true, prompt:'', answer:'', match_mode:'answer', max_duration_ms:20000 }); selected.value = id }
 function remove(index: number) { if (window.confirm('删除该题目？')) form.value?.questions.splice(index, 1) }
@@ -102,6 +104,12 @@ onUnmounted(() => { disposed = true; clearInterval(timer); progressController?.a
       <div class="flex flex-wrap gap-5"><label class="check"><input v-model="form.degradation_conditions" type="checkbox" value="question">答题异常</label><label class="check"><input v-model="form.degradation_conditions" type="checkbox" value="model">模型不一致</label></div>
       <div class="flex flex-wrap gap-5"><label class="check"><input v-model="form.degradation_mode" type="radio" value="any">任一勾选条件满足</label><label class="check"><input v-model="form.degradation_mode" type="radio" value="all">全部勾选条件满足</label></div>
       <label class="check"><input v-model="form.pause_on_degradation" type="checkbox" name="pause_on_degradation">综合降智时暂停账号调度，复检恢复后自动解除</label>
+      <label class="check"><input v-model="form.switch_group_on_degradation" type="checkbox" name="switch_group_on_degradation">综合降智时切换分组，恢复正常后自动切回原分组</label>
+      <div v-if="form.switch_group_on_degradation" class="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-dark-700">
+       <label>降智目标分组<select v-model.number="form.degradation_group_id" name="degradation_group_id" class="input mt-1" :disabled="groupsLoading"><option :value="0">请选择 OpenAI 分组</option><option v-for="group in switchGroups" :key="group.id" :value="group.id">{{ group.name }}</option><option v-if="missingSwitchGroup" :value="form.degradation_group_id" disabled>不可用分组 #{{ form.degradation_group_id }}</option></select></label>
+       <p v-if="groupsError" role="alert" class="text-sm text-red-600">{{ groupsError }} <button type="button" class="underline" @click="loadGroups">重新读取分组</button></p>
+       <p class="text-xs text-gray-500">可与暂停调度同时勾选。切换后继续检测，恢复后还原原有分组及优先级；人工改组后不自动覆盖。关闭此措施会还原由它切换的分组。若按分组采集或注入 State，请将目标分组也纳入对应范围。</p>
+      </div>
      </fieldset>
      <label>并发数<input v-model.number="form.concurrency" class="input" type="number" min="1" required></label>
      <label>请求超时（秒）<input v-model.number="form.timeout_seconds" class="input" type="number" min="5" max="300" required></label>
