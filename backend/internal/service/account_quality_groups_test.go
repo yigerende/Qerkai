@@ -97,3 +97,57 @@ func TestAccountQualityGroupFailureDoesNotBlockPauseOrRecovery(t *testing.T) {
 	require.Equal(t, 1, repo.groups)
 	require.Equal(t, 1, repo.pauses)
 }
+
+func TestAccountQualityGroupSwitchResultsWithMissingMarkers(t *testing.T) {
+	db := qualitySchedulingDB(t)
+	_, err := db.Exec(`ALTER TABLE groups ADD COLUMN platform TEXT NOT NULL DEFAULT 'openai',ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+ ALTER TABLE accounts ADD COLUMN extra JSONB DEFAULT '{}';
+ INSERT INTO groups(id) VALUES(10),(20);
+ INSERT INTO account_groups(account_id,group_id) VALUES(1,10),(2,20),(3,20);
+ UPDATE accounts SET extra='{"quality_group_switch":{"account_id":3,"active":true,"target":20}}' WHERE id=3;
+ UPDATE accounts SET extra=NULL WHERE id=4;
+ UPDATE accounts SET extra='{"quality_group_switch":{"active":true}}' WHERE id=5;
+ UPDATE accounts SET extra='{"quality_group_switch":{"account_id":6,"active":false,"target":20}}' WHERE id=6;
+ UPDATE accounts SET extra='{"quality_group_switch":{"account_id":3,"active":true,"target":20}}' WHERE id=7;
+ UPDATE accounts SET platform='claude' WHERE id=8;
+ UPDATE accounts SET deleted_at=NOW() WHERE id=9`)
+	require.NoError(t, err)
+	u := &qualitySchedulingUpstream{calls: map[int64]int{}}
+	s, q := qualitySchedulingService(t, db, u)
+	q.AllGroups, q.GroupIDs, q.DegradationGroupID = false, []int64{10}, 20
+	q.SwitchGroupOnDegradation = true
+	q, err = s.SaveSettings(context.Background(), q)
+	require.NoError(t, err)
+	ids := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 99}
+	snapshot, err := s.Results(context.Background(), ids)
+	require.NoError(t, err, "one out-of-scope account without switch metadata must not fail the entire account list")
+	require.Len(t, snapshot.Accounts, len(ids))
+	for _, result := range snapshot.Accounts {
+		switch result.AccountID {
+		case 1, 3:
+			require.NotContains(t, []string{"excluded", "unavailable"}, result.QuestionExecution)
+			require.NotContains(t, []string{"excluded", "unavailable"}, result.ModelExecution)
+		case 8, 9, 99:
+			require.Equal(t, "unavailable", result.QuestionExecution)
+			require.Equal(t, "unavailable", result.ModelExecution)
+		default:
+			require.Equal(t, "excluded", result.QuestionExecution)
+			require.Equal(t, "excluded", result.ModelExecution)
+		}
+	}
+	summary, err := s.Summary(context.Background())
+	require.NoError(t, err)
+	require.EqualValues(t, 2, summary["total"], "normal group membership and owned automatic moves define the same detection scope")
+	// The default-off path continues to use only actual group membership.
+	q.SwitchGroupOnDegradation = false
+	_, err = s.SaveSettings(context.Background(), q)
+	require.NoError(t, err)
+	snapshot, err = s.Results(context.Background(), []int64{1, 2, 3})
+	require.NoError(t, err)
+	for _, result := range snapshot.Accounts {
+		if result.AccountID != 1 {
+			require.Equal(t, "excluded", result.QuestionExecution)
+		}
+	}
+	require.Empty(t, u.calls, "reading account status must never enqueue paid probes")
+}

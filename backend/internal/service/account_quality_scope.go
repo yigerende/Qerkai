@@ -21,7 +21,9 @@ func qualityGroupScope(q AccountQualitySettings, args *[]any) string {
 	scope := fmt.Sprintf(`EXISTS (SELECT 1 FROM account_groups ag JOIN groups g ON g.id=ag.group_id AND g.deleted_at IS NULL WHERE ag.account_id=a.id AND ag.group_id=ANY($%d::bigint[]))`, len(*args))
 	if q.SwitchGroupOnDegradation {
 		// An automatic move must not strand the account outside its detector.
-		scope = `(` + scope + ` OR (a.extra->'quality_group_switch'->>'active'='true' AND a.extra->'quality_group_switch'->>'account_id'=a.id::text))`
+		// Missing metadata (including a missing LEFT JOIN account) is false,
+		// never NULL: the status endpoint scans this projection into a bool.
+		scope = `(` + scope + ` OR COALESCE((a.extra->'quality_group_switch'->>'active'='true' AND a.extra->'quality_group_switch'->>'account_id'=a.id::text),FALSE))`
 	}
 	return scope
 }
