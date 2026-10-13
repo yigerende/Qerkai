@@ -492,6 +492,16 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyForceOpenAIUpstreamWS] = strconv.FormatBool(settings.ForceOpenAIUpstreamWS)
+	// Turning forced WS off always disables its dependent retry feature.
+	settings.OpenAIWSFreshConnectionRetryEnabled = settings.OpenAIWSFreshConnectionRetryEnabled && settings.ForceOpenAIUpstreamWS
+	if settings.OpenAIWSFreshConnectionRetryMax == 0 && !settings.OpenAIWSFreshConnectionRetryEnabled {
+		settings.OpenAIWSFreshConnectionRetryMax = DefaultOpenAIWSFreshConnectionRetryMax
+	}
+	if settings.OpenAIWSFreshConnectionRetryMax < 1 || settings.OpenAIWSFreshConnectionRetryMax > MaxOpenAIWSFreshConnectionRetries {
+		return nil, infraerrors.BadRequest("INVALID_WS_FRESH_CONNECTION_RETRY", "fresh connection retries must be between 1 and 100")
+	}
+	updates[SettingKeyOpenAIWSFreshConnectionRetryEnabled] = strconv.FormatBool(settings.OpenAIWSFreshConnectionRetryEnabled)
+	updates[SettingKeyOpenAIWSFreshConnectionRetryMax] = strconv.Itoa(settings.OpenAIWSFreshConnectionRetryMax)
 	bps, bpsErr := NormalizeOpenAIBPSSettings(settings.OpenAIBPS)
 	if bpsErr != nil {
 		return nil, bpsErr
@@ -807,6 +817,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
 	})
 	refreshForceUpstreamWSCache(settings.ForceOpenAIUpstreamWS)
+	refreshOpenAIWSFreshConnectionRetry(settings)
 	s.bpsSettingsCache.Store(newCachedOpenAIBPS(settings.OpenAIBPS, time.Minute))
 	s.downstreamModelAlignmentCache.Store(newCachedOpenAIDownstreamModelAlignment(settings.OpenAIDownstreamModelAlignment, time.Minute))
 	refreshForceUpstreamWSGroupsCache(settings.ForceOpenAIUpstreamWSGroupIDs)

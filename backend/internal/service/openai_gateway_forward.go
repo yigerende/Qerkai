@@ -928,6 +928,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if wsErr == nil {
 				break
 			}
+			var freshRetryErr *openAIWSFreshConnectionRetryError
+			if errors.As(wsErr, &freshRetryErr) {
+				// A provider processing failure has its own per-request budget.
+				// Preserve the payload and the existing transport reconnect budget.
+				retryStartedAt = time.Now()
+				attempt--
+				continue
+			}
 			var businessRetryErr *UpstreamFailoverError
 			if errors.As(wsErr, &businessRetryErr) && businessRetryErr.OpenAIUpstream5xxRetry != nil {
 				break

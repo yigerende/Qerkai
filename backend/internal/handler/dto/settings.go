@@ -205,6 +205,8 @@ type SystemSettings struct {
 	OpenAITTFTMode                         string                                         `json:"openai_ttft_mode"`
 	EnableFingerprintUnification           bool                                           `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              bool                                           `json:"enable_metadata_passthrough"`
+	OpenAIWSFreshConnectionRetryEnabled    bool                                           `json:"openai_ws_fresh_connection_retry_enabled"`
+	OpenAIWSFreshConnectionRetryMax        int                                            `json:"openai_ws_fresh_connection_retry_max"`
 	ForceOpenAIUpstreamWS                  bool                                           `json:"force_openai_upstream_ws"`
 	OpenAIBPS                              service.OpenAIBPSSettings                      `json:"openai_bps"`
 	OpenAIDownstreamModelAlignment         service.OpenAIDownstreamModelAlignmentSettings `json:"openai_downstream_model_alignment"`

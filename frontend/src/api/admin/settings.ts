@@ -662,6 +662,8 @@ export interface SystemSettings {
   openai_upstream_5xx_retry_rules: OpenAIUpstream5xxRetryRule[];
   openai_bps: OpenAIBPSSettings;
   openai_downstream_model_alignment: OpenAIDownstreamModelAlignmentSettings;
+  openai_ws_fresh_connection_retry_enabled: boolean
+  openai_ws_fresh_connection_retry_max: number
   force_openai_upstream_ws: boolean;
   force_openai_upstream_ws_group_ids: number[] | null;
   openai_ws_channel_probe_http: boolean;
@@ -1013,6 +1015,8 @@ export interface UpdateSettingsRequest {
   openai_upstream_5xx_retry_rules?: OpenAIUpstream5xxRetryRule[];
   openai_bps?: OpenAIBPSSettings;
   openai_downstream_model_alignment?: OpenAIDownstreamModelAlignmentSettings;
+  openai_ws_fresh_connection_retry_enabled?: boolean
+  openai_ws_fresh_connection_retry_max?: number
   force_openai_upstream_ws?: boolean;
   force_openai_upstream_ws_group_ids?: number[] | null;
   openai_ws_channel_probe_http?: boolean;

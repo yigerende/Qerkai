@@ -5440,6 +5440,21 @@
               <DownstreamModelAlignment v-model="form.openai_downstream_model_alignment" />
               <OpenAIBPSSettings :model-value="form.openai_bps" @update:model-value="updateBPSSettings" />
 
+              <div class="space-y-3" data-testid="ws-fresh-connection-retry">
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.gatewayForwarding.wsFreshConnectionRetry') }}</label>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.gatewayForwarding.wsFreshConnectionRetryHint') }}</p>
+                  </div>
+                  <Toggle v-model="form.openai_ws_fresh_connection_retry_enabled" :disabled="!form.force_openai_upstream_ws" />
+                </div>
+                <div v-if="form.openai_ws_fresh_connection_retry_enabled && form.force_openai_upstream_ws" class="max-w-xs">
+                  <label class="input-label">{{ t('admin.settings.gatewayForwarding.wsFreshConnectionRetryMax') }}</label>
+                  <input v-model.number="form.openai_ws_fresh_connection_retry_max" type="number" min="1" max="100" step="1" class="input" data-testid="ws-fresh-connection-retry-max" />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.gatewayForwarding.wsFreshConnectionRetryMaxHint') }}</p>
+                </div>
+              </div>
+
               <div class="flex items-center justify-between">
                 <div>
                   <label
@@ -10110,6 +10125,8 @@ const form = reactive<SettingsForm>({
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   openai_bps: defaultOpenAIBPSSettings(),
+  openai_ws_fresh_connection_retry_enabled: false,
+  openai_ws_fresh_connection_retry_max: 1,
   force_openai_upstream_ws: false,
   openai_downstream_model_alignment: { enabled: false, group_ids: null as number[] | null, models: ['gpt-6-astra'] },
   force_openai_upstream_ws_group_ids: null as number[] | null,
@@ -11820,6 +11837,8 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       openai_bps: form.openai_bps,
+      openai_ws_fresh_connection_retry_enabled: form.force_openai_upstream_ws && form.openai_ws_fresh_connection_retry_enabled,
+      openai_ws_fresh_connection_retry_max: form.openai_ws_fresh_connection_retry_max,
       force_openai_upstream_ws: form.force_openai_upstream_ws,
       openai_downstream_model_alignment: form.openai_downstream_model_alignment,
       force_openai_upstream_ws_group_ids: form.force_openai_upstream_ws_group_ids,
@@ -13482,11 +13501,13 @@ function updateBPSSettings(value: BPSSettings) {
   form.openai_bps = value;
   if (value.enabled) {
     form.force_openai_upstream_ws = false;
+    form.openai_ws_fresh_connection_retry_enabled = false;
     form.openai_ws_pool_optimization_enabled = false;
   }
 }
 function setForceWS(value: boolean) {
   form.force_openai_upstream_ws = value;
+  if (!value) form.openai_ws_fresh_connection_retry_enabled = false;
   if (value) form.openai_bps = { ...form.openai_bps, enabled: false };
 }
 </script>

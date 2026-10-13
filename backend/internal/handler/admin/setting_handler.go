@@ -292,6 +292,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAITTFTMode:                                         settings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
+		OpenAIWSFreshConnectionRetryEnabled:                    settings.OpenAIWSFreshConnectionRetryEnabled,
+		OpenAIWSFreshConnectionRetryMax:                        settings.OpenAIWSFreshConnectionRetryMax,
 		ForceOpenAIUpstreamWS:                                  settings.ForceOpenAIUpstreamWS,
 		OpenAIBPS:                                              settings.OpenAIBPS,
 		OpenAIDownstreamModelAlignment:                         settings.OpenAIDownstreamModelAlignment,

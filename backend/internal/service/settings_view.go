@@ -248,6 +248,8 @@ type SystemSettings struct {
 	RewriteMessageCacheControl             bool   // 是否改写 messages[*].content[*].cache_control（默认 false）
 	// ForceOpenAIUpstreamWS 无视客户端协议，强制与 OpenAI 上游使用 WebSocket（默认 false）。
 	// 二次开发功能，详见 service/openai_force_upstream_ws.go。
+	OpenAIWSFreshConnectionRetryEnabled    bool
+	OpenAIWSFreshConnectionRetryMax        int
 	ForceOpenAIUpstreamWS                  bool
 	OpenAIBPS                              OpenAIBPSSettings
 	OpenAIDownstreamModelAlignment         OpenAIDownstreamModelAlignmentSettings

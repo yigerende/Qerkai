@@ -41,6 +41,12 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	}
 	responseModelObserver := &upstreamResponseModelObserver{}
 	businessRetry := s.openAIWSBusinessRetryState(c, account, reqStream, startTime)
+	if businessRetry != nil && businessRetry.freshConnectionAccount != 0 && businessRetry.freshConnectionAccount != account.ID {
+		// An unrelated auth/failover error may subsequently select another
+		// account. Never carry the prior account's prepared payload across it.
+		businessRetry.freshConnectionPayload = nil
+		businessRetry.freshConnectionPending = false
+	}
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
 	if err != nil {
@@ -66,7 +72,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 	payload := s.buildOpenAIWSCreatePayload(reqBody, account)
 	payloadStrategy, removedKeys := "full", []string(nil)
-	if businessRetry == nil || !businessRetry.managed {
+	replayPayload := businessRetry != nil && businessRetry.freshConnectionPayload != nil
+	if replayPayload {
+		payload, payloadStrategy = businessRetry.freshConnectionPayload, "fresh_connection_replay"
+	} else if businessRetry == nil || !businessRetry.managed {
 		payloadStrategy, removedKeys = applyOpenAIWSRetryPayloadStrategy(payload, attempt)
 	}
 	turnState := ""
@@ -75,8 +84,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		turnState = strings.TrimSpace(c.GetHeader(openAIWSTurnStateHeader))
 		turnMetadata = strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader))
 	}
-	setOpenAIWSTurnMetadata(payload, turnMetadata)
-	applyStagedCodexFingerprintClientMetadata(c, account, payload)
+	if !replayPayload {
+		setOpenAIWSTurnMetadata(payload, turnMetadata)
+		applyStagedCodexFingerprintClientMetadata(c, account, payload)
+	}
 	previousResponseID := openAIWSPayloadString(payload, "previous_response_id")
 	previousResponseIDKind := ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	promptCacheKey := strings.TrimSpace(clientPromptCacheKey)
@@ -162,6 +173,12 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	poolOptimized := ForceUpstreamWSEnabledForGroup(groupID) && OpenAIWSPoolOptimizationActive() && account != nil && account.Type == AccountTypeOAuth && sessionHash != ""
 	if poolOptimized {
 		forceNewConn = false
+	}
+	// This retry must dial a new socket, including when session/standby/prewarm
+	// connections exist. Keep the pool's limits, headers and proxy handling.
+	if businessRetry != nil && businessRetry.freshConnectionPending {
+		forceNewConn = true
+		preferredConnID = ""
 	}
 	wsHeaders, sessionResolution, buildHdrErr := s.buildOpenAIWSHeaders(
 		ctx,
@@ -404,6 +421,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		return nil, wrapOpenAIWSFallback("write_request", err)
 	}
 	stateTicket.noteSent()
+	if businessRetry != nil {
+		businessRetry.freshConnectionPending = false
+	}
 	if debugEnabled {
 		logOpenAIWSModeDebug(
 			"write_request_sent account_id=%d conn_id=%s stream=%v payload_bytes=%d previous_response_id=%s",
@@ -727,6 +747,7 @@ readLoop:
 			continue
 		}
 		if businessRetry != nil {
+			businessRetry.freshConnectionPayload = nil
 			markOpenAIWSBusinessReconnectRecovered(c)
 		}
 		responseModelObserver.ObserveOpenAI(message, eventType)
@@ -791,9 +812,23 @@ readLoop:
 		}
 		imageCounter.AddSSEData(message)
 
+		freshConnectionError := false
 		if eventType == "error" || eventType == "response.failed" {
+			freshConnectionError = businessRetry.ownsFreshConnectionError(message)
 			markOpenAICyberPolicyEvent(c, message, http.StatusOK, usage)
-			if !clientDisconnected {
+			if freshConnectionError && !clientDisconnected && businessRetry.beginFreshConnectionRetry(ctx, c) {
+				// Retain the exact payload sent by this attempt, including any
+				// earlier transport recovery, without copying successful requests.
+				businessRetry.freshConnectionPayload = payload
+				businessRetry.freshConnectionAccount = account.ID
+				lease.MarkBroken()
+				logOpenAIWSModeInfo("fresh_connection_retry account_id=%d retry=%d max_retries=%d conn_id=%s",
+					account.ID, businessRetry.freshConnectionRetries, businessRetry.freshConnectionRetryMax, connID)
+				return nil, &openAIWSFreshConnectionRetryError{}
+			}
+			// A matching error belongs to this budget; do not stack the legacy
+			// 502/503 or generic server_error retries after it is exhausted.
+			if !freshConnectionError && !clientDisconnected {
 				if failure := s.newOpenAIWSBusinessRetryError(c, businessRetry, account, responseID, message, mappedModel, lease.HandshakeHeaders()); failure != nil {
 					return nil, failure
 				}
@@ -853,7 +888,7 @@ readLoop:
 			// ——先同账号退避重试（保住 prompt 缓存亲和），再换账号。必须放在
 			// canFallback 之前：后者只做同账号 WS 重连，上游整体降载时重连大概率
 			// 仍然降载。详见 openai_ws_error_event_failover.go。
-			if shouldFailoverOpenAIWSErrorEvent(message, errMsg, wroteDownstream) {
+			if !freshConnectionError && shouldFailoverOpenAIWSErrorEvent(message, errMsg, wroteDownstream) {
 				s.handleOpenAIStreamTerminalAccountSideEffects(
 					c, account, message, errMsg, lease.HandshakeHeaders(), mappedModel,
 				)
@@ -861,7 +896,7 @@ readLoop:
 					c, account, responseID, message, errMsg, mappedModel, lease.HandshakeHeaders(),
 				)
 			}
-			if !wroteDownstream && canFallback {
+			if !freshConnectionError && !wroteDownstream && canFallback {
 				return nil, wrapOpenAIWSFallback(fallbackReason, errors.New(errMsg))
 			}
 			statusCode := openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw)

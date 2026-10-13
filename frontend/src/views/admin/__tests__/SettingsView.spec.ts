@@ -727,6 +727,57 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
+  it("requires forced WS for processing-error retries and saves their count", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: false });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const retry = wrapper.get('[data-testid="ws-fresh-connection-retry"]');
+    expect(retry.get('input[type="checkbox"]').attributes('disabled')).toBeDefined();
+    const forceWSLabel = wrapper.findAll('label').find(label => label.text() === 'admin.settings.gatewayForwarding.forceOpenAIUpstreamWS')!;
+    const forceWS = forceWSLabel.element.parentElement!.parentElement!.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    forceWS.checked = true;
+    forceWS.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+    await retry.get('input[type="checkbox"]').setValue(true);
+    expect(wrapper.get('[data-testid="ws-fresh-connection-retry-max"]').element).toHaveProperty('value', '1');
+    await wrapper.get('[data-testid="ws-fresh-connection-retry-max"]').setValue(4);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      force_openai_upstream_ws: true, openai_ws_fresh_connection_retry_enabled: true, openai_ws_fresh_connection_retry_max: 4,
+    }));
+    forceWS.checked = false;
+    forceWS.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+    expect(retry.get('input[type="checkbox"]').element).toHaveProperty('checked', false);
+    expect(retry.get('input[type="checkbox"]').attributes('disabled')).toBeDefined();
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      force_openai_upstream_ws: false, openai_ws_fresh_connection_retry_enabled: false, openai_ws_fresh_connection_retry_max: 4,
+    }));
+    wrapper.unmount();
+  });
+
+  it("loads saved retry settings and disables retries when BPS is enabled", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: true, openai_ws_fresh_connection_retry_enabled: true, openai_ws_fresh_connection_retry_max: 3 });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    expect(wrapper.get('[data-testid="ws-fresh-connection-retry-max"]').element).toHaveProperty('value', '3');
+    const editor = wrapper.getComponent({ name: 'OpenAIBPSSettings' });
+    editor.vm.$emit('update:modelValue', { ...editor.props('modelValue'), enabled: true });
+    await flushPromises();
+    expect(wrapper.get('[data-testid="ws-fresh-connection-retry"] input').element).toHaveProperty('checked', false);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      force_openai_upstream_ws: false, openai_ws_fresh_connection_retry_enabled: false,
+    }));
+    wrapper.unmount();
+  });
+
   it("saves forced WS group selections, including none and all", async () => {
     getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: true, force_openai_upstream_ws_group_ids: [11] });
     const wrapper = mountView();

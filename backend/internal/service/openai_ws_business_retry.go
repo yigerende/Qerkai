@@ -18,19 +18,25 @@ const openAIWSBusinessRetryKey = "openai_ws_business_retry"
 
 // This state belongs to one HTTP response, never to a pooled WS connection.
 type openAIWSBusinessRetryState struct {
-	config           OpenAIUpstream5xxRetryConfig
-	startedAt        time.Time
-	firstFrameAt     time.Time
-	capacityFirstAt  time.Time
-	outputStarted    bool
-	outputEvent      string
-	managed          bool
-	clientResponseID string
-	createdSent      bool
-	inProgressSent   bool
-	hasSequence      bool
-	sequence         int64
-	terminalEvent    string
+	// Shared downstream continuity; the fresh-connection budget is independent of 502/503 business retries.
+	freshConnectionRetryMax int
+	freshConnectionRetries  int
+	freshConnectionPending  bool
+	freshConnectionPayload  map[string]any
+	freshConnectionAccount  int64
+	config                  OpenAIUpstream5xxRetryConfig
+	startedAt               time.Time
+	firstFrameAt            time.Time
+	capacityFirstAt         time.Time
+	outputStarted           bool
+	outputEvent             string
+	managed                 bool
+	clientResponseID        string
+	createdSent             bool
+	inProgressSent          bool
+	hasSequence             bool
+	sequence                int64
+	terminalEvent           string
 }
 
 func openAIWSBusinessRetryStateFrom(c *gin.Context) *openAIWSBusinessRetryState {
@@ -46,16 +52,25 @@ func (s *OpenAIGatewayService) openAIWSBusinessRetryState(c *gin.Context, accoun
 	if state := openAIWSBusinessRetryStateFrom(c); state != nil && isOpenAIUpstream5xxRetryAccount(account) {
 		return state
 	}
-	if c == nil || c.Request == nil || !stream || openAIWSChatBridgeFromContext(c) != nil ||
-		!strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/responses") ||
-		!isOpenAIUpstream5xxRetryAccount(account) || !ForceUpstreamWSEnabledForGroup(getOpenAIGroupIDFromContext(c)) {
+	if c == nil || c.Request == nil || !isOpenAIUpstream5xxRetryAccount(account) ||
+		!ForceUpstreamWSEnabledForGroup(getOpenAIGroupIDFromContext(c)) {
 		return nil
 	}
 	config := OpenAIUpstream5xxRetrySettings()
-	if !config.Enabled || config.Total <= 0 || !hasEnabledOpenAIUpstream5xxRetryRule(config.Rules) {
+	businessEnabled := stream && openAIWSChatBridgeFromContext(c) == nil &&
+		strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/responses") &&
+		config.Enabled && config.Total > 0 && hasEnabledOpenAIUpstream5xxRetryRule(config.Rules)
+	fresh := currentOpenAIWSFreshConnectionRetry()
+	if !businessEnabled && !fresh.enabled {
 		return nil
 	}
+	if !businessEnabled {
+		config = OpenAIUpstream5xxRetryConfig{}
+	}
 	state := &openAIWSBusinessRetryState{config: config, startedAt: start}
+	if fresh.enabled {
+		state.freshConnectionRetryMax = fresh.max
+	}
 	c.Set(openAIWSBusinessRetryKey, state)
 	return state
 }
@@ -111,7 +126,7 @@ func (state *openAIWSBusinessRetryState) prepareFrame(payload []byte) []byte {
 	}
 	state.createdSent = state.createdSent || eventType == "response.created"
 	state.inProgressSent = state.inProgressSent || eventType == "response.in_progress"
-	if isOpenAIWSTerminalEvent(eventType) {
+	if isOpenAIWSTerminalEvent(eventType) || (state.freshConnectionRetryMax > 0 && eventType == "error") {
 		state.terminalEvent = eventType
 	}
 	if !openAIWSRetryMetadata(payload) && !state.outputStarted {
@@ -122,7 +137,7 @@ func (state *openAIWSBusinessRetryState) prepareFrame(payload []byte) []byte {
 }
 
 func (s *OpenAIGatewayService) newOpenAIWSBusinessRetryError(c *gin.Context, state *openAIWSBusinessRetryState, account *Account, requestID string, payload []byte, model string, headers http.Header) *UpstreamFailoverError {
-	if state == nil {
+	if state == nil || !state.config.Enabled {
 		return nil
 	}
 	match := MatchOpenAIUpstream5xxRetryRules(payload, state.config.Rules)
@@ -293,7 +308,8 @@ func WriteOpenAIWSBusinessRetryFailure(c *gin.Context, status int, errType, code
 }
 
 func OpenAIWSBusinessRetryActive(c *gin.Context) bool {
-	return openAIWSBusinessRetryStateFrom(c) != nil
+	state := openAIWSBusinessRetryStateFrom(c)
+	return state != nil && state.config.Enabled
 }
 
 func StopOpenAIUpstream5xxBusinessRetry(c *gin.Context, reason string) {

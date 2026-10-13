@@ -882,6 +882,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
 	result.ForceOpenAIUpstreamWS = settings[SettingKeyForceOpenAIUpstreamWS] == "true"
+	freshRetry := parseOpenAIWSFreshConnectionRetry(settings)
+	result.OpenAIWSFreshConnectionRetryEnabled = result.ForceOpenAIUpstreamWS && freshRetry.enabled
+	result.OpenAIWSFreshConnectionRetryMax = freshRetry.max
 	result.OpenAIBPS = parseOpenAIBPSSettings(settings[SettingKeyOpenAIBPS])
 	result.OpenAIDownstreamModelAlignment = parseOpenAIDownstreamModelAlignment(settings[SettingKeyOpenAIDownstreamModelAlignment])
 	result.ForceOpenAIUpstreamWSGroupIDs = parseForceUpstreamWSGroupIDs(settings[SettingKeyForceOpenAIUpstreamWSGroupIDs])

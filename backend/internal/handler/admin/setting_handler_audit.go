@@ -459,6 +459,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
 		changed = append(changed, "enable_metadata_passthrough")
 	}
+	if before.OpenAIWSFreshConnectionRetryEnabled != after.OpenAIWSFreshConnectionRetryEnabled {
+		changed = append(changed, "openai_ws_fresh_connection_retry_enabled")
+	}
+	if before.OpenAIWSFreshConnectionRetryMax != after.OpenAIWSFreshConnectionRetryMax {
+		changed = append(changed, "openai_ws_fresh_connection_retry_max")
+	}
 	if before.ForceOpenAIUpstreamWS != after.ForceOpenAIUpstreamWS {
 		changed = append(changed, "force_openai_upstream_ws")
 	}
