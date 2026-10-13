@@ -515,7 +515,7 @@ export default {
         metadataPassthrough: 'Metadata Passthrough',
         metadataPassthroughHint: 'Pass through client\'s original metadata.user_id without rewriting. May improve upstream cache hit rates.',
         wsFreshConnectionRetry: 'Retry processing errors on a new WS connection',
-        wsFreshConnectionRetryHint: 'Requires forced upstream WS and its selected groups. For server_error with the message An error occurred while processing your request, resend the same request on the same account over a newly opened WS connection. No replay after answer or tool output; empty CPA notifications stay immediate. Disabling preserves existing behavior.',
+        wsFreshConnectionRetryHint: 'Requires forced upstream WS and its selected groups. For server_error with the message An error occurred while processing your request, resend the same request on the same account over a newly opened WS connection; both 502 and 503 variants are supported. No replay after answer or tool output; empty CPA notifications stay immediate. Disabling preserves existing behavior.',
         wsFreshConnectionRetryMax: 'New-connection retries per request',
         wsFreshConnectionRetryMaxHint: 'Default: 1, excluding the initial request. Range: 1–100. Other 502/503 retries are not stacked for this error; return the error when exhausted.',
         forceOpenAIUpstreamWS: 'Force OpenAI Upstream WebSocket',

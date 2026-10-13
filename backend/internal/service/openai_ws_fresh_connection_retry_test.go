@@ -13,10 +13,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
 )
 
-func freshConnectionErrorEvent(event string) []byte {
+func freshConnectionErrorEvent(event string, status ...int) []byte {
 	errorValue := map[string]any{"code": "server_error", "message": openAIWSProcessingErrorMessage}
+	if len(status) > 0 && status[0] > 0 {
+		errorValue["status_code"] = status[0]
+	}
 	value := map[string]any{"type": event, "error": errorValue}
 	if event == "response.failed" {
 		value = map[string]any{"type": event, "response": map[string]any{"id": "failed", "status": "failed", "error": errorValue}}
@@ -30,12 +34,23 @@ func TestOpenAIWSFreshConnectionRetryMatchesOnlyProcessingError(t *testing.T) {
 		payload := string(freshConnectionErrorEvent(event))
 		require.True(t, isOpenAIWSFreshConnectionRetryError([]byte(payload)))
 		require.True(t, isOpenAIWSFreshConnectionRetryError([]byte(strings.ReplaceAll(payload, openAIWSProcessingErrorMessage, openAIWSProcessingErrorMessage+" Please include the request ID req_123 in your message."))))
+		errorPath := "error."
+		if event == "response.failed" {
+			errorPath = "response.error."
+		}
+		for _, path := range []string{errorPath + "status_code", errorPath + "status", "status_code", "status"} {
+			for _, status := range []int{401, 429, 500, 502, 503, 504} {
+				withStatus, err := sjson.SetBytes([]byte(payload), path, status)
+				require.NoError(t, err)
+				require.Equal(t, status == 502 || status == 503, isOpenAIWSFreshConnectionRetryError(withStatus), "%s: %s=%d", event, path, status)
+			}
+		}
 		for _, bad := range []string{
 			strings.ReplaceAll(payload, "server_error", "rate_limit_exceeded"),
 			strings.ReplaceAll(payload, openAIWSProcessingErrorMessage, "Internal server error"),
 			strings.ReplaceAll(payload, openAIWSProcessingErrorMessage, "Our servers are currently overloaded. Please try again later."),
 			strings.ReplaceAll(payload, `"code":`, `"status_code":429,"code":`),
-			strings.ReplaceAll(payload, `"code":`, `"status_code":503,"code":`),
+			strings.ReplaceAll(payload, `"code":`, `"status_code":504,"code":`),
 			strings.ReplaceAll(payload, `"type":"`+event+`"`, `"type":"response.completed"`),
 		} {
 			require.False(t, isOpenAIWSFreshConnectionRetryError([]byte(bad)), bad)
@@ -117,15 +132,22 @@ func freshConnectionCompleted(i int) []byte {
 
 func TestOpenAIWSFreshConnectionRetryForward(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, event := range []string{"error", "response.failed"} {
+	for _, failure := range []struct {
+		event  string
+		status int
+	}{
+		{"error", 0}, {"error", 502}, {"error", 503},
+		{"response.failed", 0}, {"response.failed", 502}, {"response.failed", 503},
+	} {
+		event, status := failure.event, failure.status
 		for _, mode := range []string{OpenAITTFTModeNetwork, OpenAITTFTModeSemantic, "nonstream"} {
 			for _, retries := range []int{1, 4} {
-				t.Run(fmt.Sprintf("%s/%s/%d", event, mode, retries), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s/%d/%s/%d", event, status, mode, retries), func(t *testing.T) {
 					setFreshConnectionRetryForTest(t, true, retries)
 					defer setTTFTModeForTest(t, mode)()
 					dialer := &freshConnectionTestDialer{events: func(i int) [][]byte {
 						if i < retries {
-							return [][]byte{freshConnectionCreated(i), freshConnectionErrorEvent(event)}
+							return [][]byte{freshConnectionCreated(i), freshConnectionErrorEvent(event, status)}
 						}
 						return [][]byte{freshConnectionCreated(i), []byte(`{"type":"response.output_text.delta","sequence_number":1,"response_id":"resp_final","delta":"recovered"}`), freshConnectionCompleted(i)}
 					}}

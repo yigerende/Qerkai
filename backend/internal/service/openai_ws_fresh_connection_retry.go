@@ -84,7 +84,7 @@ func currentOpenAIWSFreshConnectionRetry() openAIWSFreshConnectionRetryConfig {
 	return openAIWSFreshConnectionRetryConfig{max: DefaultOpenAIWSFreshConnectionRetryMax}
 }
 
-// Match the provider's processing failure, not all locally mapped 502s or
+// Match the provider's processing failure, not all locally mapped 502/503s or
 // generic server errors. Some responses append a support request ID.
 func isOpenAIWSFreshConnectionRetryError(payload []byte) bool {
 	root := gjson.ParseBytes(payload)
@@ -100,7 +100,7 @@ func isOpenAIWSFreshConnectionRetryError(payload []byte) bool {
 		return false
 	}
 	for _, value := range []gjson.Result{err.Get("status_code"), err.Get("status"), root.Get("status_code"), root.Get("status")} {
-		if status := value.Int(); status > 0 && status != 502 {
+		if status := value.Int(); status > 0 && status != 502 && status != 503 {
 			return false
 		}
 	}

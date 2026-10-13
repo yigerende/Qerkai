@@ -508,7 +508,7 @@ export default {
         metadataPassthrough: 'Metadata 透传',
         metadataPassthroughHint: '透传客户端原始 metadata.user_id，不进行重写。可能提高上游缓存命中率。',
         wsFreshConnectionRetry: 'WS 处理错误新建连接重试',
-        wsFreshConnectionRetryHint: '仅在强制上游 WS 开启且命中所选分组时生效。遇到 server_error 且提示 An error occurred while processing your request 时，用同一账号和请求重新新建 WS 连接。已发送回答或工具调用则不重试；CPA 空首帧通知不受影响。关闭后沿用原有逻辑。',
+        wsFreshConnectionRetryHint: '仅在强制上游 WS 开启且命中所选分组时生效。遇到 server_error 且提示 An error occurred while processing your request 时，用同一账号和请求重新新建 WS 连接，支持此类错误的 502 和 503。已发送回答或工具调用则不重试；CPA 空首帧通知不受影响。关闭后沿用原有逻辑。',
         wsFreshConnectionRetryMax: '每次请求新建连接重试次数',
         wsFreshConnectionRetryMaxHint: '默认 1 次，不含首次请求；范围 1–100。此错误不再叠加其他 502/503 重试，次数耗尽后返回错误。',
         forceOpenAIUpstreamWS: '强制 OpenAI 上游 WebSocket',

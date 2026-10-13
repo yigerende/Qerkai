@@ -70,7 +70,8 @@ func TestOpenAIWSFreshConnectionRetryConcurrentSockets(t *testing.T) {
 				return
 			}
 			if attempt == 1 {
-				if err := conn.WriteMessage(websocket.TextMessage, freshConnectionErrorEvent("error")); err != nil {
+				status := 502 + int(connID%2)
+				if err := conn.WriteMessage(websocket.TextMessage, freshConnectionErrorEvent("error", status)); err != nil {
 					return
 				}
 				continue
