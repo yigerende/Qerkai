@@ -283,6 +283,64 @@ func TestOpenAIFirstOutputStageCommitCopiesSpoolAndRemovesTemp(t *testing.T) {
 	require.NoError(t, stage.Close())
 }
 
+func TestOpenAIFirstOutputStageCreateFailureKeepsResponseIntactAndBounded(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		createErr   error
+		writeString bool
+	}{
+		{name: "permission_denied", createErr: os.ErrPermission},
+		{name: "missing_temp_directory", createErr: os.ErrNotExist, writeString: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stage := newOpenAIFirstOutputStage(70 * 1024)
+			// Exercise the Linux spool path even when this test runs on Windows.
+			stage.memoryOnly = false
+			t.Cleanup(func() { require.NoError(t, stage.Close()) })
+			createCalls := 0
+			stage.createTemp = func() (*os.File, error) {
+				createCalls++
+				return nil, &os.PathError{Op: "open", Path: "unavailable-spool", Err: tc.createErr}
+			}
+			stage.removeFile = func(string) error {
+				t.Error("a failed file creation must not schedule file cleanup")
+				return nil
+			}
+			write := func(value string) (int, error) {
+				if tc.writeString {
+					return stage.WriteString(value)
+				}
+				return stage.Write([]byte(value))
+			}
+
+			prefix := strings.Repeat("p", 64*1024)
+			_, err := write(prefix)
+			require.NoError(t, err)
+			require.Zero(t, createCalls)
+			payload := strings.Repeat("x", 4*1024)
+			n, err := write(payload)
+			require.NoError(t, err)
+			require.Equal(t, len(payload), n)
+			tail := strings.Repeat("t", 2*1024)
+			_, err = write(tail)
+			require.NoError(t, err)
+			require.Equal(t, 1, createCalls, "later writes must not repeatedly attempt the unavailable spool")
+			require.Nil(t, stage.tempFile)
+			require.Empty(t, stage.tempPath)
+			require.Equal(t, stage.limit, stage.Buffered())
+
+			n, err = write("!")
+			require.Zero(t, n)
+			require.ErrorIs(t, err, errOpenAIFirstOutputStageLimit)
+			require.Equal(t, stage.limit, stage.Buffered(), "overflow must leave the buffered response intact")
+			var downstream bytes.Buffer
+			require.NoError(t, stage.CommitTo(&downstream))
+			require.Equal(t, prefix+payload+tail, downstream.String())
+			require.Zero(t, stage.Buffered())
+		})
+	}
+}
+
 func TestOpenAIFirstOutputStageUnlinkFailurePermanentlyFallsBackToMemoryAndRetriesCleanup(t *testing.T) {
 	stage := newDefaultOpenAIFirstOutputStage()
 	stage.memoryOnly = false
