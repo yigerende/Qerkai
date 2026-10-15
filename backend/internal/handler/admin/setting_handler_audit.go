@@ -478,6 +478,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 		changed = append(changed, "openai_ws_pool_optimization_enabled")
 	}
 	// 二次开发：上游 502/503 过载重试。
+	if before.OpenAIUpstream5xxRetryForceNewConnection != after.OpenAIUpstream5xxRetryForceNewConnection {
+		changed = append(changed, "openai_upstream_5xx_retry_force_new_connection")
+	}
 	if before.OpenAIUpstream5xxRetryEnabled != after.OpenAIUpstream5xxRetryEnabled {
 		changed = append(changed, "openai_upstream_5xx_retry_enabled")
 	}

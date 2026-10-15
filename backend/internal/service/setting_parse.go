@@ -903,6 +903,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIWSOptimizedDialIntervalMS = parseIntSettingDefault(settings, SettingKeyOpenAIWSOptimizedDialIntervalMS, 400)
 	// 二次开发：上游 502/503 过载重试。默认关闭，关闭时链路与上游原始逻辑一致。
 	result.OpenAIUpstream5xxRetryEnabled = settings[SettingKeyOpenAIUpstream5xxRetryEnabled] == "true"
+	result.OpenAIUpstream5xxRetryForceNewConnection = result.OpenAIUpstream5xxRetryEnabled && result.ForceOpenAIUpstreamWS && settings[SettingKeyOpenAIUpstream5xxRetryForceNewConnection] == "true"
 	result.OpenAIUpstream5xxRetrySameAccount = parseIntSettingDefault(settings, SettingKeyOpenAIUpstream5xxRetrySameAccount, DefaultOpenAIUpstream5xxRetrySameAccount)
 	result.OpenAIUpstream5xxRetryTotal = parseIntSettingDefault(settings, SettingKeyOpenAIUpstream5xxRetryTotal, DefaultOpenAIUpstream5xxRetryTotal)
 	result.OpenAIUpstream5xxRetryDelayMS = parseIntSettingDefault(settings, SettingKeyOpenAIUpstream5xxRetryDelayMS, DefaultOpenAIUpstream5xxRetryDelayMS)

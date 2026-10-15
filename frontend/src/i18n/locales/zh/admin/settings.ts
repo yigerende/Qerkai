@@ -523,6 +523,8 @@ export default {
         forceOpenAIUpstreamWSHint:
           '开启后，仅对生效分组强制使用 OpenAI 上游 WebSocket，未选分组保持原有协议处理。全局强制 HTTP、账号级强制 HTTP 等限制仍然生效。默认关闭。',
         openaiUpstream5xxRetry: 'OpenAI 上游 502/503 自动重试',
+      openaiUpstream5xxRetryForceNewConnection: '502/503 重试时强制新建 WS 连接',
+      openaiUpstream5xxRetryForceNewConnectionHint: '需开启强制 OpenAI 上游 WebSocket。仅命中强制 WS 分组的 502/503 业务重试使用新连接，不复用主连接、备用或预热连接；同账号/换账号、重试次数与计费仍沿用原逻辑。默认关闭。',
         openaiUpstream5xxRetryHint:
           '仅用于 HTTP/SSE Responses 请求强制上游 WS 的 OpenAI OAuth/SetupToken 账号。按已启用规则匹配上游错误，默认选中请求处理失败（502）和服务器过载（503），按同账号次数、累计次数和间隔执行，再按需换账号。CPA 网络首帧通知保持即时转发；回答、推理或工具输出开始后不再重试。连接恢复沿用原有内部重连，关闭后保持原处理路径。',
         openaiUpstream5xxRetryFields: {

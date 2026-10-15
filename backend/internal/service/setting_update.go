@@ -565,6 +565,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, fmt.Errorf("%s must be between %d and %d", SettingKeyOpenAIUpstream5xxRetryDelayMS,
 			MinOpenAIUpstream5xxRetryDelayMS, MaxOpenAIUpstream5xxRetryDelayMS)
 	}
+	settings.OpenAIUpstream5xxRetryForceNewConnection = settings.OpenAIUpstream5xxRetryForceNewConnection && settings.OpenAIUpstream5xxRetryEnabled && settings.ForceOpenAIUpstreamWS
+	updates[SettingKeyOpenAIUpstream5xxRetryForceNewConnection] = strconv.FormatBool(settings.OpenAIUpstream5xxRetryForceNewConnection)
 	updates[SettingKeyOpenAIUpstream5xxRetryEnabled] = strconv.FormatBool(settings.OpenAIUpstream5xxRetryEnabled)
 	updates[SettingKeyOpenAIUpstream5xxRetrySameAccount] = strconv.Itoa(settings.OpenAIUpstream5xxRetrySameAccount)
 	updates[SettingKeyOpenAIUpstream5xxRetryTotal] = strconv.Itoa(settings.OpenAIUpstream5xxRetryTotal)

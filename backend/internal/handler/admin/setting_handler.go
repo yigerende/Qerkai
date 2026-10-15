@@ -312,6 +312,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIWSOptimizedSessionIdleSeconds:                    settings.OpenAIWSOptimizedSessionIdleSeconds,
 		OpenAIWSOptimizedDialIntervalMS:                        settings.OpenAIWSOptimizedDialIntervalMS,
 		OpenAIUpstream5xxRetryEnabled:                          settings.OpenAIUpstream5xxRetryEnabled,
+		OpenAIUpstream5xxRetryForceNewConnection:               settings.OpenAIUpstream5xxRetryForceNewConnection,
 		OpenAIUpstream5xxRetrySameAccount:                      settings.OpenAIUpstream5xxRetrySameAccount,
 		OpenAIUpstream5xxRetryTotal:                            settings.OpenAIUpstream5xxRetryTotal,
 		OpenAIUpstream5xxRetryDelayMS:                          settings.OpenAIUpstream5xxRetryDelayMS,

@@ -176,7 +176,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	}
 	// This retry must dial a new socket, including when session/standby/prewarm
 	// connections exist. Keep the pool's limits, headers and proxy handling.
-	if businessRetry != nil && businessRetry.freshConnectionPending {
+	if businessRetry != nil && (businessRetry.freshConnectionPending || businessRetry.forceNewConnectionForBusinessRetry(c)) {
 		forceNewConn = true
 		preferredConnID = ""
 	}
@@ -423,6 +423,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	stateTicket.noteSent()
 	if businessRetry != nil {
 		businessRetry.freshConnectionPending = false
+		businessRetry.businessFreshConnectionPending = false
 	}
 	if debugEnabled {
 		logOpenAIWSModeDebug(

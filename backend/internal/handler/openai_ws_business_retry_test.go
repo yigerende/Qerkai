@@ -28,7 +28,10 @@ import (
 const wsBusinessProcessingMessage = "An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID request-test in your message."
 const wsBusinessOverloadMessage = "Our servers are currently overloaded. Please try again later."
 
-type wsBusinessAttempt struct{ account, body, turnState string }
+type wsBusinessAttempt struct {
+	account, body, turnState string
+	connection               int64
+}
 type wsBusinessObservation struct {
 	count, intendedStatus, upstreamErrors int
 	requestError                          bool
@@ -63,6 +66,9 @@ type wsBusinessFixture struct {
 	handshakeStatus   func(int64) int
 	sameAccount       int
 	failureSent       chan struct{}
+	loadGate          chan struct{}
+	loadReady         atomic.Int64
+	loadConcurrency   int64
 }
 
 func newWSBusinessFixture(t *testing.T, retry service.OpenAIUpstream5xxRetryConfig, accountCount int, handshakeFailures int64) *wsBusinessFixture {
@@ -86,6 +92,16 @@ func newWSBusinessFixture(t *testing.T, retry service.OpenAIUpstream5xxRetryConf
 		for old := f.peak.Load(); active > old; old = f.peak.Load() {
 			if f.peak.CompareAndSwap(old, active) {
 				break
+			}
+		}
+		if f.loadGate != nil {
+			if f.loadReady.Add(1) == f.loadConcurrency {
+				close(f.loadGate)
+			}
+			select {
+			case <-f.loadGate:
+			case <-c.Request.Context().Done():
+				return
 			}
 		}
 		groupID := int64(3131)
@@ -153,7 +169,7 @@ func (f *wsBusinessFixture) serveWS(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		f.mu.Lock()
-		f.attempts[key] = append(f.attempts[key], wsBusinessAttempt{account: req.Header.Get("Authorization"), body: string(raw), turnState: req.Header.Get("X-Codex-Turn-State")})
+		f.attempts[key] = append(f.attempts[key], wsBusinessAttempt{account: req.Header.Get("Authorization"), body: string(raw), turnState: req.Header.Get("X-Codex-Turn-State"), connection: dial})
 		attempt := len(f.attempts[key])
 		f.mu.Unlock()
 		mode := strings.Split(key, "/")[0]
@@ -528,14 +544,24 @@ func TestOpenAIWSBusinessRetryOffAndHandshake(t *testing.T) {
 }
 
 func TestOpenAIWSBusinessRetryConcurrentSimulation(t *testing.T) {
+	runWSBusinessRetryConcurrentSimulation(t, false, []int{50, 200})
+}
+
+func TestOpenAIWSBusinessRetryFreshConnectionConcurrentSimulation(t *testing.T) {
+	runWSBusinessRetryConcurrentSimulation(t, true, []int{40, 100, 500})
+}
+
+func runWSBusinessRetryConcurrentSimulation(t *testing.T, fresh bool, concurrencies []int) {
 	if testing.Short() {
 		t.Skip("real HTTP/SSE and WS concurrency simulation")
 	}
-	for _, concurrency := range []int{50, 200} {
+	for _, concurrency := range concurrencies {
 		t.Run(fmt.Sprint(concurrency), func(t *testing.T) {
 			service.ClearOpenAIUpstream5xxRetryLog()
 			t.Cleanup(service.ClearOpenAIUpstream5xxRetryLog)
-			f := newWSBusinessFixture(t, service.OpenAIUpstream5xxRetryConfig{Enabled: true, SameAccount: 3, Total: 5, Delay: time.Millisecond}, 5, 0)
+			f := newWSBusinessFixture(t, service.OpenAIUpstream5xxRetryConfig{Enabled: true, ForceNewConnection: fresh, SameAccount: 3, Total: 5, Delay: time.Millisecond}, 5, 0)
+			f.loadGate = make(chan struct{})
+			f.loadConcurrency = int64(concurrency)
 			const total = 500
 			jobs := make(chan int)
 			var wg sync.WaitGroup
@@ -560,11 +586,27 @@ func TestOpenAIWSBusinessRetryConcurrentSimulation(t *testing.T) {
 							continue
 						}
 						f.verify(t, key, events, 4, true)
+						if fresh {
+							f.mu.Lock()
+							seen := map[int64]bool{}
+							for _, attempt := range f.attempts[key] {
+								if seen[attempt.connection] {
+									t.Errorf("%s reused connection %d", key, attempt.connection)
+								}
+								seen[attempt.connection] = true
+							}
+							f.mu.Unlock()
+						}
 					}
 				}()
 			}
 			for i := 0; i < total; i++ {
 				jobs <- i
+				// Ramp local TCP establishment below the Windows listen backlog,
+				// then release the first cohort together at the handler barrier.
+				if i < concurrency {
+					time.Sleep(time.Millisecond)
+				}
 			}
 			close(jobs)
 			wg.Wait()

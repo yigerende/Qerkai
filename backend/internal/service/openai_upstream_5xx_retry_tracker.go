@@ -15,25 +15,26 @@ const openAIUpstream5xxRetryTrackerKey = "openai_upstream_5xx_retry_tracker"
 // One ledger supplies the retry panel, usage records and request-wide budget.
 // A scheduled retry is committed only when the next forwarding attempt starts.
 type openAIUpstream5xxRetryTracker struct {
-	mu                  sync.Mutex
-	firstInterceptAt    time.Time
-	completedAt         time.Time
-	intercepts          int
-	sameAccountAttempts map[int64]int
-	pending             *OpenAIUpstream5xxRetryLogEntry
-	lastStatus          int
-	lastAccountID       int64
-	lastAccountName     string
-	lastModel           string
-	lastMessage         string
-	lastRuleID          string
-	lastRuleName        string
-	wsRetryCount        int
-	wsRetryStatus       string
-	wsRetryReason       string
-	finalMessage        string
-	stopReason          string
-	flushed             bool
+	mu                        sync.Mutex
+	firstInterceptAt          time.Time
+	completedAt               time.Time
+	intercepts                int
+	sameAccountAttempts       map[int64]int
+	pendingForceNewConnection bool
+	pending                   *OpenAIUpstream5xxRetryLogEntry
+	lastStatus                int
+	lastAccountID             int64
+	lastAccountName           string
+	lastModel                 string
+	lastMessage               string
+	lastRuleID                string
+	lastRuleName              string
+	wsRetryCount              int
+	wsRetryStatus             string
+	wsRetryReason             string
+	finalMessage              string
+	stopReason                string
+	flushed                   bool
 }
 
 func NoteOpenAIUpstream5xxRetryIntercept(c *gin.Context, account *Account, failoverErr *UpstreamFailoverError, model string, sameAccountAttempt, _ int, retryDelay time.Duration) {
@@ -57,6 +58,7 @@ func NoteOpenAIUpstream5xxRetryIntercept(c *gin.Context, account *Account, failo
 		tracker.firstInterceptAt = time.Now()
 	}
 	tracker.pending = &entry
+	tracker.pendingForceNewConnection = failoverErr.OpenAIUpstream5xxRetry.ForceNewConnection
 }
 
 func RecordOpenAIUpstream5xxRetrySkipped(c *gin.Context, account *Account, statusCode int, model, reason string) {

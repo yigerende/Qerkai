@@ -24,6 +24,7 @@ func ArmOpenAIUpstream5xxUsageRetry(c *gin.Context, account *Account, failoverEr
 }
 
 func BeginOpenAIUpstream5xxUsageAttempt(c *gin.Context) {
+	state := openAIWSBusinessRetryStateFrom(c)
 	tracker := existingOpenAIUpstream5xxRetryTracker(c)
 	if tracker == nil {
 		return
@@ -33,6 +34,10 @@ func BeginOpenAIUpstream5xxUsageAttempt(c *gin.Context) {
 		tracker.mu.Unlock()
 		return
 	}
+	if state != nil {
+		state.businessFreshConnectionPending = tracker.pendingForceNewConnection
+	}
+	tracker.pendingForceNewConnection = false
 	entry := *tracker.pending
 	tracker.pending = nil
 	tracker.intercepts++

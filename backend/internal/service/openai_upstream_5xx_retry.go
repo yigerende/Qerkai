@@ -44,11 +44,12 @@ const (
 
 // OpenAIUpstream5xxRetryConfig 是本功能的运行时配置快照。
 type OpenAIUpstream5xxRetryConfig struct {
-	Rules       []OpenAIUpstream5xxRetryRule
-	Enabled     bool
-	SameAccount int
-	Total       int
-	Delay       time.Duration
+	Rules              []OpenAIUpstream5xxRetryRule
+	ForceNewConnection bool
+	Enabled            bool
+	SameAccount        int
+	Total              int
+	Delay              time.Duration
 }
 
 type cachedOpenAIUpstream5xxRetryConfig struct {
@@ -85,11 +86,12 @@ func refreshOpenAIUpstream5xxRetryCache(settings *SystemSettings) {
 	openAIUpstream5xxRetrySF.Forget(openAIUpstream5xxRetrySFKey)
 	openAIUpstream5xxRetryCache.Store(&cachedOpenAIUpstream5xxRetryConfig{
 		config: OpenAIUpstream5xxRetryConfig{
-			Rules:       settings.OpenAIUpstream5xxRetryRules,
-			Enabled:     settings.OpenAIUpstream5xxRetryEnabled,
-			SameAccount: clampOpenAIUpstream5xxRetrySameAccount(settings.OpenAIUpstream5xxRetrySameAccount),
-			Total:       clampOpenAIUpstream5xxRetryTotal(settings.OpenAIUpstream5xxRetryTotal),
-			Delay:       time.Duration(clampOpenAIUpstream5xxRetryDelayMS(settings.OpenAIUpstream5xxRetryDelayMS)) * time.Millisecond,
+			Rules:              settings.OpenAIUpstream5xxRetryRules,
+			ForceNewConnection: settings.OpenAIUpstream5xxRetryForceNewConnection && settings.ForceOpenAIUpstreamWS && settings.OpenAIUpstream5xxRetryEnabled,
+			Enabled:            settings.OpenAIUpstream5xxRetryEnabled,
+			SameAccount:        clampOpenAIUpstream5xxRetrySameAccount(settings.OpenAIUpstream5xxRetrySameAccount),
+			Total:              clampOpenAIUpstream5xxRetryTotal(settings.OpenAIUpstream5xxRetryTotal),
+			Delay:              time.Duration(clampOpenAIUpstream5xxRetryDelayMS(settings.OpenAIUpstream5xxRetryDelayMS)) * time.Millisecond,
 		},
 		expiresAt: time.Now().Add(openAIUpstream5xxRetryCacheTTL).UnixNano(),
 	})
@@ -159,6 +161,7 @@ func OpenAIUpstream5xxRetrySettings() OpenAIUpstream5xxRetryConfig {
 			Total: clampOpenAIUpstream5xxRetryTotal(openAIUpstream5xxRetryIntSetting(
 				dbCtx, svc, SettingKeyOpenAIUpstream5xxRetryTotal, DefaultOpenAIUpstream5xxRetryTotal)),
 		}
+		config.ForceNewConnection, _ = openAIUpstream5xxRetryBoolSetting(dbCtx, svc, SettingKeyOpenAIUpstream5xxRetryForceNewConnection)
 		config.Delay = time.Duration(clampOpenAIUpstream5xxRetryDelayMS(openAIUpstream5xxRetryIntSetting(
 			dbCtx, svc, SettingKeyOpenAIUpstream5xxRetryDelayMS, DefaultOpenAIUpstream5xxRetryDelayMS))) * time.Millisecond
 		rawRules, rulesErr := svc.settingRepo.GetValue(dbCtx, SettingKeyOpenAIUpstream5xxRetryRules)

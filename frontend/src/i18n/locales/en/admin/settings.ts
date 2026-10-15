@@ -530,6 +530,8 @@ export default {
         forceOpenAIUpstreamWSHint:
           'Force OpenAI upstream WebSocket for enabled groups only. Other groups retain their existing transport handling. Global and per-account force-HTTP restrictions still apply. Disabled by default.',
         openaiUpstream5xxRetry: 'Auto-retry OpenAI upstream 502/503',
+      openaiUpstream5xxRetryForceNewConnection: 'Use a new WS connection for 502/503 retries',
+      openaiUpstream5xxRetryForceNewConnectionHint: 'Requires forced OpenAI upstream WebSocket. Only 502/503 business retries in forced-WS groups dial a new connection, bypassing session, standby and prewarmed connections. Account selection, retry limits and billing are unchanged. Disabled by default.',
         openaiUpstream5xxRetryHint:
           'Applies to HTTP/SSE Responses requests forced to upstream WS on OpenAI OAuth/SetupToken accounts. Enabled rules match upstream errors, with processing failure (502) and server overload (503) selected by default. Retries follow the per-account limit, total limit and delay before switching accounts. CPA notifications remain immediate; answer, reasoning or tool output stops retries. Connection recovery uses existing WS reconnects. Disabling this feature preserves the original handling.',
         openaiUpstream5xxRetryFields: {

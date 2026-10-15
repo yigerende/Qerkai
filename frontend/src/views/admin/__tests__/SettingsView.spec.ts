@@ -727,6 +727,46 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
+  it("only enables fresh business-retry connections with both prerequisites", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: false, openai_upstream_5xx_retry_enabled: true });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const option = wrapper.get('[data-testid="upstream-5xx-retry-force-new-connection"] input');
+    expect(option.attributes('disabled')).toBeDefined();
+    const label = wrapper.findAll('label').find(label => label.text() === 'admin.settings.gatewayForwarding.forceOpenAIUpstreamWS')!;
+    const forceWS = label.element.parentElement!.parentElement!.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    forceWS.checked = true;
+    forceWS.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+    await option.setValue(true);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ openai_upstream_5xx_retry_force_new_connection: true }));
+    forceWS.checked = false;
+    forceWS.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushPromises();
+    expect(option.element).toHaveProperty('checked', false);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ openai_upstream_5xx_retry_force_new_connection: false }));
+    wrapper.unmount();
+  });
+
+  it("reloads and preserves enabled fresh business-retry connections", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: true, openai_upstream_5xx_retry_enabled: true, openai_upstream_5xx_retry_force_new_connection: true });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const option = wrapper.get('[data-testid="upstream-5xx-retry-force-new-connection"] input');
+    expect(option.attributes('disabled')).toBeUndefined();
+    expect(option.element).toHaveProperty('checked', true);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ openai_upstream_5xx_retry_force_new_connection: true }));
+    wrapper.unmount();
+  });
+
   it("requires forced WS for processing-error retries and saves their count", async () => {
     getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: false });
     const wrapper = mountView();

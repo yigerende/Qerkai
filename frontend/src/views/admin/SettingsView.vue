@@ -4055,7 +4055,7 @@
                       </tr>
                     </thead>
                     <tbody class="space-y-2">
-                      <tr v-for="p in (['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'typesafe'] as const)" :key="p" class="align-top">
+                      <tr v-for="p in platformQuotaRows(form.default_platform_quotas)" :key="p" class="align-top">
                         <td class="pr-4 py-1">
                           <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                         </td>
@@ -4390,7 +4390,7 @@
                             </tr>
                           </thead>
                           <tbody>
-                            <tr v-for="p in (['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'typesafe'] as const)" :key="`${authSource.source}-pq-${p}`" class="align-top">
+                            <tr v-for="p in platformQuotaRows(authSourceDefaults[authSource.source].platform_quotas)" :key="`${authSource.source}-pq-${p}`" class="align-top">
                               <td class="pr-4 py-1">
                                 <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                               </td>
@@ -5525,6 +5525,14 @@
                   <input v-model.number="form[field.key]" type="number" :min="field.min" :max="field.max" step="1" class="input" />
                   <span class="mt-1 block text-[11px] text-gray-400">{{ field.hint }}</span>
                 </label>
+              </div>
+
+              <div v-if="form.openai_upstream_5xx_retry_enabled" data-testid="upstream-5xx-retry-force-new-connection" class="flex items-center justify-between gap-4 rounded-lg bg-gray-50 p-4 dark:bg-dark-700/50">
+                <div>
+                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.gatewayForwarding.openaiUpstream5xxRetryForceNewConnection') }}</label>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.gatewayForwarding.openaiUpstream5xxRetryForceNewConnectionHint') }}</p>
+                </div>
+                <Toggle v-model="form.openai_upstream_5xx_retry_force_new_connection" :disabled="!form.force_openai_upstream_ws" />
               </div>
 
               <OpenAIUpstream5xxRetryRules v-if="form.openai_upstream_5xx_retry_enabled" v-model="form.openai_upstream_5xx_retry_rules" />
@@ -9084,6 +9092,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
+import { listPlatformIds } from "@/constants/platformCatalog";
 import { useI18n } from "vue-i18n";
 import { adminAPI } from "@/api";
 import {
@@ -9873,12 +9882,18 @@ type SettingsForm = Omit<
   payment_recharge_bonus_tiers: RechargeBonusTierDraft[];
   payment_recharge_bonus_mode: RechargeBonusMode;
   payment_recharge_bonus_notice: string;
-  // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
+  // 系统全局平台限额 map；form 内始终归一化为全部平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
   account_scheduling_thresholds: ReturnType<typeof normalizeAccountSchedulingThresholdsMap>;
 };
 
 const schedulingThresholdPlatforms = SCHEDULING_THRESHOLD_PLATFORMS;
+
+// 平台限额表格的行：平台清单顺序中、已在归一化 map 里的平台（清单晚于设置加载时
+// 不渲染尚未归一化的平台，保持模板非空绑定）。
+function platformQuotaRows(map: DefaultPlatformQuotasMap | undefined): string[] {
+  return listPlatformIds().filter((platform) => !!map?.[platform]);
+}
 
 const form = reactive<SettingsForm>({
   registration_enabled: true,
@@ -10131,6 +10146,7 @@ const form = reactive<SettingsForm>({
   openai_downstream_model_alignment: { enabled: false, group_ids: null as number[] | null, models: ['gpt-6-astra'] },
   force_openai_upstream_ws_group_ids: null as number[] | null,
   openai_upstream_5xx_retry_enabled: false,
+  openai_upstream_5xx_retry_force_new_connection: false,
   openai_upstream_5xx_retry_same_account: 2,
   openai_upstream_5xx_retry_total: 5,
   openai_upstream_5xx_retry_delay_ms: 500,
@@ -11843,6 +11859,7 @@ async function saveSettings() {
       openai_downstream_model_alignment: form.openai_downstream_model_alignment,
       force_openai_upstream_ws_group_ids: form.force_openai_upstream_ws_group_ids,
       openai_upstream_5xx_retry_enabled: form.openai_upstream_5xx_retry_enabled,
+      openai_upstream_5xx_retry_force_new_connection: form.force_openai_upstream_ws && form.openai_upstream_5xx_retry_enabled && form.openai_upstream_5xx_retry_force_new_connection,
       openai_upstream_5xx_retry_same_account: form.openai_upstream_5xx_retry_same_account,
       openai_upstream_5xx_retry_total: form.openai_upstream_5xx_retry_total,
       openai_upstream_5xx_retry_delay_ms: form.openai_upstream_5xx_retry_delay_ms,
@@ -13497,6 +13514,9 @@ watch(
     }
   },
 );
+watch(() => [form.force_openai_upstream_ws, form.openai_upstream_5xx_retry_enabled], ([forceWS, retry]) => {
+  if (!forceWS || !retry) form.openai_upstream_5xx_retry_force_new_connection = false;
+});
 function updateBPSSettings(value: BPSSettings) {
   form.openai_bps = value;
   if (value.enabled) {

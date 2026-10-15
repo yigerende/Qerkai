@@ -32,7 +32,9 @@ func ConfigureOpenAIWSBusinessRetryForTest(s *OpenAIGatewayService, endpoint str
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.OAuthEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
-	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 256
+	// Capacity above the 500-request stress cohort; pool-capacity behavior has
+	// separate tests. This fixture measures retries without a capacity bottleneck.
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1024
 	cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 256
 	cfg.Gateway.OpenAIWS.MinIdlePerAccount = 0
 	cfg.Gateway.OpenAIWS.QueueLimitPerConn = 1024

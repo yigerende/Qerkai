@@ -19,24 +19,25 @@ const openAIWSBusinessRetryKey = "openai_ws_business_retry"
 // This state belongs to one HTTP response, never to a pooled WS connection.
 type openAIWSBusinessRetryState struct {
 	// Shared downstream continuity; the fresh-connection budget is independent of 502/503 business retries.
-	freshConnectionRetryMax int
-	freshConnectionRetries  int
-	freshConnectionPending  bool
-	freshConnectionPayload  map[string]any
-	freshConnectionAccount  int64
-	config                  OpenAIUpstream5xxRetryConfig
-	startedAt               time.Time
-	firstFrameAt            time.Time
-	capacityFirstAt         time.Time
-	outputStarted           bool
-	outputEvent             string
-	managed                 bool
-	clientResponseID        string
-	createdSent             bool
-	inProgressSent          bool
-	hasSequence             bool
-	sequence                int64
-	terminalEvent           string
+	freshConnectionRetryMax        int
+	freshConnectionRetries         int
+	businessFreshConnectionPending bool
+	freshConnectionPending         bool
+	freshConnectionPayload         map[string]any
+	freshConnectionAccount         int64
+	config                         OpenAIUpstream5xxRetryConfig
+	startedAt                      time.Time
+	firstFrameAt                   time.Time
+	capacityFirstAt                time.Time
+	outputStarted                  bool
+	outputEvent                    string
+	managed                        bool
+	clientResponseID               string
+	createdSent                    bool
+	inProgressSent                 bool
+	hasSequence                    bool
+	sequence                       int64
+	terminalEvent                  string
 }
 
 func openAIWSBusinessRetryStateFrom(c *gin.Context) *openAIWSBusinessRetryState {
