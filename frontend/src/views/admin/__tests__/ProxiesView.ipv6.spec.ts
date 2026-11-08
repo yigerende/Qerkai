@@ -1,51 +1,48 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { parseProxyUrl } from '@/utils/proxyInput'
 
-// parseProxyUrl is not exported; assert on the source to lock in the
-// bracketed-IPv6 host alternative and exercise the regex directly.
-const source = readFileSync(
-  resolve(process.cwd(), 'src/views/admin/ProxiesView.vue'),
-  'utf8'
-)
-
-function extractRegex(): RegExp {
-  const match = source.match(/const regex =\s*\n?\s*(\/\^\(https\?[^;\n]+\/i)\n/)
-  expect(match, 'parseProxyUrl regex not found in ProxiesView.vue').toBeTruthy()
-  return new RegExp((match as RegExpMatchArray)[1].slice(1, -2), 'i')
-}
-
-describe('proxy batch URL parsing (IPv6 support)', () => {
-  it('keeps bracketed-IPv6 host alternative in the regex', () => {
-    expect(source).toContain('\\[[0-9a-f:.]+\\]')
+describe('proxy quick add parsing', () => {
+  it.each([
+    'socks5://[2001:db8::1]:1080',
+    'socks5h://[2001:db8::1]:1080',
+    'http://[::1]:8080',
+    'socks5://user:pass@[2001:db8::1]:1080',
+    'socks5://proxy.example.com:1080',
+    'http://192.168.1.1:8080',
+    'socks5://user:pass@proxy.example.com:1080',
+    'https://user:pass@proxy.example.com:443'
+  ])('preserves URL support: %s', line => {
+    expect(parseProxyUrl(line)).not.toBeNull()
   })
 
-  const regex = extractRegex()
+  it('extracts bracketed IPv6 and its credentials', () => {
+    expect(parseProxyUrl('socks5://user:pass@[2001:db8::1]:1080')).toEqual({
+      protocol: 'socks5', host: '2001:db8::1', port: 1080, username: 'user', password: 'pass'
+    })
+  })
+
+  it('defaults provider shorthand to HTTP and produces the same import fields as a URL', () => {
+    expect(parseProxyUrl(' 192.0.2.1:12323:example-user:example-pass ')).toEqual(
+      parseProxyUrl('http://example-user:example-pass@192.0.2.1:12323')
+    )
+    expect(parseProxyUrl('192.0.2.1:12323:example-user:example-pass')?.protocol).toBe('http')
+  })
+
+  it('keeps colons, at-signs, and percent signs in shorthand passwords', () => {
+    expect(parseProxyUrl('proxy.example.com:8080:user:pass:with@percent%')).toEqual({
+      protocol: 'http', host: 'proxy.example.com', port: 8080, username: 'user', password: 'pass:with@percent%'
+    })
+  })
+
+  it('accepts bracketed IPv6 shorthand', () => {
+    expect(parseProxyUrl('[2001:db8::1]:8080:user:pass')?.host).toBe('2001:db8::1')
+  })
 
   it.each([
-    ['socks5://[2001:db8::1]:1080', true],
-    ['socks5h://[2001:db8::1]:1080', true],
-    ['http://[::1]:8080', true],
-    ['socks5://user:pass@[2001:db8::1]:1080', true],
-    ['socks5://proxy.example.com:1080', true],
-    ['http://192.168.1.1:8080', true],
-    ['socks5://user:pass@proxy.example.com:1080', true],
-    // bare IPv6 without brackets is ambiguous with host:port — rejected
-    ['socks5://2001:db8::1:1080', false],
-    // unsupported schemes / malformed ports stay invalid
-    ['ftp://example.com:21', false],
-    ['socks5://example.com:port', false]
-  ])('%s => %s', (line, expected) => {
-    expect(regex.test(line)).toBe(expected)
-  })
-
-  it('extracts bare IPv6 host without brackets', () => {
-    const m = 'socks5://user:pass@[2001:db8::1]:1080'.match(regex)
-    expect(m).toBeTruthy()
-    const [, , username, password, rawHost, port] = m as RegExpMatchArray
-    expect(username).toBe('user')
-    expect(password).toBe('pass')
-    expect(rawHost.replace(/^\[|\]$/g, '')).toBe('2001:db8::1')
-    expect(port).toBe('1080')
+    '', 'socks5://2001:db8::1:1080', 'ftp://example.com:21', 'socks5://example.com:port',
+    'host:0:user:pass', 'host:65536:user:pass', 'host:8080::pass', 'host:8080:user:',
+    'http://host:8080:user:pass', 'host:port:user:pass', 'host:8080:user', '2001:db8::1:8080:user:pass'
+  ])('rejects malformed input: %s', line => {
+    expect(parseProxyUrl(line)).toBeNull()
   })
 })
