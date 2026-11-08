@@ -65,7 +65,7 @@ func (c *congestionSlotsFixture) GetAccountsLoadBatch(_ context.Context, account
 		if a.ID == 1 {
 			used += 80
 		}
-		out[a.ID] = &AccountLoadInfo{AccountID: a.ID, LoadRate: used * 100 / a.MaxConcurrency}
+		out[a.ID] = &AccountLoadInfo{AccountID: a.ID, CurrentConcurrency: used, LoadRate: used * 100 / a.MaxConcurrency}
 	}
 	return out, nil
 }
@@ -318,7 +318,7 @@ func congestionFixture(enabled bool, loadA, loadB int) (*OpenAIGatewayService, *
 	}
 	cache := &congestionCacheFixture{bindings: map[string]int64{}, pending: map[string]string{}, protected: map[string]bool{}}
 	settings := &SettingService{settingRepo: &openAIAdvancedSchedulerSettingRepoStub{}}
-	settings.openAICongestionCache.Store(&cachedOpenAICongestionSetting{enabled, time.Now().Add(time.Hour)})
+	settings.cacheOpenAICongestionSettings(func() OpenAICongestionSettings { c := DefaultOpenAICongestionSettings(); c.Enabled = enabled; return c }())
 	cfg := newSchedulerTestOpenAIWSV2Config()
 	cfg.Gateway.Scheduling.LoadBatchEnabled = true
 	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 3
@@ -326,7 +326,7 @@ func congestionFixture(enabled bool, loadA, loadB int) (*OpenAIGatewayService, *
 	cfg.Gateway.Scheduling.FallbackWaitTimeout = 30 * time.Second
 	cfg.Gateway.Scheduling.FallbackMaxWaiting = 100
 	svc := &OpenAIGatewayService{accountRepo: congestionAccountRepo{schedulerGroupAwareOpenAIAccountRepo{schedulerTestOpenAIAccountRepo{accounts: accounts}}}, cache: cache, settingService: settings, cfg: cfg,
-		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{loadMap: map[int64]*AccountLoadInfo{1: {AccountID: 1, LoadRate: loadA}, 2: {AccountID: 2, LoadRate: loadB}}, acquireResults: map[int64]bool{1: loadA < 100, 2: loadB < 100}})}
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{loadMap: map[int64]*AccountLoadInfo{1: {AccountID: 1, CurrentConcurrency: loadA, LoadRate: loadA}, 2: {AccountID: 2, CurrentConcurrency: loadB, LoadRate: loadB}}, acquireResults: map[int64]bool{1: loadA < 100, 2: loadB < 100}})}
 	return svc, cache, accounts
 }
 func congestionContext(t *testing.T, s *OpenAIGatewayService) context.Context {
@@ -350,7 +350,7 @@ func congestionBad(s *OpenAIGatewayService, id int64) {
 	}
 	h := &congestionAccountHealth{active: map[*openAICongestionAttempt]struct{}{}, last: time.Now()}
 	for i := 0; i < 6; i++ {
-		h.samples = append(h.samples, congestionSample{at: time.Now(), bad: true})
+		h.samples = append(h.samples, congestionSample{at: time.Now(), bad: true, status: 502, model: "gpt-6-astra"})
 	}
 	s.congestionMonitor.accounts[id] = h
 }
@@ -455,7 +455,7 @@ func TestOpenAICongestionFailureAndDisableNeverCommit(t *testing.T) {
 			_, finish := s.beginCongestionForward(ctx, &a[1], nil)
 			sentinel := errors.New("original failed forward")
 			if disable {
-				s.settingService.openAICongestionCache.Store(&cachedOpenAICongestionSetting{false, time.Now().Add(time.Hour)})
+				s.settingService.cacheOpenAICongestionSettings(DefaultOpenAICongestionSettings())
 				require.NoError(t, finish(&OpenAIForwardResult{}, nil))
 			} else {
 				require.Same(t, sentinel, finish(nil, sentinel))
@@ -477,7 +477,7 @@ func TestOpenAICongestionFullShortWaitAndAllBusyFallback(t *testing.T) {
 			defer releaseLegacySchedulerDecisionSelection(sel)
 			if b == 10 {
 				require.EqualValues(t, 2, sel.Account.ID)
-				require.GreaterOrEqual(t, time.Since(start), congestionFullWait)
+				require.GreaterOrEqual(t, time.Since(start), 2*time.Second)
 			} else {
 				require.EqualValues(t, 1, sel.Account.ID)
 				require.NotNil(t, sel.WaitPlan)
@@ -550,11 +550,12 @@ func TestOpenAICongestionHealthDoesNotMistakeLongOutputForStall(t *testing.T) {
 		attempts = append(attempts, attempt)
 		finishes = append(finishes, finish)
 	}
-	require.Equal(t, "stalled_upstream_requests", s.congestionMonitor.reason(1, 90, time.Now()))
+	require.Equal(t, "stalled_upstream_requests", s.congestionMonitor.snapshot(1, "", 90, time.Now(), DefaultOpenAICongestionSettings()).reason)
 	for _, attempt := range attempts {
+		attempt.started = time.Now().Add(-time.Second)
 		observeCongestionEvent(context.WithValue(ctx, congestionAttemptKey{}, attempt), nil, "")
 	}
-	require.Empty(t, s.congestionMonitor.reason(1, 90, time.Now()))
+	require.Empty(t, s.congestionMonitor.snapshot(1, "", 90, time.Now(), DefaultOpenAICongestionSettings()).reason)
 	for _, finish := range finishes {
 		require.NoError(t, finish(&OpenAIForwardResult{}, nil))
 	}

@@ -35,7 +35,7 @@ func (c *gatewayCache) ReserveCongestionSession(ctx context.Context, group int64
 var commitCongestionScript = redis.NewScript(`
 if redis.call('GET', KEYS[2]) ~= ARGV[1] or redis.call('GET', KEYS[1]) ~= ARGV[2] then return 0 end
 redis.call('SET', KEYS[1], ARGV[3], 'PX', ARGV[4])
-redis.call('SET', KEYS[3], ARGV[3], 'PX', ARGV[5])
+if tonumber(ARGV[5]) > 0 then redis.call('SET', KEYS[3], ARGV[3], 'PX', ARGV[5]) else redis.call('DEL', KEYS[3]) end
 redis.call('DEL', KEYS[2])
 if #KEYS > 3 then redis.call('SET', KEYS[4], ARGV[3], 'PX', ARGV[6]) end
 return 1

@@ -29,7 +29,7 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	}
 	if attempt, _ := request.Context().Value(congestionAttemptKey{}).(*openAICongestionAttempt); attempt != nil {
 		defer func() {
-			if response != nil && response.Body != nil {
+			if response != nil && response.StatusCode >= 200 && response.StatusCode < 300 && response.Body != nil {
 				response.Body = &congestionObservedBody{ReadCloser: response.Body, attempt: attempt}
 			}
 		}()

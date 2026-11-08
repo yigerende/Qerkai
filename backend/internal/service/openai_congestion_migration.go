@@ -6,21 +6,12 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
-)
-
-const (
-	congestionFullWait   = 2 * time.Second
-	congestionProtection = 2 * time.Minute
-	congestionLeaseTTL   = 10 * time.Minute
-	congestionSlowFrame  = 60 * time.Second
 )
 
 type congestionRequestKey struct{}
@@ -47,6 +38,7 @@ type openAICongestionRequest struct {
 	legacy       string
 	allowRebind  bool
 	pinned       bool
+	model        string
 }
 
 func congestionRequest(ctx context.Context) *openAICongestionRequest {
@@ -117,120 +109,6 @@ func (s *OpenAIGatewayService) congestionBind(ctx context.Context, group int64, 
 	return true, err
 }
 
-type congestionSample struct {
-	at    time.Time
-	bad   bool
-	first time.Duration
-}
-type congestionAccountHealth struct {
-	samples []congestionSample
-	active  map[*openAICongestionAttempt]struct{}
-	last    time.Time
-}
-type openAICongestionMonitor struct {
-	mu        sync.Mutex
-	accounts  map[int64]*congestionAccountHealth
-	lastSweep time.Time
-}
-
-func (m *openAICongestionMonitor) start(a *openAICongestionAttempt) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.accounts == nil {
-		m.accounts = make(map[int64]*congestionAccountHealth)
-	}
-	now := time.Now()
-	if now.Sub(m.lastSweep) > time.Minute {
-		for id, h := range m.accounts {
-			if len(h.active) == 0 && now.Sub(h.last) > 2*time.Minute {
-				delete(m.accounts, id)
-			}
-		}
-		m.lastSweep = now
-	}
-	h := m.accounts[a.account]
-	if h == nil {
-		h = &congestionAccountHealth{active: make(map[*openAICongestionAttempt]struct{})}
-		m.accounts[a.account] = h
-	}
-	h.active[a] = struct{}{}
-	h.last = now
-}
-
-func (m *openAICongestionMonitor) finish(a *openAICongestionAttempt, result *OpenAIForwardResult, err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	h := m.accounts[a.account]
-	if h == nil {
-		return
-	}
-	delete(h.active, a)
-	h.last = time.Now()
-	if (err != nil && (errors.Is(err, context.Canceled) || (a.client != nil && a.client.Err() != nil))) || (err == nil && result == nil) {
-		return
-	}
-	bad := false
-	var failover *UpstreamFailoverError
-	var network net.Error
-	if errors.As(err, &failover) {
-		bad = failover.StatusCode == 429 || failover.StatusCode >= 500
-	}
-	if errors.As(err, &network) {
-		bad = true
-	}
-	if err != nil && !bad {
-		return
-	} // client errors and invalid prompts are not congestion.
-	first := time.Duration(0)
-	if ns := a.firstFrameNS.Load(); ns > 0 {
-		first = time.Duration(ns - 1)
-	} else if result != nil && result.FirstTokenMs != nil {
-		first = time.Duration(*result.FirstTokenMs) * time.Millisecond
-	}
-	h.samples = append(h.samples, congestionSample{time.Now(), bad, first})
-	if len(h.samples) > 64 {
-		copy(h.samples, h.samples[len(h.samples)-64:])
-		h.samples = h.samples[:64]
-	}
-}
-
-func (m *openAICongestionMonitor) reason(id int64, load int, now time.Time) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	h := m.accounts[id]
-	if h == nil {
-		return ""
-	}
-	n, bad, slow := 0, 0, 0
-	for _, v := range h.samples {
-		if now.Sub(v.at) <= time.Minute {
-			n++
-			if v.bad {
-				bad++
-			}
-			if v.first >= 15*time.Second {
-				slow++
-			}
-		}
-	}
-	if n >= 5 && bad >= 3 && bad*100/n >= 30 {
-		return "repeated_upstream_errors"
-	}
-	stalled := 0
-	for a := range h.active {
-		if !a.frame.Load() && now.Sub(a.started) >= congestionSlowFrame {
-			stalled++
-		}
-	}
-	if stalled >= 3 && stalled*5 >= len(h.active) {
-		return "stalled_upstream_requests"
-	}
-	if load >= 80 && n >= 5 && slow*100/n >= 30 {
-		return "high_load_and_slow_first_frame"
-	}
-	return ""
-}
-
 // One invocation surrounds one real forward, including HTTP -> forced WS.
 // Nested format adapters share the attempt instead of double-counting it.
 type openAICongestionAttempt struct {
@@ -240,15 +118,21 @@ type openAICongestionAttempt struct {
 	started      time.Time
 	frame        atomic.Bool
 	firstFrameNS atomic.Int64
+	model        string
+	config       OpenAICongestionSettings
 }
 
 // Observe only. Do not change upstream contexts, timeouts, output or retry policy.
-func (s *OpenAIGatewayService) beginCongestionForward(ctx context.Context, account *Account, _ []byte) (context.Context, func(*OpenAIForwardResult, error) error) {
+func (s *OpenAIGatewayService) beginCongestionForward(ctx context.Context, account *Account, body []byte) (context.Context, func(*OpenAIForwardResult, error) error) {
 	t := congestionRequest(ctx)
 	if !t.enabled(ctx) || account == nil || !account.IsOpenAIOAuth() || ctx.Value(congestionAttemptKey{}) != nil {
 		return ctx, func(_ *OpenAIForwardResult, e error) error { return e }
 	}
-	a := &openAICongestionAttempt{request: t, account: account.ID, started: time.Now(), client: ctx}
+	model := t.model
+	if model == "" {
+		model = gjson.GetBytes(body, "model").String()
+	}
+	a := &openAICongestionAttempt{request: t, account: account.ID, started: time.Now(), client: ctx, model: model, config: s.settingService.openAICongestionSettings(ctx)}
 	ctx = context.WithValue(ctx, congestionAttemptKey{}, a)
 	s.congestionMonitor.start(a)
 	return ctx, func(result *OpenAIForwardResult, err error) error {
@@ -257,7 +141,7 @@ func (s *OpenAIGatewayService) beginCongestionForward(ctx context.Context, accou
 			if err == nil && result != nil && t.enabled(ctx) {
 				commitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
-				ok, e := s.cache.(OpenAICongestionCache).CommitCongestionSession(commitCtx, t.group, t.session, t.migration, t.move.From, t.move.To, openaiStickySessionTTL, congestionProtection, t.legacy, s.openAIStickyLegacyTTL(openaiStickySessionTTL))
+				ok, e := s.cache.(OpenAICongestionCache).CommitCongestionSession(commitCtx, t.group, t.session, t.migration, t.move.From, t.move.To, openaiStickySessionTTL, time.Duration(s.settingService.openAICongestionSettings(ctx).ProtectionSeconds)*time.Second, t.legacy, s.openAIStickyLegacyTTL(openaiStickySessionTTL))
 				if e != nil {
 					slog.Warn("openai_congestion_binding_commit_failed", "account_id", account.ID, "error", e)
 				}
@@ -291,6 +175,9 @@ func (b *congestionObservedBody) Read(p []byte) (int, error) {
 func (a *openAICongestionAttempt) observeFrame() {
 	if a != nil && a.firstFrameNS.Load() == 0 && a.firstFrameNS.CompareAndSwap(0, time.Since(a.started).Nanoseconds()+1) {
 		a.frame.Store(true)
+		if a.request != nil {
+			a.request.s.congestionMonitor.recordFrame(a)
+		}
 	}
 }
 
@@ -309,6 +196,8 @@ func (s *OpenAIGatewayService) selectWithCongestion(ctx context.Context, groupID
 	if !t.enabled(ctx) || t.pinned || NormalizeOpenAICompatiblePlatform(platform) != PlatformOpenAI || previous != "" || imageCapability != "" || compact || preserveOpenAIGuardianParentBinding(ctx, session) || s.resolveOpenAIGuardianParentAccountID(ctx, groupID) > 0 {
 		return fallback()
 	}
+	cfg := s.settingService.openAICongestionSettings(ctx)
+	t.model = model
 	cache, ok := s.cache.(OpenAICongestionCache)
 	if !ok || s.concurrencyService == nil {
 		return fallback()
@@ -351,6 +240,7 @@ func (s *OpenAIGatewayService) selectWithCongestion(ctx context.Context, groupID
 	// only for an actual congestion signal or a new session.
 	reason := ""
 	sourceLoad := 0
+	var sourceHealth congestionHealthSnapshot
 	if bound > 0 && pending == "" {
 		if veto, _ := openAIProfitControlVetoReason(ctx, source); veto {
 			return fallback()
@@ -360,8 +250,9 @@ func (s *OpenAIGatewayService) selectWithCongestion(ctx context.Context, groupID
 			return fallback()
 		}
 		sourceLoad = loads[bound].LoadRate
-		reason = s.congestionMonitor.reason(bound, sourceLoad, time.Now())
-		if sourceLoad >= 100 {
+		sourceHealth = s.congestionMonitor.snapshot(bound, model, sourceLoad, time.Now(), cfg)
+		reason = sourceHealth.reason
+		if cfg.FullEnabled && sourceLoad >= cfg.FullLoadPercent {
 			reason = "concurrency_full"
 		}
 		if reason == "" {
@@ -433,7 +324,7 @@ func (s *OpenAIGatewayService) selectWithCongestion(ctx context.Context, groupID
 			continue
 		}
 		l := loadMap[a.ID]
-		if l == nil || l.LoadRate > 50 || s.congestionMonitor.reason(a.ID, l.LoadRate, now) != "" {
+		if l == nil || l.LoadRate > cfg.TargetMaxLoadPercent || a.Concurrency-l.CurrentConcurrency < cfg.TargetMinFreeSlots {
 			continue
 		}
 		if !isOpenAICompatibleAccountEligibleForRequest(ctx, a, platform, model, false, capability) || !s.openAIAccountMatchesSchedulingGroup(a, groupID) {
@@ -442,8 +333,23 @@ func (s *OpenAIGatewayService) selectWithCongestion(ctx context.Context, groupID
 		if veto, _ := openAIProfitControlVetoReason(ctx, a); veto {
 			continue
 		}
-		if reason == "high_load_and_slow_first_frame" && sourceLoad-l.LoadRate < 25 {
+		targetHealth := s.congestionMonitor.snapshot(a.ID, model, l.LoadRate, now, cfg)
+		if targetHealth.reason != "" {
 			continue
+		}
+		if bound > 0 && (reason == "slow_first_frame" || reason == "stalled_upstream_requests") && cfg.TargetRequireFaster {
+			baseline := sourceHealth.average
+			// Older fast samples must not hide requests currently stuck waiting.
+			if reason == "stalled_upstream_requests" && baseline < time.Duration(cfg.StalledSeconds)*time.Second {
+				baseline = time.Duration(cfg.StalledSeconds) * time.Second
+			}
+			if targetHealth.frameCount < cfg.TargetMinSamples {
+				if !cfg.TargetAllowUnknown {
+					continue
+				}
+			} else if targetHealth.average*100 > baseline*time.Duration(100-cfg.TargetFasterPercent) {
+				continue
+			}
 		}
 		targets[a.ID] = struct{}{}
 		healthy = true
@@ -452,13 +358,16 @@ func (s *OpenAIGatewayService) selectWithCongestion(ctx context.Context, groupID
 		return fallback()
 	} // One account/all congested: original bounded queue.
 	if bound == 0 {
+		if !cfg.AvoidUnhealthyNewSessions {
+			return fallback()
+		}
 		// Unbound sessions preserve priority/cost ordering; only confirmed bad accounts
 		// are filtered, and a usable healthy alternative must actually acquire a slot.
 		allowed := make(map[int64]struct{}, len(accounts))
 		removed := false
 		for _, a := range accounts {
 			l := loadMap[a.ID]
-			if a.IsOpenAIOAuth() && l != nil && s.congestionMonitor.reason(a.ID, l.LoadRate, now) != "" {
+			if a.IsOpenAIOAuth() && l != nil && s.congestionMonitor.snapshot(a.ID, model, l.LoadRate, now, cfg).reason != "" {
 				removed = true
 				continue
 			}
@@ -478,7 +387,7 @@ func (s *OpenAIGatewayService) selectWithCongestion(ctx context.Context, groupID
 	}
 	t.tried = true
 	if reason == "concurrency_full" {
-		timer := time.NewTimer(congestionFullWait)
+		timer := time.NewTimer(time.Duration(cfg.FullWaitSeconds) * time.Second)
 		defer timer.Stop()
 		select {
 		case <-ctx.Done():
@@ -486,7 +395,7 @@ func (s *OpenAIGatewayService) selectWithCongestion(ctx context.Context, groupID
 		case <-timer.C:
 		}
 		fresh, e := s.concurrencyService.GetAccountsLoadBatchFresh(ctx, loads)
-		if e != nil || fresh[bound] == nil || fresh[bound].LoadRate < 100 {
+		if e != nil || fresh[bound] == nil || fresh[bound].LoadRate < cfg.FullLoadPercent {
 			return fallback()
 		}
 	}
@@ -508,7 +417,7 @@ func (s *OpenAIGatewayService) selectWithCongestion(ctx context.Context, groupID
 	}
 	move := congestionMigration{From: bound, To: sel.Account.ID, Owner: t.owner}
 	payload, _ := json.Marshal(move)
-	reserved, e := cache.ReserveCongestionSession(ctx, t.group, key, bound, string(payload), congestionLeaseTTL)
+	reserved, e := cache.ReserveCongestionSession(ctx, t.group, key, bound, string(payload), time.Duration(cfg.PendingSeconds)*time.Second)
 	if e == nil && reserved {
 		t.migration, t.move = string(payload), move
 		slog.Info("openai_congestion_migration_started", "from_account_id", bound, "to_account_id", sel.Account.ID, "reason", reason)

@@ -143,3 +143,41 @@ func TestOpenAICongestionLegacyBindingAndStaleDelete(t *testing.T) {
 		require.EqualValues(t, 2, id)
 	}
 }
+
+func TestOpenAICongestionConfiguredProtectionAndLease(t *testing.T) {
+	for _, protection := range []time.Duration{0, 37 * time.Second} {
+		t.Run(protection.String(), func(t *testing.T) {
+			m := miniredis.RunT(t)
+			r := redis.NewClient(&redis.Options{Addr: m.Addr()})
+			defer r.Close()
+			c := &gatewayCache{rdb: r}
+			ctx := context.Background()
+			require.NoError(t, c.SetSessionAccountID(ctx, 1, "chat", 1, time.Hour))
+			ok, err := c.ReserveCongestionSession(ctx, 1, "chat", 1, "lease", 43*time.Second)
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, 43*time.Second, m.TTL(congestionKeys(1, "chat")[1]))
+			ok, err = c.CommitCongestionSession(ctx, 1, "chat", "lease", 1, 2, time.Hour, protection, "", time.Minute)
+			require.NoError(t, err)
+			require.True(t, ok)
+			pending, protected, err := c.ReadCongestionSession(ctx, 1, "chat")
+			require.NoError(t, err)
+			require.Empty(t, pending)
+			require.Equal(t, protection > 0, protected)
+			if protection > 0 {
+				require.Equal(t, protection, m.TTL(congestionKeys(1, "chat")[2]))
+				m.FastForward(protection + time.Second)
+			}
+			ok, err = c.ReserveCongestionSession(ctx, 1, "chat", 2, "next", 43*time.Second)
+			require.NoError(t, err)
+			require.True(t, ok)
+			m.FastForward(44 * time.Second)
+			ok, err = c.CommitCongestionSession(ctx, 1, "chat", "next", 2, 3, time.Hour, protection, "", time.Minute)
+			require.NoError(t, err)
+			require.False(t, ok)
+			id, err := c.GetSessionAccountID(ctx, 1, "chat")
+			require.NoError(t, err)
+			require.EqualValues(t, 2, id)
+		})
+	}
+}
