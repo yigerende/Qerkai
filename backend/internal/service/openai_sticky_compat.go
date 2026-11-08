@@ -160,6 +160,9 @@ func (s *OpenAIGatewayService) setStickySessionAccountID(ctx context.Context, gr
 		return nil
 	}
 
+	if handled, err := s.congestionBind(ctx, derefGroupID(groupID), primaryKey, accountID, ttl); handled {
+		return err
+	}
 	if err := s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), primaryKey, accountID, ttl); err != nil {
 		return err
 	}
@@ -208,6 +211,9 @@ func (s *OpenAIGatewayService) deleteStickySessionAccountID(ctx context.Context,
 		return nil
 	}
 
+	if handled, err := s.congestionDeleteBinding(ctx, derefGroupID(groupID), primaryKey); handled {
+		return err
+	}
 	err := s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), primaryKey)
 	if !s.openAISessionHashReadOldFallbackEnabled() && !s.openAISessionHashDualWriteOldEnabled() {
 		return err

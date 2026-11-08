@@ -1,5 +1,11 @@
 export default {
     accounts: {
+      congestionMigration: 'Congestion migration',
+      congestionMigrationHint: 'OpenAI OAuth only. Keep healthy session bindings; move congested sessions to available healthy accounts and keep the new binding after success. When all accounts are busy, retain the existing bounded queue. Off preserves the original path.',
+      congestionMigrationLoadFailed: 'Unable to load congestion migration. Refresh to retry.',
+      congestionMigrationSaved: 'Congestion migration setting saved',
+      congestionMigrationSaveFailed: 'Unable to save congestion migration',
+
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',

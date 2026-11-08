@@ -751,6 +751,9 @@ readLoop:
 			businessRetry.freshConnectionPayload = nil
 			markOpenAIWSBusinessReconnectRecovered(c)
 		}
+		if eventCount == 0 {
+			observeCongestionEvent(ctx, message, eventType)
+		}
 		responseModelObserver.ObserveOpenAI(message, eventType)
 		outputCollector.Observe(eventType, message)
 		eventCount++

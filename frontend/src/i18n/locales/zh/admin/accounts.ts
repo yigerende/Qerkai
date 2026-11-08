@@ -1,5 +1,11 @@
 export default {
     accounts: {
+      congestionMigration: '拥堵换号',
+      congestionMigrationHint: '仅 OpenAI OAuth：正常保持会话绑定；拥堵且有健康空闲账号时换号，成功后固定新账号。全部拥堵时沿用限时排队。关闭后恢复原处理路径。',
+      congestionMigrationLoadFailed: '拥堵换号设置读取失败，请刷新后重试',
+      congestionMigrationSaved: '拥堵换号设置已保存',
+      congestionMigrationSaveFailed: '拥堵换号设置保存失败',
+
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

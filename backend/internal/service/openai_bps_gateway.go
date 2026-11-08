@@ -146,7 +146,17 @@ func (s *OpenAIGatewayService) forwardBPS(ctx context.Context, c *gin.Context, a
 		return nil, err
 	}
 	timing := &bpsFirstToken{start: start, mode: s.openAIStreamTTFTMode(ctx, account)}
-	resp, err := openBPSResponse(ctx, cfg.settings, account, token, converted, stream, fmt.Sprintf("key:%d", getAPIKeyIDFromContext(c)), s.httpUpstream, isOpenAIResponsesCompactPath(c), timing.options())
+	options := timing.options()
+	if ctx.Value(congestionAttemptKey{}) != nil {
+		originalObserver := options.ObserveEvent
+		options.ObserveEvent = func(event, data string) {
+			observeCongestionEvent(ctx, nil, event)
+			if originalObserver != nil {
+				originalObserver(event, data)
+			}
+		}
+	}
+	resp, err := openBPSResponse(ctx, cfg.settings, account, token, converted, stream, fmt.Sprintf("key:%d", getAPIKeyIDFromContext(c)), s.httpUpstream, isOpenAIResponsesCompactPath(c), options)
 	if err != nil {
 		s.writeBPSError(c, account, err, format)
 		return nil, err

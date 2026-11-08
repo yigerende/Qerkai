@@ -74,6 +74,8 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	compatPromptCacheTenantIsolated bool,
 	stateProbe *openAIStateProbeResult,
 ) (usageResult *OpenAIForwardResult, forwardErr error) {
+	ctx, finishCongestion := s.beginCongestionForward(ctx, account, body)
+	defer func() { forwardErr = finishCongestion(usageResult, forwardErr) }()
 	if stateProbe == nil {
 		if bps := s.bpsRoute(ctx, c, account, body, defaultMappedModel); bps != nil {
 			return s.forwardBPS(ctx, c, account, body, bps, "chat", defaultMappedModel, promptCacheKey)

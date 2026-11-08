@@ -27,6 +27,14 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 			}()
 		}
 	}
+	if attempt, _ := request.Context().Value(congestionAttemptKey{}).(*openAICongestionAttempt); attempt != nil {
+		defer func() {
+			if response != nil && response.Body != nil {
+				response.Body = &congestionObservedBody{ReadCloser: response.Body, attempt: attempt}
+			}
+		}()
+	}
+
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
