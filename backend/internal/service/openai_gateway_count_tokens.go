@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/basispoints"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -51,11 +50,6 @@ func (s *OpenAIGatewayService) ForwardResponsesInputTokens(
 	account *Account,
 	body []byte,
 ) error {
-	if s.bpsRoute(ctx, c, account, body, "") != nil {
-		err := &basispoints.APIError{Status: 400, Kind: "unsupported_token_count", Message: "oai-basispoints does not provide an accurate standalone token count"}
-		s.writeBPSError(c, account, err, "responses")
-		return err
-	}
 	if account == nil {
 		writeOpenAIResponsesInputTokensError(c, http.StatusServiceUnavailable, "api_error", "No available OpenAI accounts")
 		return fmt.Errorf("responses input_tokens: missing account")
@@ -265,11 +259,6 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	body []byte,
 	defaultMappedModel string,
 ) error {
-	if s.bpsRoute(ctx, c, account, body, defaultMappedModel) != nil {
-		err := &basispoints.APIError{Status: 400, Kind: "unsupported_token_count", Message: "oai-basispoints does not provide an accurate standalone token count"}
-		s.writeBPSError(c, account, err, "anthropic")
-		return err
-	}
 	if account == nil {
 		writeAnthropicCountTokensError(c, http.StatusServiceUnavailable, "api_error", "No available OpenAI accounts")
 		return fmt.Errorf("count_tokens: missing account")

@@ -1,21 +1,4 @@
-export interface OpenAIBPSSettings {
-  enabled: boolean;
-  group_ids: number[] | null;
-  models: string[];
-  model_mappings: Record<string, string>;
-  responses_url: string;
-  upstream_transport: 'http' | 'auto';
-  ws_handshake_timeout_seconds: number;
-  upstream_model: string;
-  timeout_seconds: number;
-  max_response_bytes: number;
-  auth_mode: string;
-  tools_version_id: string;
-}
 
-export function defaultOpenAIBPSSettings(): OpenAIBPSSettings {
-  return { enabled: false, group_ids: null, models: ['gpt-6-astra'], model_mappings: {}, responses_url: 'https://bps.openai.com/basispoints/api/responses', upstream_transport: 'http', ws_handshake_timeout_seconds: 5, upstream_model: 'gpt-6-astra', timeout_seconds: 300, max_response_bytes: 67108864, auth_mode: 'chatgpt', tools_version_id: '' };
-}
 
 /**
  * Admin Settings API endpoints
@@ -665,7 +648,6 @@ export interface SystemSettings {
   openai_upstream_5xx_retry_total: number;
   openai_upstream_5xx_retry_delay_ms: number;
   openai_upstream_5xx_retry_rules: OpenAIUpstream5xxRetryRule[];
-  openai_bps: OpenAIBPSSettings;
   openai_downstream_model_alignment: OpenAIDownstreamModelAlignmentSettings;
   openai_ws_fresh_connection_retry_enabled: boolean
   openai_ws_fresh_connection_retry_max: number
@@ -1019,7 +1001,6 @@ export interface UpdateSettingsRequest {
   openai_upstream_5xx_retry_total?: number;
   openai_upstream_5xx_retry_delay_ms?: number;
   openai_upstream_5xx_retry_rules?: OpenAIUpstream5xxRetryRule[];
-  openai_bps?: OpenAIBPSSettings;
   openai_downstream_model_alignment?: OpenAIDownstreamModelAlignmentSettings;
   openai_ws_fresh_connection_retry_enabled?: boolean
   openai_ws_fresh_connection_retry_max?: number
@@ -1437,6 +1418,35 @@ export interface PanelRateLimitSettings {
   public_ip_rpm: number;
 }
 
+/** Exact registration email blacklist (matched by inbox identity). */
+export interface RegistrationEmailBlacklist {
+  emails: string[];
+  max: number;
+}
+
+export interface UpdateRegistrationEmailBlacklistResponse extends RegistrationEmailBlacklist {
+  /** Entries not present in the previously saved list. */
+  added: string[];
+}
+
+export async function getRegistrationEmailBlacklist(): Promise<RegistrationEmailBlacklist> {
+  const { data } = await apiClient.get<RegistrationEmailBlacklist>(
+    "/admin/settings/registration-email-blacklist",
+  );
+  return data;
+}
+
+/** Replace the whole exact email blacklist; an empty array clears it. */
+export async function updateRegistrationEmailBlacklist(
+  emails: string[],
+): Promise<UpdateRegistrationEmailBlacklistResponse> {
+  const { data } = await apiClient.put<UpdateRegistrationEmailBlacklistResponse>(
+    "/admin/settings/registration-email-blacklist",
+    { emails },
+  );
+  return data;
+}
+
 export async function getPanelRateLimitSettings(): Promise<PanelRateLimitSettings> {
   const { data } = await apiClient.get<PanelRateLimitSettings>(
     "/admin/settings/panel-rate-limit",
@@ -1704,6 +1714,8 @@ export const settingsAPI = {
   updateOverloadCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
+  getRegistrationEmailBlacklist,
+  updateRegistrationEmailBlacklist,
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
   getStreamTimeoutSettings,

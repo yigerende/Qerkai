@@ -61,21 +61,14 @@ func TestModelAuditValidationLimits(t *testing.T) {
 	require.Error(t, input.Validate())
 }
 
-func TestModelAuditCodexRecoveryExcludesBPSEvidence(t *testing.T) {
-	input := service.ModelAuditInput{Model: "gpt-6-astra", Accounts: []service.ModelAuditAccount{{AccountID: 1, Since: time.Now()}}}
-	ordinary, _ := modelAuditQuery(input)
-	require.NotContains(t, ordinary, "COALESCE(upstream_endpoint")
-	input.ExcludeBPS = true
-	recovery, _ := modelAuditQuery(input)
-	require.Contains(t, recovery, "COALESCE(upstream_endpoint,'') <> '/basispoints/api/responses'")
-	require.Less(t, strings.Index(recovery, "COALESCE(upstream_endpoint"), strings.Index(recovery, "LIMIT 3"))
-}
-
-func TestModelAuditBPSFiltersBeforeLimit(t *testing.T) {
-	input := service.ModelAuditInput{OnlyBPS: true, Model: "gpt-6-astra", Accounts: []service.ModelAuditAccount{{AccountID: 1, Since: time.Now()}}}
-	query, _ := modelAuditQuery(input)
-	require.Contains(t, query, "upstream_endpoint = '/basispoints/api/responses'")
-	require.Less(t, strings.Index(query, "upstream_endpoint ="), strings.Index(query, "LIMIT 3"))
-	input.ExcludeBPS = true
-	require.Error(t, input.Validate())
+func TestModelAuditExcludesHistoricalEndpointsBeforeLimit(t *testing.T) {
+	since := time.Now().UTC()
+	input := service.ModelAuditInput{
+		Model: "gpt-6-astra", Accounts: []service.ModelAuditAccount{{AccountID: 1, Since: since}},
+		ExcludedEndpoints: []string{"/removed-endpoint", "/other-retired-endpoint"},
+	}
+	query, args := modelAuditQuery(input)
+	require.Equal(t, []any{"gpt-6-astra", "/removed-endpoint", "/other-retired-endpoint", int64(1), since}, args)
+	require.Contains(t, query, "($4::bigint,$5::timestamptz)")
+	require.Less(t, strings.Index(query, "COALESCE(upstream_endpoint,'') <> $3"), strings.Index(query, "LIMIT 3"))
 }

@@ -295,7 +295,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIWSFreshConnectionRetryEnabled:                    settings.OpenAIWSFreshConnectionRetryEnabled,
 		OpenAIWSFreshConnectionRetryMax:                        settings.OpenAIWSFreshConnectionRetryMax,
 		ForceOpenAIUpstreamWS:                                  settings.ForceOpenAIUpstreamWS,
-		OpenAIBPS:                                              settings.OpenAIBPS,
 		OpenAIDownstreamModelAlignment:                         settings.OpenAIDownstreamModelAlignment,
 		ForceOpenAIUpstreamWSGroupIDs:                          settings.ForceOpenAIUpstreamWSGroupIDs,
 		OpenAIWSChannelProbeHTTP:                               settings.OpenAIWSChannelProbeHTTP,

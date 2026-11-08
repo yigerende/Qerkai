@@ -208,7 +208,6 @@ type SystemSettings struct {
 	OpenAIWSFreshConnectionRetryEnabled    bool                                           `json:"openai_ws_fresh_connection_retry_enabled"`
 	OpenAIWSFreshConnectionRetryMax        int                                            `json:"openai_ws_fresh_connection_retry_max"`
 	ForceOpenAIUpstreamWS                  bool                                           `json:"force_openai_upstream_ws"`
-	OpenAIBPS                              service.OpenAIBPSSettings                      `json:"openai_bps"`
 	OpenAIDownstreamModelAlignment         service.OpenAIDownstreamModelAlignmentSettings `json:"openai_downstream_model_alignment"`
 	ForceOpenAIUpstreamWSGroupIDs          []int64                                        `json:"force_openai_upstream_ws_group_ids"`
 	OpenAIWSChannelProbeHTTP               bool                                           `json:"openai_ws_channel_probe_http"`
@@ -441,6 +440,7 @@ type PublicSettings struct {
 	GitHubOAuthEnabled                  bool                     `json:"github_oauth_enabled"`
 	GoogleOAuthEnabled                  bool                     `json:"google_oauth_enabled"`
 	BackendModeEnabled                  bool                     `json:"backend_mode_enabled"`
+	MCPEnabled                          bool                     `json:"mcp_enabled"`
 	PaymentEnabled                      bool                     `json:"payment_enabled"`
 	// PaymentBalanceDisabled mirrors the payment-config BALANCE_PAYMENT_DISABLED switch so the
 	// user shell can derive the site billing mode (recharge & subscription / recharge only /

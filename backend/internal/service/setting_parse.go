@@ -885,7 +885,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	freshRetry := parseOpenAIWSFreshConnectionRetry(settings)
 	result.OpenAIWSFreshConnectionRetryEnabled = result.ForceOpenAIUpstreamWS && freshRetry.enabled
 	result.OpenAIWSFreshConnectionRetryMax = freshRetry.max
-	result.OpenAIBPS = parseOpenAIBPSSettings(settings[SettingKeyOpenAIBPS])
 	result.OpenAIDownstreamModelAlignment = parseOpenAIDownstreamModelAlignment(settings[SettingKeyOpenAIDownstreamModelAlignment])
 	result.ForceOpenAIUpstreamWSGroupIDs = parseForceUpstreamWSGroupIDs(settings[SettingKeyForceOpenAIUpstreamWSGroupIDs])
 	result.OpenAIWSChannelProbeHTTP = settings[SettingKeyOpenAIWSChannelProbeHTTP] == "true"

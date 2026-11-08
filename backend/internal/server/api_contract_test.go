@@ -378,6 +378,7 @@ func TestAPIContracts(t *testing.T) {
 						"audio_realtime_price_per_min": null,
 						"allow_image_generation": false,
 						"allow_batch_image_generation": false,
+						"image_count_billing": false,
 						"batch_image_discount_multiplier": 0,
 						"batch_image_hold_multiplier": 0,
 						"image_rate_independent": false,
@@ -930,25 +931,6 @@ func TestAPIContracts(t *testing.T) {
 					"openai_ws_fresh_connection_retry_max": 1,
 					  "force_openai_upstream_ws": false,
 					  "force_openai_upstream_ws_group_ids": null,
-					  "openai_bps": {
-					    "enabled": false,
-					    "group_ids": null,
-					    "models": [
-					      "gpt-6-astra"
-					    ],
-					    "upstream_model": "gpt-6-astra",
-					    "model_mappings": {
-					      "gpt-6-astra": "gpt-6-astra"
-					    },
-					    "auth_mode": "chatgpt",
-					    "responses_url": "https://bps.openai.com/basispoints/api/responses",
-					    "data_dir": "",
-					    "timeout_seconds": 300,
-					    "max_response_bytes": 67108864,
-					    "tools_version_id": "",
-					    "upstream_transport": "http",
-					    "ws_handshake_timeout_seconds": 5
-					  },
 					  "openai_downstream_model_alignment": {
 					    "enabled": false,
 					    "group_ids": null,
@@ -1326,25 +1308,6 @@ func TestAPIContracts(t *testing.T) {
 					"openai_ws_fresh_connection_retry_max": 1,
 					  "force_openai_upstream_ws": false,
 					  "force_openai_upstream_ws_group_ids": null,
-					  "openai_bps": {
-					    "enabled": false,
-					    "group_ids": null,
-					    "models": [
-					      "gpt-6-astra"
-					    ],
-					    "upstream_model": "gpt-6-astra",
-					    "model_mappings": {
-					      "gpt-6-astra": "gpt-6-astra"
-					    },
-					    "auth_mode": "chatgpt",
-					    "responses_url": "https://bps.openai.com/basispoints/api/responses",
-					    "data_dir": "",
-					    "timeout_seconds": 300,
-					    "max_response_bytes": 67108864,
-					    "tools_version_id": "",
-					    "upstream_transport": "http",
-					    "ws_handshake_timeout_seconds": 5
-					  },
 					  "openai_downstream_model_alignment": {
 					    "enabled": false,
 					    "group_ids": null,

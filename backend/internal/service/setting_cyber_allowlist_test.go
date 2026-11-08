@@ -30,7 +30,7 @@ func TestUpdateSettingsCyberAllowlistRoundTripAndImmediateRefresh(t *testing.T) 
 	defer svc.refreshCachedSettings(&SystemSettings{})
 	require.False(t, svc.IsCyberPolicyUserAllowlisted(ctx, 12))
 	// Start from loaded defaults, as the settings handler does, so Qerkai's
-	// WS pool and BPS settings remain valid during a partial settings edit.
+	// WS pool settings remain valid during a partial settings edit.
 	settings := svc.parseSettings(repo.values)
 	settings.CyberPolicyUserAllowlist = "12, 34"
 	require.NoError(t, svc.UpdateSettings(ctx, settings))

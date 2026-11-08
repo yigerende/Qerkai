@@ -35,25 +35,6 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	}
 
 	ifNoneMatch := c.GetHeader("If-None-Match")
-	bpsCatalog := h.gatewayService.BPSCatalogEnabled(c.Request.Context(), apiKey.Group)
-	clientETag := ifNoneMatch
-	if bpsCatalog {
-		ifNoneMatch = ""
-	}
-	writeManifest := func(manifest *service.OpenAIModelsResponse) {
-		if bpsCatalog && !manifest.NotModified {
-			body, err := h.gatewayService.ApplyBPSModelCatalog(c.Request.Context(), apiKey.Group, manifest.Body)
-			if err != nil {
-				h.errorResponse(c, http.StatusBadGateway, "model_metadata_missing", err.Error())
-				return
-			}
-			manifest.Body = body
-			manifest.ETag = service.CodexModelsManifestETag(body)
-			manifest.NotModified = service.CodexModelsManifestETagMatches(clientETag, manifest.ETag)
-		}
-		writeOpenAIModelsResponse(c, manifest)
-	}
-
 	// 固定账号分支：开启后只用选定账号拉取 manifest，不经过调度器；
 	// 全部不可用/全部失败时按 FallbackToScheduler 决定回退调度器或返回错误。
 	if apiKey.Group.Platform == service.PlatformOpenAI &&
@@ -86,7 +67,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			if c.Request.Context().Err() != nil {
 				return
 			}
-			writeManifest(pinnedManifest)
+			writeOpenAIModelsResponse(c, pinnedManifest)
 			return
 		}
 	}
@@ -105,7 +86,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			return
 		}
 		if configured {
-			writeManifest(configuredManifest)
+			writeOpenAIModelsResponse(c, configuredManifest)
 			return
 		}
 	}
@@ -166,7 +147,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			return
 		}
 
-		writeManifest(manifest)
+		writeOpenAIModelsResponse(c, manifest)
 		return
 	}
 }

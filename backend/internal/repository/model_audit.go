@@ -10,14 +10,13 @@ import (
 )
 
 func modelAuditQuery(input service.ModelAuditInput) (string, []any) {
-	endpointFilter := ""
-	if input.ExcludeBPS {
-		// Filter before LIMIT so different routes never displace valid samples.
-		endpointFilter = " AND COALESCE(upstream_endpoint,'') <> '/basispoints/api/responses'\n"
-	} else if input.OnlyBPS {
-		endpointFilter = " AND upstream_endpoint = '/basispoints/api/responses'\n"
-	}
 	args := []any{strings.TrimSpace(input.Model)}
+	endpointFilter := ""
+	// Ignore historical evidence from removed endpoints before selecting samples.
+	for _, endpoint := range input.ExcludedEndpoints {
+		args = append(args, endpoint)
+		endpointFilter += fmt.Sprintf(" AND COALESCE(upstream_endpoint,'') <> $%d\n", len(args))
+	}
 	values := make([]string, 0, len(input.Accounts))
 	for _, a := range input.Accounts {
 		values = append(values, fmt.Sprintf("($%d::bigint,$%d::timestamptz)", len(args)+1, len(args)+2))

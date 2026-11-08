@@ -249,7 +249,6 @@ type UpdateSettingsRequest struct {
 	OpenAIWSFreshConnectionRetryEnabled    *bool                                           `json:"openai_ws_fresh_connection_retry_enabled"`
 	OpenAIWSFreshConnectionRetryMax        *int                                            `json:"openai_ws_fresh_connection_retry_max"`
 	ForceOpenAIUpstreamWS                  *bool                                           `json:"force_openai_upstream_ws"`
-	OpenAIBPS                              *service.OpenAIBPSSettings                      `json:"openai_bps"`
 	OpenAIDownstreamModelAlignment         *service.OpenAIDownstreamModelAlignmentSettings `json:"openai_downstream_model_alignment"`
 	ForceOpenAIUpstreamWSGroupIDs          json.RawMessage                                 `json:"force_openai_upstream_ws_group_ids"`
 	OpenAIWSChannelProbeHTTP               *bool                                           `json:"openai_ws_channel_probe_http"`
@@ -422,13 +421,13 @@ type UpdateSettingsRequest struct {
 // UpdateSettings 更新系统设置
 // PUT /api/v1/admin/settings
 // ensureActorTotpForStepUp 校验当前操作者具备开启 step-up 门控的条件：
-// 必须是真人管理员会话（admin API key 无法完成 TOTP step-up，拒绝）且本人已启用 TOTP。
+// 必须是真人管理员会话（admin API key、MCP OAuth 等机器凭证无法完成 TOTP step-up，拒绝）且本人已启用 TOTP。
 // 校验失败时写入错误响应并返回 false。
 func (h *SettingHandler) ensureActorTotpForStepUp(c *gin.Context) bool {
-	if c.GetString("auth_method") == service.AuditAuthMethodAdminAPIKey {
+	if reason, machine := middleware.MachineCredentialReason(c); machine {
 		response.ErrorWithDetails(c, http.StatusForbidden,
-			"Admin API key cannot enable step-up verification; use an admin session with TOTP enabled",
-			"STEP_UP_ADMIN_API_KEY_FORBIDDEN", nil)
+			"Machine credentials cannot enable step-up verification; use an admin session with TOTP enabled",
+			reason, nil)
 		return false
 	}
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
@@ -1771,12 +1770,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return previousSettings.ForceOpenAIUpstreamWS
 		}(),
 		ForceOpenAIUpstreamWSGroupIDs: forceWSGroupIDs,
-		OpenAIBPS: func() service.OpenAIBPSSettings {
-			if req.OpenAIBPS != nil {
-				return *req.OpenAIBPS
-			}
-			return previousSettings.OpenAIBPS
-		}(),
 		OpenAIDownstreamModelAlignment: func() service.OpenAIDownstreamModelAlignmentSettings {
 			if req.OpenAIDownstreamModelAlignment != nil {
 				return *req.OpenAIDownstreamModelAlignment
@@ -2192,7 +2185,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ForceEmailOnThirdPartySignup: boolValueOrDefault(req.ForceEmailOnThirdPartySignup, previousAuthSourceDefaults.ForceEmailOnThirdPartySignup),
 	}
 	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
-		if errors.Is(err, service.ErrInvalidOpenAIWSPoolSettings) || errors.Is(err, service.ErrInvalidOpenAIBPSSettings) {
+		if errors.Is(err, service.ErrInvalidOpenAIWSPoolSettings) {
 			response.BadRequest(c, err.Error())
 			return
 		}
@@ -2446,7 +2439,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIUpstream5xxRetryDelayMS:            updatedSettings.OpenAIUpstream5xxRetryDelayMS,
 		OpenAIUpstream5xxRetryRules:              updatedSettings.OpenAIUpstream5xxRetryRules,
 
-		OpenAIBPS:                                              updatedSettings.OpenAIBPS,
 		OpenAIDownstreamModelAlignment:                         updatedSettings.OpenAIDownstreamModelAlignment,
 		ForceOpenAIUpstreamWSGroupIDs:                          updatedSettings.ForceOpenAIUpstreamWSGroupIDs,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,

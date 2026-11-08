@@ -99,6 +99,7 @@ vi.mock("@/api", () => ({
       getStreamTimeoutSettings,
       getRectifierSettings,
       getBetaPolicySettings,
+      getRegistrationEmailBlacklist: vi.fn().mockResolvedValue({ emails: [], max: 20000 }),
     },
     accounts: {
       getUpstreamBillingProbeSettings,
@@ -800,23 +801,7 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
-  it("loads saved retry settings and disables retries when BPS is enabled", async () => {
-    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: true, openai_ws_fresh_connection_retry_enabled: true, openai_ws_fresh_connection_retry_max: 3 });
-    const wrapper = mountView();
-    await flushPromises();
-    await openGatewayTab(wrapper);
-    expect(wrapper.get('[data-testid="ws-fresh-connection-retry-max"]').element).toHaveProperty('value', '3');
-    const editor = wrapper.getComponent({ name: 'OpenAIBPSSettings' });
-    editor.vm.$emit('update:modelValue', { ...editor.props('modelValue'), enabled: true });
-    await flushPromises();
-    expect(wrapper.get('[data-testid="ws-fresh-connection-retry"] input').element).toHaveProperty('checked', false);
-    await wrapper.find('form').trigger('submit.prevent');
-    await flushPromises();
-    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
-      force_openai_upstream_ws: false, openai_ws_fresh_connection_retry_enabled: false,
-    }));
-    wrapper.unmount();
-  });
+
 
   it("saves forced WS group selections, including none and all", async () => {
     getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: true, force_openai_upstream_ws_group_ids: [11] });
@@ -835,38 +820,7 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
-  it("switches BPS and forced WS atomically while preserving their group configuration", async () => {
-    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, force_openai_upstream_ws: true, force_openai_upstream_ws_group_ids: [11], openai_ws_pool_optimization_enabled: true });
-    const wrapper = mountView();
-    await flushPromises();
-    await openGatewayTab(wrapper);
-    const editor = wrapper.getComponent({ name: 'OpenAIBPSSettings' });
-    const initial = editor.props('modelValue');
-    editor.vm.$emit('update:modelValue', { ...initial, enabled: true, group_ids: [22] });
-    await flushPromises();
-    expect(editor.get('[data-testid="bps-upstream-transport"]').element).toHaveProperty('value', 'http');
-    await editor.get('[data-testid="bps-upstream-transport"]').setValue('auto');
-    await editor.get('[data-testid="bps-handshake-timeout"]').setValue(7);
-    await wrapper.find('form').trigger('submit.prevent');
-    await flushPromises();
-    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
-      openai_bps: expect.objectContaining({ enabled: true, group_ids: [22], upstream_transport: 'auto', ws_handshake_timeout_seconds: 7 }),
-      force_openai_upstream_ws: false, force_openai_upstream_ws_group_ids: [11], openai_ws_pool_optimization_enabled: false,
-    }));
-    const wsRow = wrapper.findAll('label').find(label => label.text() === 'admin.settings.gatewayForwarding.forceOpenAIUpstreamWS');
-    expect(wsRow).toBeDefined();
-    const toggle = wsRow!.element.parentElement!.parentElement!.querySelector('input[type="checkbox"]') as HTMLInputElement;
-    expect(toggle).not.toBeNull();
-    toggle.checked = true;
-    toggle.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushPromises();
-    await wrapper.find('form').trigger('submit.prevent');
-    await flushPromises();
-    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
-      openai_bps: expect.objectContaining({ enabled: false, group_ids: [22], upstream_transport: 'auto', ws_handshake_timeout_seconds: 7 }), force_openai_upstream_ws: true,
-    }));
-    wrapper.unmount();
-  });
+
 
   it("loads and saves the open button visibility for each custom menu", async () => {
     const menuItems = [

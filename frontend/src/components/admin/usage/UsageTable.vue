@@ -99,11 +99,8 @@
             v-if="row.upstream_endpoint?.trim()"
             data-testid="upstream-route"
             :title="row.upstream_endpoint.trim()"
-            class="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium"
-            :class="row.upstream_endpoint.trim() === '/basispoints/api/responses'
-              ? 'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200'
-              : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'"
-          >{{ row.upstream_endpoint.trim() === '/basispoints/api/responses' ? 'BPS' : t('admin.usage.originalEndpoint') }}</span>
+            class="inline-flex max-w-48 truncate rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+          >{{ row.upstream_endpoint.trim() }}</span>
           <span v-else data-testid="upstream-route" class="text-xs text-gray-400" :title="t('admin.usage.endpointNotRecorded')">—</span>
         </template>
 

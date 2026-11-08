@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -24,9 +23,6 @@ func (u *qualityProxyUpstream) Do(req *http.Request, proxy string, _ int64, _ in
 	if u.err != nil {
 		return nil, u.err
 	}
-	if req.URL.Host == "bps.openai.com" {
-		return newJSONResponse(200, strings.ReplaceAll(bpsTextFixture, `  hello\n`, "21")), nil
-	}
 	return newJSONResponse(200, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"21\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-6-astra\"}}\n\n"), nil
 }
 
@@ -34,28 +30,24 @@ func (u *qualityProxyUpstream) DoWithTLS(req *http.Request, proxy string, id int
 	return u.Do(req, proxy, id, concurrency)
 }
 
-func qualityProxyFixture(t *testing.T, bps bool) (*AccountQualityService, *Account, *qualityProxyUpstream) {
+func qualityProxyFixture(t *testing.T) (*AccountQualityService, *Account, *qualityProxyUpstream) {
 	t.Helper()
-	gateway, account := bpsTestGateway(t)
+	account := keeperTestAccount(1)
 	account.GroupIDs = []int64{11}
 	account.ProxyID = new(int64(41))
 	account.Proxy = &Proxy{ID: 41, Protocol: "http", Host: "proxy.example", Port: 8080, Username: "test-user", Password: "test-password"}
-	cfg := gateway.settingService.bpsSettings(context.Background()).settings
-	cfg.Enabled, cfg.UpstreamTransport = bps, "http"
-	gateway.settingService.bpsSettingsCache.Store(newCachedOpenAIBPS(cfg, time.Hour))
 	u := &qualityProxyUpstream{}
 	s := &AccountQualityService{tests: &AccountTestService{
 		accountRepo: &qualityAccountRepo{account: account}, httpUpstream: u,
-		bpsGateway: gateway, settingService: gateway.settingService,
 	}}
 	return s, account, u
 }
 
 func TestAccountQualityRequestsHonorAccountProxy(t *testing.T) {
-	for _, route := range []string{"original", "bps"} {
+	for _, route := range []string{"original"} {
 		for _, scenario := range []string{"http", "https", "socks5", "socks5h", "no-proxy", "missing-proxy", "wrong-proxy", "connection-error"} {
 			t.Run(route+"/"+scenario, func(t *testing.T) {
-				s, account, upstream := qualityProxyFixture(t, route == "bps")
+				s, account, upstream := qualityProxyFixture(t)
 				want := account.Proxy.URL()
 				switch scenario {
 				case "https", "socks5", "socks5h":
@@ -90,14 +82,14 @@ func TestAccountQualityRequestsHonorAccountProxy(t *testing.T) {
 }
 
 func TestAccountQualityModelProbeHonorsAccountProxy(t *testing.T) {
-	for _, route := range []string{"original", "bps"} {
+	for _, route := range []string{"original"} {
 		for _, scenario := range []string{"no-logs", "has-logs", "missing-proxy"} {
 			t.Run(route+"/"+scenario, func(t *testing.T) {
-				s, account, upstream := qualityProxyFixture(t, route == "bps")
+				s, account, upstream := qualityProxyFixture(t)
 				q := DefaultAccountQualitySettings()
 				q.RecoveryLimit = 1
 				q.UpdatedAt = time.Now().Add(-time.Hour)
-				audit := &qualityBPSAudit{}
+				audit := &qualityProxyAudit{}
 				if scenario == "has-logs" {
 					audit.logs = qualityModelTestLogs(account.ID, q.ModelAuditModel, 1, time.Now())
 					*audit.logs[0].Mismatch = false
@@ -126,7 +118,7 @@ func TestAccountQualityModelProbeHonorsAccountProxy(t *testing.T) {
 }
 
 func TestAccountQualityReadsUpdatedAccountProxy(t *testing.T) {
-	s, account, upstream := qualityProxyFixture(t, false)
+	s, account, upstream := qualityProxyFixture(t)
 	q := DefaultAccountQualitySettings()
 	original := account.Proxy.URL()
 	_, _, err := s.testAnswer(context.Background(), account.ID, q, q.Questions[0])
@@ -142,10 +134,10 @@ func TestAccountQualityReadsUpdatedAccountProxy(t *testing.T) {
 }
 
 func TestAccountQualityRecoveryHonorsAccountProxy(t *testing.T) {
-	for _, route := range []string{"original", "bps"} {
+	for _, route := range []string{"original"} {
 		t.Run(route, func(t *testing.T) {
 			s, _, account, _, q := qualityRecoveryFixture(t)
-			quality, configured, upstream := qualityProxyFixture(t, route == "bps")
+			quality, configured, upstream := qualityProxyFixture(t)
 			account.ProxyID, account.Proxy = configured.ProxyID, configured.Proxy
 			quality.tests.accountRepo = &qualityAccountRepo{account: account}
 			s.tests = quality.tests
@@ -159,4 +151,13 @@ func TestAccountQualityRecoveryHonorsAccountProxy(t *testing.T) {
 			require.False(t, readQualityRecovery(t, s).Scheduling.Paused)
 		})
 	}
+}
+
+type qualityProxyAudit struct {
+	UsageLogRepository
+	logs []ModelAuditLog
+}
+
+func (r *qualityProxyAudit) LatestModelAudit(_ context.Context, input ModelAuditInput) ([]ModelAuditResult, error) {
+	return []ModelAuditResult{{AccountID: input.Accounts[0].AccountID, Logs: r.logs}}, nil
 }

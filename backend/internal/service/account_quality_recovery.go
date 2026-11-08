@@ -193,10 +193,6 @@ func (s *AccountQualityService) qualityRecoveryVersions(ctx context.Context, q A
 	}
 	for _, model := range qualityRecoveryModels(q) {
 		versions["model:"+model] = ""
-		if cfg := s.tests.settingService.bpsSettings(ctx); cfg.matchesAccount(a, model) {
-			versions["model:"+model] = "bps:" + cfg.settings.ResponsesURL + ":" + cfg.models[model]
-			continue
-		}
 		if ticket := keeper.prepareQualityState(a, model, http.Header{}); ticket != nil {
 			versions["config"] = ticket.config.Revision
 			versions["model:"+model] = ticket.poolVersion()
@@ -268,13 +264,6 @@ func (s *AccountQualityService) probeQualityRecovery(ctx context.Context, q Acco
 				v.Scheduling.Error = v.Model.Error
 			} else {
 				sentModel, endpoint := q.ModelAuditModel, ""
-				if route, routeErr := s.qualityBPSRoute(ctx, v.AccountID, q.ModelAuditModel); routeErr != nil {
-					v.Model.Status, v.Model.Error = "error", routeErr.Error()
-					v.Scheduling.Error = routeErr.Error()
-					continue
-				} else if route != nil {
-					sentModel, endpoint = route.models[q.ModelAuditModel], openAIBPSEndpoint
-				}
 				sent, response := strings.ToLower(sentModel), strings.ToLower(observer.Model())
 				variant := sent != response && qualityModelSuffix.ReplaceAllString(sent, "") == qualityModelSuffix.ReplaceAllString(response, "")
 				applyQualityVerdict(&v.Model.QualityVerdict, (sent == response || variant) && !observer.Conflict(), samplePolicy, now)

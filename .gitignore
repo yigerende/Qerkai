@@ -143,6 +143,10 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/agent-resource-safety.md
+!docs/moego-json-batching.md
+!docs/admin-api-keys.md
+!docs/mcp.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
@@ -153,7 +157,7 @@ docs/*
 !docs/channel-monitor-v2-safe-defaults.md
 !docs/openai-state-keeper.md
 !docs/openai-network-ttft.md
-!docs/openai-bps.md
+!docs/upstream-v0.2.20-upgrade.md
 !docs/upstream-v0.2.9-upgrade.md
 !docs/codex-credits.md
 !docs/legal/
