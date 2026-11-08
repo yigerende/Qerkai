@@ -294,6 +294,22 @@ func (c *congestionCacheFixture) DeleteSessionAccountIDIfUnchanged(_ context.Con
 	return true, nil
 }
 
+// Production Redis decoding / repository queries return a fresh Account per
+// read. The older scheduler double returns shared pointers, which incorrectly
+// shares the account's request-local lazy model-mapping cache across workers.
+type congestionAccountRepo struct {
+	schedulerGroupAwareOpenAIAccountRepo
+}
+
+func (r congestionAccountRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
+	account, err := r.schedulerGroupAwareOpenAIAccountRepo.GetByID(ctx, id)
+	if err != nil || account == nil {
+		return account, err
+	}
+	copy := *account
+	return &copy, nil
+}
+
 func congestionFixture(enabled bool, loadA, loadB int) (*OpenAIGatewayService, *congestionCacheFixture, []Account) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	accounts := []Account{
@@ -309,7 +325,7 @@ func congestionFixture(enabled bool, loadA, loadB int) (*OpenAIGatewayService, *
 	cfg.Gateway.Scheduling.StickySessionWaitTimeout = 120 * time.Second
 	cfg.Gateway.Scheduling.FallbackWaitTimeout = 30 * time.Second
 	cfg.Gateway.Scheduling.FallbackMaxWaiting = 100
-	svc := &OpenAIGatewayService{accountRepo: schedulerGroupAwareOpenAIAccountRepo{schedulerTestOpenAIAccountRepo{accounts: accounts}}, cache: cache, settingService: settings, cfg: cfg,
+	svc := &OpenAIGatewayService{accountRepo: congestionAccountRepo{schedulerGroupAwareOpenAIAccountRepo{schedulerTestOpenAIAccountRepo{accounts: accounts}}}, cache: cache, settingService: settings, cfg: cfg,
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{loadMap: map[int64]*AccountLoadInfo{1: {AccountID: 1, LoadRate: loadA}, 2: {AccountID: 2, LoadRate: loadB}}, acquireResults: map[int64]bool{1: loadA < 100, 2: loadB < 100}})}
 	return svc, cache, accounts
 }
